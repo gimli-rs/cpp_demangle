@@ -1,0 +1,6 @@
+[package]
+name = "cpp_demangle"
+version = "0.1.0"
+authors = ["Nick Fitzgerald <fitzgen@gmail.com>"]
+
+[dependencies]
