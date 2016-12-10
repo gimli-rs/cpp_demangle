@@ -1,6 +1,7 @@
 [package]
+authors = ["Nick Fitzgerald <fitzgen@gmail.com>"]
 name = "cpp_demangle"
 version = "0.1.0"
-authors = ["Nick Fitzgerald <fitzgen@gmail.com>"]
 
 [dependencies]
+error-chain = "0.7.1"
