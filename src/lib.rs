@@ -231,6 +231,17 @@ macro_rules! define_vocabulary {
 }
 
 define_vocabulary! {
+    CtorDtorName {
+        CompleteConstructor             (b"C1", "complete object constructor"),
+        BaseConstructor                 (b"C2", "base object constructor"),
+        CompleteAllocatingConstructor   (b"C3", "complete object allocating constructor"),
+        DeletingDestructor              (b"D0", "deleting destructor"),
+        CompleteDestructor              (b"D1", "complete object destructor"),
+        BaseDestructor                  (b"D2", "base object destructor")
+    }
+}
+
+define_vocabulary! {
     OperatorName {
         // enum variant(mangled form, printable description)
         New              (b"nw",  "`new`"),
@@ -285,11 +296,21 @@ define_vocabulary! {
 
 #[cfg(test)]
 mod tests {
-    use super::OperatorName;
+    use super::{CtorDtorName, OperatorName};
     use error::ErrorKind;
 
     #[test]
+    fn parse_ctor_dtor_name() {
+        assert_parse!(CtorDtorName: b"D0" => Ok(CtorDtorName::DeletingDestructor, b""));
+        assert_parse!(CtorDtorName: b"C101" => Ok(CtorDtorName::CompleteConstructor, b"01"));
+        assert_parse!(CtorDtorName: b"gayagaya" => Err(ErrorKind::UnexpectedText));
+        assert_parse!(CtorDtorName: b"C" => Err(ErrorKind::UnexpectedEnd));
+        assert_parse!(CtorDtorName: b"" => Err(ErrorKind::UnexpectedEnd));
+    }
+
+    #[test]
     fn parse_operator_name() {
+        assert_parse!(OperatorName: b"qu" => Ok(OperatorName::Question, b""));
         assert_parse!(OperatorName: b"quokka" => Ok(OperatorName::Question, b"okka"));
         assert_parse!(OperatorName: b"bu-buuu" => Err(ErrorKind::UnexpectedText));
         assert_parse!(OperatorName: b"b" => Err(ErrorKind::UnexpectedEnd));
