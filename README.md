@@ -1,4 +1,4 @@
-# VAPORWARE `cpp_demangle`: a C++ linker symbol demangler
+# WORK IN PROGRESS `cpp_demangle`: a C++ linker symbol demangler
 
 [![](https://docs.rs/cpp_demangle/badge.svg)](https://docs.rs/cpp_demangle/) [![](http://meritbadge.herokuapp.com/cpp_demangle) ![](https://img.shields.io/crates/d/cpp_demangle.png)](https://crates.io/crates/cpp_demangle) [![Build Status](https://travis-ci.org/fitzgen/cpp_demangle.png?branch=master)](https://travis-ci.org/fitzgen/cpp_demangle) [![Coverage Status](https://coveralls.io/repos/github/fitzgen/cpp_demangle/badge.svg?branch=master)](https://coveralls.io/github/fitzgen/cpp_demangle?branch=master)
 
