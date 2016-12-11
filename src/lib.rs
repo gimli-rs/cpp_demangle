@@ -231,17 +231,6 @@ macro_rules! define_vocabulary {
 }
 
 define_vocabulary! {
-    CtorDtorName {
-        CompleteConstructor             (b"C1", "complete object constructor"),
-        BaseConstructor                 (b"C2", "base object constructor"),
-        CompleteAllocatingConstructor   (b"C3", "complete object allocating constructor"),
-        DeletingDestructor              (b"D0", "deleting destructor"),
-        CompleteDestructor              (b"D1", "complete object destructor"),
-        BaseDestructor                  (b"D2", "base object destructor")
-    }
-}
-
-define_vocabulary! {
     OperatorName {
         // enum variant(mangled form, printable description)
         New              (b"nw",  "`new`"),
@@ -291,6 +280,17 @@ define_vocabulary! {
         Call             (b"cl",  "`()`"),
         Index            (b"ix",  "`[]`"),
         Question         (b"qu",  "`?:`")
+    }
+}
+
+define_vocabulary! {
+    CtorDtorName {
+        CompleteConstructor             (b"C1", "complete object constructor"),
+        BaseConstructor                 (b"C2", "base object constructor"),
+        CompleteAllocatingConstructor   (b"C3", "complete object allocating constructor"),
+        DeletingDestructor              (b"D0", "deleting destructor"),
+        CompleteDestructor              (b"D1", "complete object destructor"),
+        BaseDestructor                  (b"D2", "base object destructor")
     }
 }
 
