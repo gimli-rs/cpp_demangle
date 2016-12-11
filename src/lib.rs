@@ -42,6 +42,7 @@ impl<T> Symbol<T>
 }
 
 /// TODO FITZGEN
+#[derive(Clone, Debug, Hash, PartialEq, Eq)]
 pub struct MangledName(usize, Encoding);
 
 impl MangledName {
@@ -51,6 +52,7 @@ impl MangledName {
 }
 
 /// TODO FITZGEN
+#[derive(Clone, Debug, Hash, PartialEq, Eq)]
 pub enum Encoding {
     /// TODO FITZGEN
     Function(Name, BareFunctionType),
@@ -63,6 +65,7 @@ pub enum Encoding {
 }
 
 /// TODO FITZGEN
+#[derive(Clone, Debug, Hash, PartialEq, Eq)]
 pub enum Name {
     /// TODO FITZGEN
     Nested(NestedName),
@@ -78,6 +81,7 @@ pub enum Name {
 }
 
 /// TODO FITZGEN
+#[derive(Clone, Debug, Hash, PartialEq, Eq)]
 pub enum UnscopedName {
     /// TODO FITZGEN
     Unqualified(UnqualifiedName),
@@ -87,6 +91,7 @@ pub enum UnscopedName {
 }
 
 /// TODO FITZGEN
+#[derive(Clone, Debug, Hash, PartialEq, Eq)]
 pub enum UnscopedTemplateName {
     /// TODO FITZGEN
     Unscoped(UnscopedName),
@@ -96,6 +101,7 @@ pub enum UnscopedTemplateName {
 }
 
 /// TODO FITZGEN
+#[derive(Clone, Debug, Hash, PartialEq, Eq)]
 pub enum NestedName {
     /// TODO FITZGEN
     Unqualified(CvQualifiers, RefQualifier, Prefix, UnqualifiedName),
@@ -105,20 +111,67 @@ pub enum NestedName {
 }
 
 /// TODO FITZGEN
+#[derive(Clone, Debug, Hash, PartialEq, Eq)]
 pub enum Prefix {
+    /// TODO FITZGEN
     Unqualified(UnqualifiedName, Option<PrefixTail>),
+    /// TODO FITZGEN
     Template(TemplatePrefix, TemplateArgs, Option<PrefixTail>),
+    /// TODO FITZGEN
     TemplateParam(TemplateParam, Option<PrefixTail>),
 }
 
 /// TODO FITZGEN
+#[derive(Clone, Debug, Hash, PartialEq, Eq)]
 pub struct Substitution(Option<SeqId>);
 
 /// TODO FITZGEN
+#[derive(Clone, Debug, Hash, PartialEq, Eq)]
 pub struct BareFunctionType(Type);
 
 /// TODO FITZGEN
+#[derive(Clone, Debug, Hash, PartialEq, Eq)]
 pub struct SeqId(usize);
+
+/// TODO FITZGEN
+#[derive(Clone, Debug, Hash, PartialEq, Eq)]
+pub struct Type;
+
+/// TODO FITZGEN
+#[derive(Clone, Debug, Hash, PartialEq, Eq)]
+pub struct SpecialName;
+
+/// TODO FITZGEN
+#[derive(Clone, Debug, Hash, PartialEq, Eq)]
+pub struct TemplateArgs;
+
+/// TODO FITZGEN
+#[derive(Clone, Debug, Hash, PartialEq, Eq)]
+pub struct LocalName;
+
+/// TODO FITZGEN
+#[derive(Clone, Debug, Hash, PartialEq, Eq)]
+pub struct UnqualifiedName;
+
+/// TODO FITZGEN
+#[derive(Clone, Debug, Hash, PartialEq, Eq)]
+pub struct CvQualifiers;
+
+/// TODO FITZGEN
+#[derive(Clone, Debug, Hash, PartialEq, Eq)]
+pub struct RefQualifier;
+
+/// TODO FITZGEN
+#[derive(Clone, Debug, Hash, PartialEq, Eq)]
+pub struct TemplatePrefix;
+
+/// TODO FITZGEN
+#[derive(Clone, Debug, Hash, PartialEq, Eq)]
+pub struct PrefixTail;
+
+/// TODO FITZGEN
+#[derive(Clone, Debug, Hash, PartialEq, Eq)]
+pub struct TemplateParam;
 
 #[cfg(test)]
 mod tests {
