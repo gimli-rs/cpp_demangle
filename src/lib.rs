@@ -342,7 +342,6 @@ impl OperatorName {
 #[cfg(test)]
 mod tests {
     use super::OperatorName;
-    use index_str::IndexStr;
     use error::ErrorKind;
 
     #[test]

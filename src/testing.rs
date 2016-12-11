@@ -12,7 +12,7 @@ macro_rules! assert_parse {
         let input_printable = String::from_utf8_lossy(input).into_owned();
         let ex_value = $ex_value;
         let ex_tail = $ex_tail as &[u8];
-        match <$nonterm>::parse(IndexStr::from(input)) {
+        match <$nonterm>::parse(::index_str::IndexStr::from(input)) {
             Err(e) => panic!("Parsing {:?} as {} failed: {}",
                              input_printable, stringify!($nonterm), e),
             Ok((value, tail)) => {
@@ -31,18 +31,12 @@ macro_rules! assert_parse {
     ($nonterm:ty : $input:expr => Err($ex_error:pat)) => {
         let input = $input as &[u8];
         let input_printable = String::from_utf8_lossy(input).into_owned();
-        match <$nonterm>::parse(IndexStr::from(input)) {
+        match <$nonterm>::parse(::index_str::IndexStr::from(input)) {
+            Err(::error::Error($ex_error, _)) => { },
             Err(err) => {
-                // error_chain doesn't derive PartialEq for ErrorKind,
-                // so we're stuck with this, which is ridiculous
-                match *err.kind() {
-                    $ex_error => { },
-                    _ => {
-                        panic!("Parsing {:?} as {} should fail with {},\n\
-                                failed with {:?} instead",
-                               input_printable, stringify!($nonterm), stringify!($ex_error), err.kind());
-                    }
-                }
+                panic!("Parsing {:?} as {} should fail with {},\n\
+                        failed with {:?} instead",
+                       input_printable, stringify!($nonterm), stringify!($ex_error), err.kind());
             }
             Ok((value, tail)) => {
                 panic!("Parsing {:?} as {} should fail with {},\n\
