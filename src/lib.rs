@@ -1,5 +1,6 @@
 //! TODO FITZGEN
 
+#![allow(dead_code, unused_variables)]
 #![deny(missing_docs)]
 #![deny(missing_debug_implementations)]
 // #![deny(warnings)]
