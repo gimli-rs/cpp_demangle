@@ -3,6 +3,8 @@
 use std::ops::{Range, RangeFrom, RangeTo};
 
 /// TODO FITZGEN
+#[allow(dead_code)]
+#[derive(Debug, PartialEq, Eq)]
 pub struct IndexStr<'a> {
     idx: usize,
     string: &'a str,
