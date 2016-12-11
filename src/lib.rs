@@ -21,10 +21,10 @@ use index_str::IndexStr;
 mod testing;
 
 /// TODO FITZGEN
-pub type OwnedSymbol = Symbol<String>;
+pub type OwnedSymbol = Symbol<Vec<u8>>;
 
 /// TODO FITZGEN
-pub type BorrowedSymbol<'a> = Symbol<&'a str>;
+pub type BorrowedSymbol<'a> = Symbol<&'a [u8]>;
 
 /// TODO FITZGEN
 #[derive(Clone, Debug, Hash, PartialEq, Eq)]
@@ -34,7 +34,7 @@ pub struct Symbol<T> {
 }
 
 impl<T> Symbol<T>
-    where T: AsRef<str>
+    where T: AsRef<[u8]>
 {
     /// TODO FITZGEN
     pub fn new(raw: T) -> Result<Symbol<T>> {
@@ -284,53 +284,53 @@ impl OperatorName {
             }
         };
         let name = match head.as_ref() {
-            "nw" => OperatorName::New,
-            "na" => OperatorName::NewArray,
-            "dl" => OperatorName::Delete,
-            "da" => OperatorName::DeleteArray,
-            "ps" => OperatorName::UnaryPlus,
-            "ng" => OperatorName::Neg,
-            "ad" => OperatorName::AddressOf,
-            "de" => OperatorName::Deref,
-            "co" => OperatorName::BitNot,
-            "pl" => OperatorName::Add,
-            "mi" => OperatorName::Sub,
-            "ml" => OperatorName::Mul,
-            "dv" => OperatorName::Div,
-            "rm" => OperatorName::Rem,
-            "an" => OperatorName::BitAnd,
-            "or" => OperatorName::BitOr,
-            "eo" => OperatorName::BitXor,
-            "aS" => OperatorName::Assign,
-            "pL" => OperatorName::AddAssign,
-            "mI" => OperatorName::SubAssign,
-            "mL" => OperatorName::MulAssign,
-            "dV" => OperatorName::DivAssign,
-            "rM" => OperatorName::RemAssign,
-            "aN" => OperatorName::BitAndAssign,
-            "oR" => OperatorName::BitOrAssign,
-            "eO" => OperatorName::BitXorAssign,
-            "ls" => OperatorName::Shl,
-            "rs" => OperatorName::Shr,
-            "lS" => OperatorName::ShlAssign,
-            "rS" => OperatorName::ShrAssign,
-            "eq" => OperatorName::Eq,
-            "ne" => OperatorName::Ne,
-            "lt" => OperatorName::Less,
-            "gt" => OperatorName::Greater,
-            "le" => OperatorName::LessEq,
-            "ge" => OperatorName::GreaterEq,
-            "nt" => OperatorName::Not,
-            "aa" => OperatorName::LogicalAnd,
-            "oo" => OperatorName::LogicalOr,
-            "pp" => OperatorName::PostInc,
-            "mm" => OperatorName::PostDec,
-            "cm" => OperatorName::Comma,
-            "pm" => OperatorName::DerefMemberPtr,
-            "pt" => OperatorName::DerefMember,
-            "cl" => OperatorName::Call,
-            "ix" => OperatorName::Index,
-            "qu" => OperatorName::Question,
+            b"nw" => OperatorName::New,
+            b"na" => OperatorName::NewArray,
+            b"dl" => OperatorName::Delete,
+            b"da" => OperatorName::DeleteArray,
+            b"ps" => OperatorName::UnaryPlus,
+            b"ng" => OperatorName::Neg,
+            b"ad" => OperatorName::AddressOf,
+            b"de" => OperatorName::Deref,
+            b"co" => OperatorName::BitNot,
+            b"pl" => OperatorName::Add,
+            b"mi" => OperatorName::Sub,
+            b"ml" => OperatorName::Mul,
+            b"dv" => OperatorName::Div,
+            b"rm" => OperatorName::Rem,
+            b"an" => OperatorName::BitAnd,
+            b"or" => OperatorName::BitOr,
+            b"eo" => OperatorName::BitXor,
+            b"aS" => OperatorName::Assign,
+            b"pL" => OperatorName::AddAssign,
+            b"mI" => OperatorName::SubAssign,
+            b"mL" => OperatorName::MulAssign,
+            b"dV" => OperatorName::DivAssign,
+            b"rM" => OperatorName::RemAssign,
+            b"aN" => OperatorName::BitAndAssign,
+            b"oR" => OperatorName::BitOrAssign,
+            b"eO" => OperatorName::BitXorAssign,
+            b"ls" => OperatorName::Shl,
+            b"rs" => OperatorName::Shr,
+            b"lS" => OperatorName::ShlAssign,
+            b"rS" => OperatorName::ShrAssign,
+            b"eq" => OperatorName::Eq,
+            b"ne" => OperatorName::Ne,
+            b"lt" => OperatorName::Less,
+            b"gt" => OperatorName::Greater,
+            b"le" => OperatorName::LessEq,
+            b"ge" => OperatorName::GreaterEq,
+            b"nt" => OperatorName::Not,
+            b"aa" => OperatorName::LogicalAnd,
+            b"oo" => OperatorName::LogicalOr,
+            b"pp" => OperatorName::PostInc,
+            b"mm" => OperatorName::PostDec,
+            b"cm" => OperatorName::Comma,
+            b"pm" => OperatorName::DerefMemberPtr,
+            b"pt" => OperatorName::DerefMember,
+            b"cl" => OperatorName::Call,
+            b"ix" => OperatorName::Index,
+            b"qu" => OperatorName::Question,
             _ => {
                 return Err(ErrorKind::UnexpectedEnd.into());
             }
@@ -346,6 +346,6 @@ mod tests {
 
     #[test]
     fn parse_operator_name() {
-        assert_parse!(OperatorName: "quokka" => Ok(OperatorName::Question, "okka"));
+        assert_parse!(OperatorName: b"quokka" => Ok(OperatorName::Question, b"okka"));
     }
 }

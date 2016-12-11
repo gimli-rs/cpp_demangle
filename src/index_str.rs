@@ -7,14 +7,14 @@ use std::ops::{Range, RangeFrom, RangeTo};
 #[derive(Debug, PartialEq, Eq)]
 pub struct IndexStr<'a> {
     idx: usize,
-    string: &'a str,
+    string: &'a [u8],
 }
 
 #[allow(dead_code)]
 impl<'a> IndexStr<'a> {
     /// TODO FITZGEN
     #[inline]
-    pub fn new(string: &'a str) -> IndexStr<'a> {
+    pub fn new(string: &'a [u8]) -> IndexStr<'a> {
         IndexStr {
             idx: 0,
             string: string,
@@ -91,17 +91,17 @@ impl<'a> IndexStr<'a> {
     }
 }
 
-impl<'a> AsRef<str> for IndexStr<'a> {
+impl<'a> AsRef<[u8]> for IndexStr<'a> {
     #[inline]
-    fn as_ref(&self) -> &str {
+    fn as_ref(&self) -> &[u8] {
         self.string
     }
 }
 
-impl<'a> From<&'a str> for IndexStr<'a> {
-    fn from(s: &str) -> IndexStr { IndexStr::new(s) }
+impl<'a> From<&'a [u8]> for IndexStr<'a> {
+    fn from(s: &[u8]) -> IndexStr { IndexStr::new(s) }
 }
 
-impl<'a, 'b> PartialEq<&'a str> for IndexStr<'b> {
-    fn eq(&self, rhs: &&str) -> bool { self.string == *rhs }
+impl<'a, 'b> PartialEq<&'a [u8]> for IndexStr<'b> {
+    fn eq(&self, rhs: &&[u8]) -> bool { self.string == *rhs }
 }
