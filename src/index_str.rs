@@ -21,6 +21,9 @@ impl<'a> IndexStr<'a> {
         }
     }
 
+    /// Return the length of the string.
+    pub fn len(&self) -> usize { self.string.len() }
+
     /// TODO FITZGEN
     pub fn index(&self) -> usize {
         self.idx
@@ -42,7 +45,7 @@ impl<'a> IndexStr<'a> {
     pub fn try_split_at(&self,
                         idx: usize)
                         -> Option<(IndexStr<'a>, IndexStr<'a>)> {
-        if idx > self.string.len() {
+        if idx > self.len() {
             None
         } else {
             Some(self.split_at(idx))
