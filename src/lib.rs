@@ -14,8 +14,11 @@ extern crate error_chain;
 pub mod error;
 mod index_str;
 
-use error::Result;
+use error::{ErrorKind, Result};
 use index_str::IndexStr;
+
+#[macro_use]
+mod testing;
 
 /// TODO FITZGEN
 pub type OwnedSymbol = Symbol<String>;
@@ -173,9 +176,176 @@ pub struct PrefixTail;
 #[derive(Clone, Debug, Hash, PartialEq, Eq)]
 pub struct TemplateParam;
 
+
+#[derive(Clone, Debug, Hash, PartialEq, Eq)]
+enum OperatorName {
+    /// `new`
+    New,
+    /// `new[]`
+    NewArray,
+    /// `delete`
+    Delete,
+    /// `delete[]`
+    DeleteArray,
+    /// `+` (unary)
+    UnaryPlus,
+    /// `-` (unary)
+    Neg,
+    /// `&` (unary)
+    AddressOf,
+    /// `*` (unary)
+    Deref,
+    /// `~`
+    BitNot,
+    /// `+`
+    Add,
+    /// `-`
+    Sub,
+    /// `*`
+    Mul,
+    /// `/`
+    Div,
+    /// `%`
+    Rem,
+    /// `&`
+    BitAnd,
+    /// `|`
+    BitOr,
+    /// `^`
+    BitXor,
+    /// `=`
+    Assign,
+    /// `+=`
+    AddAssign,
+    /// `-=`
+    SubAssign,
+    /// `*=`
+    MulAssign,
+    /// `/=`
+    DivAssign,
+    /// `%=`
+    RemAssign,
+    /// `&=`
+    BitAndAssign,
+    /// `|=`
+    BitOrAssign,
+    /// `^=`
+    BitXorAssign,
+    /// `<<`
+    Shl,
+    /// `>>`
+    Shr,
+    /// `<<=`
+    ShlAssign,
+    /// `>>=`
+    ShrAssign,
+    /// `==`
+    Eq,
+    /// `!=`
+    Ne,
+    /// `<`
+    Less,
+    /// `>`
+    Greater,
+    /// `<=`
+    LessEq,
+    /// `>=`
+    GreaterEq,
+    /// `!`
+    Not,
+    /// `&&`
+    LogicalAnd,
+    /// `||`
+    LogicalOr,
+    /// `++` (postfix in <expression> context)
+    PostInc,
+    /// `--` (postfix in <expression> context)
+    PostDec,
+    /// `,`
+    Comma,
+    /// `->*`
+    DerefMemberPtr,
+    /// `->`
+    DerefMember,
+    /// `()`
+    Call,
+    /// `[]`
+    Index,
+    /// `?:`
+    Question
+}
+
+impl OperatorName {
+    fn parse(input: IndexStr) -> Result<(OperatorName, IndexStr)> {
+        let (head, tail) = match input.try_split_at(2) {
+            Some((head, tail)) => (head, tail),
+            None => {
+                return Err(ErrorKind::UnexpectedEnd.into());
+            }
+        };
+        let name = match head.as_ref() {
+            "nw" => OperatorName::New,
+	    "na" => OperatorName::NewArray,
+	    "dl" => OperatorName::Delete,
+	    "da" => OperatorName::DeleteArray,
+	    "ps" => OperatorName::UnaryPlus,
+	    "ng" => OperatorName::Neg,
+	    "ad" => OperatorName::AddressOf,
+	    "de" => OperatorName::Deref,
+	    "co" => OperatorName::BitNot,
+	    "pl" => OperatorName::Add,
+	    "mi" => OperatorName::Sub,
+	    "ml" => OperatorName::Mul,
+	    "dv" => OperatorName::Div,
+	    "rm" => OperatorName::Rem,
+	    "an" => OperatorName::BitAnd,
+	    "or" => OperatorName::BitOr,
+	    "eo" => OperatorName::BitXor,
+	    "aS" => OperatorName::Assign,
+	    "pL" => OperatorName::AddAssign,
+	    "mI" => OperatorName::SubAssign,
+	    "mL" => OperatorName::MulAssign,
+	    "dV" => OperatorName::DivAssign,
+	    "rM" => OperatorName::RemAssign,
+	    "aN" => OperatorName::BitAndAssign,
+	    "oR" => OperatorName::BitOrAssign,
+	    "eO" => OperatorName::BitXorAssign,
+	    "ls" => OperatorName::Shl,
+	    "rs" => OperatorName::Shr,
+	    "lS" => OperatorName::ShlAssign,
+	    "rS" => OperatorName::ShrAssign,
+	    "eq" => OperatorName::Eq,
+	    "ne" => OperatorName::Ne,
+	    "lt" => OperatorName::Less,
+	    "gt" => OperatorName::Greater,
+	    "le" => OperatorName::LessEq,
+	    "ge" => OperatorName::GreaterEq,
+	    "nt" => OperatorName::Not,
+	    "aa" => OperatorName::LogicalAnd,
+	    "oo" => OperatorName::LogicalOr,
+	    "pp" => OperatorName::PostInc,
+	    "mm" => OperatorName::PostDec,
+	    "cm" => OperatorName::Comma,
+	    "pm" => OperatorName::DerefMemberPtr,
+	    "pt" => OperatorName::DerefMember,
+	    "cl" => OperatorName::Call,
+	    "ix" => OperatorName::Index,
+	    "qu" => OperatorName::Question,
+            _ => {
+                return Err(ErrorKind::UnexpectedEnd.into());
+            }
+        };
+        Ok((name, tail))
+    }
+}
+
 #[cfg(test)]
 mod tests {
+    use super::OperatorName;
+    use index_str::IndexStr;
+
     #[test]
-    fn it_works() {
+    fn parse_operator_name() {
+        assert_parse!(OperatorName: "quokka" => Ok(OperatorName::Question, "okka"));
     }
 }
