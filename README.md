@@ -1,5 +1,7 @@
 # VAPORWARE `cpp_demangle`: a C++ linker symbol demangler
 
+[![](http://meritbadge.herokuapp.com/cpp_demangle) ![](https://img.shields.io/crates/d/cpp_demangle.png)](https://crates.io/crates/cpp_demangle) [![Build Status](https://travis-ci.org/fitzgen/cpp_demangle.png?branch=master)](https://travis-ci.org/fitzgen/cpp_demangle) [![Coverage Status](https://coveralls.io/repos/github/fitzgen/cpp_demangle/badge.svg?branch=master)](https://coveralls.io/github/fitzgen/cpp_demangle?branch=master)
+
 This crate can parse a C++ “mangled” linker symbol name into a Rust value
 describing what the name refers to: a variable, a function, a virtual table,
 etc. The description type implements `Display`, producing human-readable text
@@ -26,3 +28,6 @@ representing its structure. Formatting the value with `format!` or `to_string`
 would yield the string `"space::foo(int, int)"`, which is more meaningful to the
 C++ developer.
 
+## Documentation
+
+[Documentation on docs.rs](https://docs.rs/cpp_demangle)
