@@ -26,6 +26,11 @@ impl<'a> IndexStr<'a> {
         self.string.len()
     }
 
+    /// Return true if the string is empty, false otherwise.
+    pub fn is_empty(&self) -> bool {
+        self.string.is_empty()
+    }
+
     /// TODO FITZGEN
     pub fn index(&self) -> usize {
         self.idx
