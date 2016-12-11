@@ -332,7 +332,7 @@ impl OperatorName {
             b"ix" => OperatorName::Index,
             b"qu" => OperatorName::Question,
             _ => {
-                return Err(ErrorKind::UnexpectedEnd.into());
+                return Err(ErrorKind::UnexpectedText.into());
             }
         };
         Ok((name, tail))
@@ -343,9 +343,13 @@ impl OperatorName {
 mod tests {
     use super::OperatorName;
     use index_str::IndexStr;
+    use error::ErrorKind;
 
     #[test]
     fn parse_operator_name() {
         assert_parse!(OperatorName: b"quokka" => Ok(OperatorName::Question, b"okka"));
+        assert_parse!(OperatorName: b"bu-buuu" => Err(ErrorKind::UnexpectedText));
+        assert_parse!(OperatorName: b"b" => Err(ErrorKind::UnexpectedEnd));
+        assert_parse!(OperatorName: b"" => Err(ErrorKind::UnexpectedEnd));
     }
 }
