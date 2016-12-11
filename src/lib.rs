@@ -8,6 +8,8 @@
 // `error_chain!` can recurse deeply
 #![recursion_limit = "1024"]
 
+use std::fmt;
+
 #[macro_use]
 extern crate error_chain;
 
@@ -176,167 +178,98 @@ pub struct PrefixTail;
 #[derive(Clone, Debug, Hash, PartialEq, Eq)]
 pub struct TemplateParam;
 
+macro_rules! define_operator_name {
+    ($({ $variant:ident, $mangled:pat, $printable:expr })*) => {
 
-#[derive(Clone, Debug, Hash, PartialEq, Eq)]
-enum OperatorName {
-    /// `new`
-    New,
-    /// `new[]`
-    NewArray,
-    /// `delete`
-    Delete,
-    /// `delete[]`
-    DeleteArray,
-    /// `+` (unary)
-    UnaryPlus,
-    /// `-` (unary)
-    Neg,
-    /// `&` (unary)
-    AddressOf,
-    /// `*` (unary)
-    Deref,
-    /// `~`
-    BitNot,
-    /// `+`
-    Add,
-    /// `-`
-    Sub,
-    /// `*`
-    Mul,
-    /// `/`
-    Div,
-    /// `%`
-    Rem,
-    /// `&`
-    BitAnd,
-    /// `|`
-    BitOr,
-    /// `^`
-    BitXor,
-    /// `=`
-    Assign,
-    /// `+=`
-    AddAssign,
-    /// `-=`
-    SubAssign,
-    /// `*=`
-    MulAssign,
-    /// `/=`
-    DivAssign,
-    /// `%=`
-    RemAssign,
-    /// `&=`
-    BitAndAssign,
-    /// `|=`
-    BitOrAssign,
-    /// `^=`
-    BitXorAssign,
-    /// `<<`
-    Shl,
-    /// `>>`
-    Shr,
-    /// `<<=`
-    ShlAssign,
-    /// `>>=`
-    ShrAssign,
-    /// `==`
-    Eq,
-    /// `!=`
-    Ne,
-    /// `<`
-    Less,
-    /// `>`
-    Greater,
-    /// `<=`
-    LessEq,
-    /// `>=`
-    GreaterEq,
-    /// `!`
-    Not,
-    /// `&&`
-    LogicalAnd,
-    /// `||`
-    LogicalOr,
-    /// `++` (postfix in <expression> context)
-    PostInc,
-    /// `--` (postfix in <expression> context)
-    PostDec,
-    /// `,`
-    Comma,
-    /// `->*`
-    DerefMemberPtr,
-    /// `->`
-    DerefMember,
-    /// `()`
-    Call,
-    /// `[]`
-    Index,
-    /// `?:`
-    Question
+        #[derive(Clone, Debug, Hash, PartialEq, Eq)]
+        enum OperatorName {
+            $(
+                #[doc=$printable]
+                $variant
+            ),*
+        }
+
+        impl OperatorName {
+            fn parse(input: IndexStr) -> Result<(OperatorName, IndexStr)> {
+                let (head, tail) = match input.try_split_at(2) {
+                    Some((head, tail)) => (head, tail),
+                    None => {
+                        return Err(ErrorKind::UnexpectedEnd.into());
+                    }
+                };
+                let name = match head.as_ref() {
+                    $(
+                        $mangled => OperatorName::$variant,
+                    )*
+                    _ => {
+                        return Err(ErrorKind::UnexpectedText.into());
+                    }
+                };
+                Ok((name, tail))
+            }
+        }
+
+        impl fmt::Display for OperatorName {
+            fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+                f.write_str(match *self {
+                    $(
+                        OperatorName::$variant => $printable
+                    ),*
+                })
+            }
+        }
+    }
 }
 
-impl OperatorName {
-    fn parse(input: IndexStr) -> Result<(OperatorName, IndexStr)> {
-        let (head, tail) = match input.try_split_at(2) {
-            Some((head, tail)) => (head, tail),
-            None => {
-                return Err(ErrorKind::UnexpectedEnd.into());
-            }
-        };
-        let name = match head.as_ref() {
-            b"nw" => OperatorName::New,
-            b"na" => OperatorName::NewArray,
-            b"dl" => OperatorName::Delete,
-            b"da" => OperatorName::DeleteArray,
-            b"ps" => OperatorName::UnaryPlus,
-            b"ng" => OperatorName::Neg,
-            b"ad" => OperatorName::AddressOf,
-            b"de" => OperatorName::Deref,
-            b"co" => OperatorName::BitNot,
-            b"pl" => OperatorName::Add,
-            b"mi" => OperatorName::Sub,
-            b"ml" => OperatorName::Mul,
-            b"dv" => OperatorName::Div,
-            b"rm" => OperatorName::Rem,
-            b"an" => OperatorName::BitAnd,
-            b"or" => OperatorName::BitOr,
-            b"eo" => OperatorName::BitXor,
-            b"aS" => OperatorName::Assign,
-            b"pL" => OperatorName::AddAssign,
-            b"mI" => OperatorName::SubAssign,
-            b"mL" => OperatorName::MulAssign,
-            b"dV" => OperatorName::DivAssign,
-            b"rM" => OperatorName::RemAssign,
-            b"aN" => OperatorName::BitAndAssign,
-            b"oR" => OperatorName::BitOrAssign,
-            b"eO" => OperatorName::BitXorAssign,
-            b"ls" => OperatorName::Shl,
-            b"rs" => OperatorName::Shr,
-            b"lS" => OperatorName::ShlAssign,
-            b"rS" => OperatorName::ShrAssign,
-            b"eq" => OperatorName::Eq,
-            b"ne" => OperatorName::Ne,
-            b"lt" => OperatorName::Less,
-            b"gt" => OperatorName::Greater,
-            b"le" => OperatorName::LessEq,
-            b"ge" => OperatorName::GreaterEq,
-            b"nt" => OperatorName::Not,
-            b"aa" => OperatorName::LogicalAnd,
-            b"oo" => OperatorName::LogicalOr,
-            b"pp" => OperatorName::PostInc,
-            b"mm" => OperatorName::PostDec,
-            b"cm" => OperatorName::Comma,
-            b"pm" => OperatorName::DerefMemberPtr,
-            b"pt" => OperatorName::DerefMember,
-            b"cl" => OperatorName::Call,
-            b"ix" => OperatorName::Index,
-            b"qu" => OperatorName::Question,
-            _ => {
-                return Err(ErrorKind::UnexpectedText.into());
-            }
-        };
-        Ok((name, tail))
-    }
+define_operator_name! {
+    // enum variant, mangled form, printable description
+    { New,              b"nw",  "`new`" }
+    { NewArray,         b"na",  "`new[]`" }
+    { Delete,           b"dl",  "`delete`" }
+    { DeleteArray,      b"da",  "`delete[]`" }
+    { UnaryPlus,        b"ps",  "`+` (unary)" }
+    { Neg,              b"ng",  "`-` (unary)" }
+    { AddressOf,        b"ad",  "`&` (unary)" }
+    { Deref,            b"de",  "`*` (unary)" }
+    { BitNot,           b"co",  "`~`" }
+    { Add,              b"pl",  "`+`" }
+    { Sub,              b"mi",  "`-`" }
+    { Mul,              b"ml",  "`*`" }
+    { Div,              b"dv",  "`/`" }
+    { Rem,              b"rm",  "`%`" }
+    { BitAnd,           b"an",  "`&`" }
+    { BitOr,            b"or",  "`|`" }
+    { BitXor,           b"eo",  "`^`" }
+    { Assign,           b"aS",  "`=`" }
+    { AddAssign,        b"pL",  "`+=`" }
+    { SubAssign,        b"mI",  "`-=`" }
+    { MulAssign,        b"mL",  "`*=`" }
+    { DivAssign,        b"dV",  "`/=`" }
+    { RemAssign,        b"rM",  "`%=`" }
+    { BitAndAssign,     b"aN",  "`&=`" }
+    { BitOrAssign,      b"oR",  "`|=`" }
+    { BitXorAssign,     b"eO",  "`^=`" }
+    { Shl,              b"ls",  "`<<`" }
+    { Shr,              b"rs",  "`>>`" }
+    { ShlAssign,        b"lS",  "`<<=`" }
+    { ShrAssign,        b"rS",  "`>>=`" }
+    { Eq,               b"eq",  "`==`" }
+    { Ne,               b"ne",  "`!=`" }
+    { Less,             b"lt",  "`<`" }
+    { Greater,          b"gt",  "`>`" }
+    { LessEq,           b"le",  "`<=`" }
+    { GreaterEq,        b"ge",  "`>=`" }
+    { Not,              b"nt",  "`!`" }
+    { LogicalAnd,       b"aa",  "`&&`" }
+    { LogicalOr,        b"oo",  "`||`" }
+    { PostInc,          b"pp",  "`++` (postfix in <expression> context)" }
+    { PostDec,          b"mm",  "`--` (postfix in <expression> context)" }
+    { Comma,            b"cm",  "`,`" }
+    { DerefMemberPtr,   b"pm",  "`->*`" }
+    { DerefMember,      b"pt",  "`->`" }
+    { Call,             b"cl",  "`()`" }
+    { Index,            b"ix",  "`[]`" }
+    { Question,         b"qu",  "`?:`" }
 }
 
 #[cfg(test)]
