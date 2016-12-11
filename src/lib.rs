@@ -178,19 +178,28 @@ pub struct PrefixTail;
 #[derive(Clone, Debug, Hash, PartialEq, Eq)]
 pub struct TemplateParam;
 
-macro_rules! define_operator_name {
-    ($({ $variant:ident, $mangled:pat, $printable:expr })*) => {
+/// Define a "vocabulary" nonterminal, something like `OperatorName` or
+/// `CtorDtorName` that's basically a big list of constant strings.
+/// This declares:
+///
+/// - the enum itself
+/// - a `parse` method
+/// - a `std::fmt::Display` impl
+///
+/// See the definition of `CTorDtorName` for an example of its use.
+macro_rules! define_vocabulary {
+    ( $typename:ident { $($variant:ident ( $mangled:pat, $printable:expr )),* } ) => {
 
         #[derive(Clone, Debug, Hash, PartialEq, Eq)]
-        enum OperatorName {
+        enum $typename {
             $(
                 #[doc=$printable]
                 $variant
             ),*
         }
 
-        impl OperatorName {
-            fn parse(input: IndexStr) -> Result<(OperatorName, IndexStr)> {
+        impl $typename {
+            fn parse(input: IndexStr) -> Result<($typename, IndexStr)> {
                 let (head, tail) = match input.try_split_at(2) {
                     Some((head, tail)) => (head, tail),
                     None => {
@@ -199,7 +208,7 @@ macro_rules! define_operator_name {
                 };
                 let name = match head.as_ref() {
                     $(
-                        $mangled => OperatorName::$variant,
+                        $mangled => $typename::$variant,
                     )*
                     _ => {
                         return Err(ErrorKind::UnexpectedText.into());
@@ -209,11 +218,11 @@ macro_rules! define_operator_name {
             }
         }
 
-        impl fmt::Display for OperatorName {
+        impl fmt::Display for $typename {
             fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
                 f.write_str(match *self {
                     $(
-                        OperatorName::$variant => $printable
+                        $typename::$variant => $printable
                     ),*
                 })
             }
@@ -221,55 +230,57 @@ macro_rules! define_operator_name {
     }
 }
 
-define_operator_name! {
-    // enum variant, mangled form, printable description
-    { New,              b"nw",  "`new`" }
-    { NewArray,         b"na",  "`new[]`" }
-    { Delete,           b"dl",  "`delete`" }
-    { DeleteArray,      b"da",  "`delete[]`" }
-    { UnaryPlus,        b"ps",  "`+` (unary)" }
-    { Neg,              b"ng",  "`-` (unary)" }
-    { AddressOf,        b"ad",  "`&` (unary)" }
-    { Deref,            b"de",  "`*` (unary)" }
-    { BitNot,           b"co",  "`~`" }
-    { Add,              b"pl",  "`+`" }
-    { Sub,              b"mi",  "`-`" }
-    { Mul,              b"ml",  "`*`" }
-    { Div,              b"dv",  "`/`" }
-    { Rem,              b"rm",  "`%`" }
-    { BitAnd,           b"an",  "`&`" }
-    { BitOr,            b"or",  "`|`" }
-    { BitXor,           b"eo",  "`^`" }
-    { Assign,           b"aS",  "`=`" }
-    { AddAssign,        b"pL",  "`+=`" }
-    { SubAssign,        b"mI",  "`-=`" }
-    { MulAssign,        b"mL",  "`*=`" }
-    { DivAssign,        b"dV",  "`/=`" }
-    { RemAssign,        b"rM",  "`%=`" }
-    { BitAndAssign,     b"aN",  "`&=`" }
-    { BitOrAssign,      b"oR",  "`|=`" }
-    { BitXorAssign,     b"eO",  "`^=`" }
-    { Shl,              b"ls",  "`<<`" }
-    { Shr,              b"rs",  "`>>`" }
-    { ShlAssign,        b"lS",  "`<<=`" }
-    { ShrAssign,        b"rS",  "`>>=`" }
-    { Eq,               b"eq",  "`==`" }
-    { Ne,               b"ne",  "`!=`" }
-    { Less,             b"lt",  "`<`" }
-    { Greater,          b"gt",  "`>`" }
-    { LessEq,           b"le",  "`<=`" }
-    { GreaterEq,        b"ge",  "`>=`" }
-    { Not,              b"nt",  "`!`" }
-    { LogicalAnd,       b"aa",  "`&&`" }
-    { LogicalOr,        b"oo",  "`||`" }
-    { PostInc,          b"pp",  "`++` (postfix in <expression> context)" }
-    { PostDec,          b"mm",  "`--` (postfix in <expression> context)" }
-    { Comma,            b"cm",  "`,`" }
-    { DerefMemberPtr,   b"pm",  "`->*`" }
-    { DerefMember,      b"pt",  "`->`" }
-    { Call,             b"cl",  "`()`" }
-    { Index,            b"ix",  "`[]`" }
-    { Question,         b"qu",  "`?:`" }
+define_vocabulary! {
+    OperatorName {
+        // enum variant(mangled form, printable description)
+        New              (b"nw",  "`new`"),
+        NewArray         (b"na",  "`new[]`"),
+        Delete           (b"dl",  "`delete`"),
+        DeleteArray      (b"da",  "`delete[]`"),
+        UnaryPlus        (b"ps",  "`+` (unary)"),
+        Neg              (b"ng",  "`-` (unary)"),
+        AddressOf        (b"ad",  "`&` (unary)"),
+        Deref            (b"de",  "`*` (unary)"),
+        BitNot           (b"co",  "`~`"),
+        Add              (b"pl",  "`+`"),
+        Sub              (b"mi",  "`-`"),
+        Mul              (b"ml",  "`*`"),
+        Div              (b"dv",  "`/`"),
+        Rem              (b"rm",  "`%`"),
+        BitAnd           (b"an",  "`&`"),
+        BitOr            (b"or",  "`|`"),
+        BitXor           (b"eo",  "`^`"),
+        Assign           (b"aS",  "`=`"),
+        AddAssign        (b"pL",  "`+=`"),
+        SubAssign        (b"mI",  "`-=`"),
+        MulAssign        (b"mL",  "`*=`"),
+        DivAssign        (b"dV",  "`/=`"),
+        RemAssign        (b"rM",  "`%=`"),
+        BitAndAssign     (b"aN",  "`&=`"),
+        BitOrAssign      (b"oR",  "`|=`"),
+        BitXorAssign     (b"eO",  "`^=`"),
+        Shl              (b"ls",  "`<<`"),
+        Shr              (b"rs",  "`>>`"),
+        ShlAssign        (b"lS",  "`<<=`"),
+        ShrAssign        (b"rS",  "`>>=`"),
+        Eq               (b"eq",  "`==`"),
+        Ne               (b"ne",  "`!=`"),
+        Less             (b"lt",  "`<`"),
+        Greater          (b"gt",  "`>`"),
+        LessEq           (b"le",  "`<=`"),
+        GreaterEq        (b"ge",  "`>=`"),
+        Not              (b"nt",  "`!`"),
+        LogicalAnd       (b"aa",  "`&&`"),
+        LogicalOr        (b"oo",  "`||`"),
+        PostInc          (b"pp",  "`++` (postfix in <expression> context)"),
+        PostDec          (b"mm",  "`--` (postfix in <expression> context)"),
+        Comma            (b"cm",  "`,`"),
+        DerefMemberPtr   (b"pm",  "`->*`"),
+        DerefMember      (b"pt",  "`->`"),
+        Call             (b"cl",  "`()`"),
+        Index            (b"ix",  "`[]`"),
+        Question         (b"qu",  "`?:`")
+    }
 }
 
 #[cfg(test)]
