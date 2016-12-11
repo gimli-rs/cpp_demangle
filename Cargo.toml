@@ -2,7 +2,7 @@
 authors = ["Nick Fitzgerald <fitzgen@gmail.com>", "Jim Blandy <jimb@red-bean.com>"]
 description = "A crate for demangling C++ symbols"
 documentation = "https://docs.rs/cpp_demangle"
-keywords = ["demangle", "symbolicate", "C++", "itanium"]
+keywords = ["demangle", "symbolicate", "c-plus-plus", "itanium"]
 license = "Apache-2.0/MIT"
 name = "cpp_demangle"
 readme = "./README.md"
