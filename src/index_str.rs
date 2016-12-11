@@ -98,3 +98,10 @@ impl<'a> AsRef<str> for IndexStr<'a> {
     }
 }
 
+impl<'a> From<&'a str> for IndexStr<'a> {
+    fn from(s: &str) -> IndexStr { IndexStr::new(s) }
+}
+
+impl<'a, 'b> PartialEq<&'a str> for IndexStr<'b> {
+    fn eq(&self, rhs: &&str) -> bool { self.string == *rhs }
+}
