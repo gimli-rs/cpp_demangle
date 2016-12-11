@@ -5,7 +5,7 @@
 #![deny(missing_debug_implementations)]
 // #![deny(warnings)]
 
-// `error_chain!` can recurse deeply
+// The `error_chain!` macro can recurse deeply.
 #![recursion_limit = "1024"]
 
 use std::fmt;
