@@ -336,7 +336,7 @@ define_vocabulary! {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use super::{CtorDtorName, Number, OperatorName};
     use error::ErrorKind;
 
     #[test]
