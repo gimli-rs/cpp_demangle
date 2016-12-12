@@ -164,6 +164,42 @@ pub struct LocalName;
 #[derive(Clone, Debug, Hash, PartialEq, Eq)]
 pub struct UnqualifiedName;
 
+/// The <source-name> non-terminal.
+#[derive(Clone, Debug, Hash, PartialEq, Eq)]
+pub struct SourceName {
+    start: usize,
+    end: usize,
+}
+
+impl SourceName {
+    fn parse(input: IndexStr) -> Result<(SourceName, IndexStr)> {
+        let (source_name_len, input) = try!(parse_number(10, false, input));
+        debug_assert!(source_name_len >= 0);
+        if source_name_len == 0 {
+            return Err(ErrorKind::UnexpectedText.into());
+        }
+
+        let (head, tail) = match input.try_split_at(source_name_len as _) {
+            Some((head, tail)) => (head, tail),
+            None => return Err(ErrorKind::UnexpectedEnd.into()),
+        };
+
+        if !head.as_ref()
+            .iter()
+            .map(|&c| c as char)
+            .all(|c| c == '_' || c.is_digit(36)) {
+            return Err(ErrorKind::UnexpectedText.into());
+        }
+
+        let source_name = SourceName {
+            start: head.index(),
+            end: tail.index(),
+        };
+
+        Ok((source_name, tail))
+    }
+}
+
 /// TODO FITZGEN
 #[derive(Clone, Debug, Hash, PartialEq, Eq)]
 pub struct CvQualifiers;
@@ -358,8 +394,18 @@ define_vocabulary! {
 
 #[cfg(test)]
 mod tests {
-    use super::{CtorDtorName, Number, OperatorName, SeqId};
+    use super::{CtorDtorName, Number, OperatorName, SeqId, SourceName};
     use error::ErrorKind;
+
+    #[test]
+    fn parse_source_name() {
+        assert_parse!(SourceName: b"1abc" => Ok(SourceName { start: 1, end: 2 }, b"bc"));
+        assert_parse!(SourceName: b"10abcdefghijklm" => Ok(SourceName { start: 2, end: 12 }, b"klm"));
+        assert_parse!(SourceName: b"0abc" => Err(ErrorKind::UnexpectedText));
+        assert_parse!(SourceName: b"n1abc" => Err(ErrorKind::UnexpectedText));
+        assert_parse!(SourceName: b"10abcdef" => Err(ErrorKind::UnexpectedEnd));
+        assert_parse!(SourceName: b"" => Err(ErrorKind::UnexpectedEnd));
+    }
 
     #[test]
     fn parse_number() {
