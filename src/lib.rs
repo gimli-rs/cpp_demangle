@@ -124,7 +124,26 @@ pub enum Prefix {
     Template(TemplatePrefix, TemplateArgs, Option<PrefixTail>),
     /// TODO FITZGEN
     TemplateParam(TemplateParam, Option<PrefixTail>),
+    /// TODO FITZGEN
+    Decltype(Decltype, Option<PrefixTail>),
 }
+
+/// TODO FITZGEN
+#[derive(Clone, Debug, Hash, PartialEq, Eq)]
+pub enum PrefixTail {
+    /// TODO FITZGEN
+    Unqualified(UnqualifiedName, Option<Box<PrefixTail>>),
+    /// TODO FITZGEN
+    DataMember(DataMemberPrefix, Option<Box<PrefixTail>>),
+}
+
+/// TODO FITZGEN
+#[derive(Clone, Debug, Hash, PartialEq, Eq)]
+pub struct DataMemberPrefix;
+
+/// TODO FITZGEN
+#[derive(Clone, Debug, Hash, PartialEq, Eq)]
+pub struct Decltype;
 
 /// TODO FITZGEN
 #[derive(Clone, Debug, Hash, PartialEq, Eq)]
@@ -292,10 +311,6 @@ pub struct RefQualifier;
 /// TODO FITZGEN
 #[derive(Clone, Debug, Hash, PartialEq, Eq)]
 pub struct TemplatePrefix;
-
-/// TODO FITZGEN
-#[derive(Clone, Debug, Hash, PartialEq, Eq)]
-pub struct PrefixTail;
 
 /// TODO FITZGEN
 #[derive(Clone, Debug, Hash, PartialEq, Eq)]
