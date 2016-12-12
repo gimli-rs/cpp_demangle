@@ -166,10 +166,7 @@ pub struct UnqualifiedName;
 
 /// The <source-name> non-terminal.
 #[derive(Clone, Debug, Hash, PartialEq, Eq)]
-pub struct SourceName {
-    start: usize,
-    end: usize,
-}
+pub struct SourceName(Identifier);
 
 impl SourceName {
     fn parse(input: IndexStr) -> Result<(SourceName, IndexStr)> {
@@ -184,19 +181,47 @@ impl SourceName {
             None => return Err(ErrorKind::UnexpectedEnd.into()),
         };
 
-        if !head.as_ref()
-            .iter()
-            .map(|&c| c as char)
-            .all(|c| c == '_' || c.is_digit(36)) {
+        let (identifier, empty) = try!(Identifier::parse(head));
+        if !empty.is_empty() {
             return Err(ErrorKind::UnexpectedText.into());
         }
 
-        let source_name = SourceName {
-            start: head.index(),
+        let source_name = SourceName(identifier);
+        Ok((source_name, tail))
+    }
+}
+
+/// The <identifier> pseudo terminal.
+#[derive(Clone, Debug, Hash, PartialEq, Eq)]
+pub struct Identifier {
+    start: usize,
+    end: usize,
+}
+
+impl Identifier {
+    fn parse(input: IndexStr) -> Result<(Identifier, IndexStr)> {
+        if input.len() == 0 {
+            return Err(ErrorKind::UnexpectedEnd.into());
+        }
+
+        let end = input.as_ref()
+            .iter()
+            .map(|&c| c as char)
+            .take_while(|&c| c == '_' || c.is_digit(36))
+            .count();
+
+        if end == 0 {
+            return Err(ErrorKind::UnexpectedText.into());
+        }
+
+        let tail = input.range_from(end..);
+
+        let identifier = Identifier {
+            start: input.index(),
             end: tail.index(),
         };
 
-        Ok((source_name, tail))
+        Ok((identifier, tail))
     }
 }
 
@@ -394,13 +419,25 @@ define_vocabulary! {
 
 #[cfg(test)]
 mod tests {
-    use super::{CtorDtorName, Number, OperatorName, SeqId, SourceName};
+    use super::{CtorDtorName, Identifier, Number, OperatorName, SeqId, SourceName};
     use error::ErrorKind;
 
     #[test]
+    fn parse_identifier() {
+        assert_parse!(Identifier: b"1abc" =>
+                      Ok(Identifier { start: 0, end: 4 }, b""));
+        assert_parse!(Identifier: b"_Az1..." =>
+                      Ok(Identifier { start: 0, end: 4 }, b"..."));
+        assert_parse!(Identifier: b"..." => Err(ErrorKind::UnexpectedText));
+        assert_parse!(Identifier: b"" => Err(ErrorKind::UnexpectedEnd));
+    }
+
+    #[test]
     fn parse_source_name() {
-        assert_parse!(SourceName: b"1abc" => Ok(SourceName { start: 1, end: 2 }, b"bc"));
-        assert_parse!(SourceName: b"10abcdefghijklm" => Ok(SourceName { start: 2, end: 12 }, b"klm"));
+        assert_parse!(SourceName: b"1abc" =>
+                      Ok(SourceName(Identifier { start: 1, end: 2 }), b"bc"));
+        assert_parse!(SourceName: b"10abcdefghijklm" =>
+                      Ok(SourceName(Identifier { start: 2, end: 12 }), b"klm"));
         assert_parse!(SourceName: b"0abc" => Err(ErrorKind::UnexpectedText));
         assert_parse!(SourceName: b"n1abc" => Err(ErrorKind::UnexpectedText));
         assert_parse!(SourceName: b"10abcdef" => Err(ErrorKind::UnexpectedEnd));
