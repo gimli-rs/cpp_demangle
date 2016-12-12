@@ -225,6 +225,34 @@ impl Identifier {
     }
 }
 
+/// Expect and consume the given byte str, and return the advanced `IndexStr` if
+/// we saw the expectation. Otherwise return an error of kind
+/// `ErrorKind::UnexpectedText` if the input doesn't match, or
+/// `ErrorKind::UnexpectedEnd` if it isn't long enough.
+fn consume<'a>(expected: &[u8], input: IndexStr<'a>) -> Result<IndexStr<'a>> {
+    match input.try_split_at(expected.len()) {
+        Some((head, tail)) if head == expected => Ok(tail),
+        Some(_) => Err(ErrorKind::UnexpectedText.into()),
+        None => Err(ErrorKind::UnexpectedEnd.into()),
+    }
+}
+
+/// The <unnamed-type-name> non-terminal.
+#[derive(Clone, Debug, Hash, PartialEq, Eq)]
+pub struct UnnamedTypeName(Option<usize>);
+
+impl UnnamedTypeName {
+    fn parse(input: IndexStr) -> Result<(UnnamedTypeName, IndexStr)> {
+        let input = try!(consume(b"Ut", input));
+        let (number, input) = match parse_number(10, false, input) {
+            Ok((number, input)) => (Some(number as _), input),
+            Err(_) => (None, input),
+        };
+        let input = try!(consume(b"_", input));
+        Ok((UnnamedTypeName(number), input))
+    }
+}
+
 /// TODO FITZGEN
 #[derive(Clone, Debug, Hash, PartialEq, Eq)]
 pub struct CvQualifiers;
@@ -419,8 +447,20 @@ define_vocabulary! {
 
 #[cfg(test)]
 mod tests {
-    use super::{CtorDtorName, Identifier, Number, OperatorName, SeqId, SourceName};
+    use super::{CtorDtorName, Identifier, Number, OperatorName, SeqId, SourceName, UnnamedTypeName};
     use error::ErrorKind;
+
+    #[test]
+    fn parse_unnamed_type_name() {
+        assert_parse!(UnnamedTypeName: b"Ut_abc" => Ok(UnnamedTypeName(None), b"abc"));
+        assert_parse!(UnnamedTypeName: b"Ut42_abc" => Ok(UnnamedTypeName(Some(42)), b"abc"));
+        assert_parse!(UnnamedTypeName: b"Ut42_" => Ok(UnnamedTypeName(Some(42)), b""));
+        assert_parse!(UnnamedTypeName: b"ut_" => Err(ErrorKind::UnexpectedText));
+        assert_parse!(UnnamedTypeName: b"u" => Err(ErrorKind::UnexpectedEnd));
+        assert_parse!(UnnamedTypeName: b"Ut" => Err(ErrorKind::UnexpectedEnd));
+        assert_parse!(UnnamedTypeName: b"Ut._" => Err(ErrorKind::UnexpectedText));
+        assert_parse!(UnnamedTypeName: b"Ut42" => Err(ErrorKind::UnexpectedEnd));
+    }
 
     #[test]
     fn parse_identifier() {
