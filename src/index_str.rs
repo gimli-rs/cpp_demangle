@@ -22,7 +22,14 @@ impl<'a> IndexStr<'a> {
     }
 
     /// Return the length of the string.
-    pub fn len(&self) -> usize { self.string.len() }
+    pub fn len(&self) -> usize {
+        self.string.len()
+    }
+
+    /// Return true if the string is empty, false otherwise.
+    pub fn is_empty(&self) -> bool {
+        self.string.is_empty()
+    }
 
     /// TODO FITZGEN
     pub fn index(&self) -> usize {
@@ -42,9 +49,7 @@ impl<'a> IndexStr<'a> {
     /// The same as `split_at`, but returns a `Result` rather than panicking
     /// when the index is out of bounds.
     #[inline]
-    pub fn try_split_at(&self,
-                        idx: usize)
-                        -> Option<(IndexStr<'a>, IndexStr<'a>)> {
+    pub fn try_split_at(&self, idx: usize) -> Option<(IndexStr<'a>, IndexStr<'a>)> {
         if idx > self.len() {
             None
         } else {
@@ -102,9 +107,13 @@ impl<'a> AsRef<[u8]> for IndexStr<'a> {
 }
 
 impl<'a> From<&'a [u8]> for IndexStr<'a> {
-    fn from(s: &[u8]) -> IndexStr { IndexStr::new(s) }
+    fn from(s: &[u8]) -> IndexStr {
+        IndexStr::new(s)
+    }
 }
 
 impl<'a, 'b> PartialEq<&'a [u8]> for IndexStr<'b> {
-    fn eq(&self, rhs: &&[u8]) -> bool { self.string == *rhs }
+    fn eq(&self, rhs: &&[u8]) -> bool {
+        self.string == *rhs
+    }
 }
