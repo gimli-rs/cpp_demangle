@@ -299,7 +299,19 @@ pub struct PrefixTail;
 
 /// TODO FITZGEN
 #[derive(Clone, Debug, Hash, PartialEq, Eq)]
-pub struct TemplateParam;
+pub struct TemplateParam(Option<usize>);
+
+impl TemplateParam {
+    fn parse(input: IndexStr) -> Result<(TemplateParam, IndexStr)> {
+        let input = try!(consume(b"T", input));
+        let (number, input) = match parse_number(10, false, input) {
+            Ok((number, input)) => (Some(number as _), input),
+            Err(_) => (None, input),
+        };
+        let input = try!(consume(b"_", input));
+        Ok((TemplateParam(number), input))
+    }
+}
 
 fn parse_number(base: u32, allow_signed: bool, mut input: IndexStr) -> Result<(isize, IndexStr)> {
     if input.is_empty() {
@@ -482,8 +494,20 @@ define_vocabulary! {
 #[cfg(test)]
 mod tests {
     use super::{CtorDtorName, Identifier, Number, OperatorName, SeqId, SourceName,
-                UnnamedTypeName, UnqualifiedName};
+                TemplateParam, UnnamedTypeName, UnqualifiedName};
     use error::ErrorKind;
+
+    #[test]
+    fn parse_template_param() {
+        assert_parse!(TemplateParam: b"T_..." => Ok(TemplateParam(None), b"..."));
+        assert_parse!(TemplateParam: b"T3_..." => Ok(TemplateParam(Some(3)), b"..."));
+        assert_parse!(TemplateParam: b"wtf" => Err(ErrorKind::UnexpectedText));
+        assert_parse!(TemplateParam: b"Twtf" => Err(ErrorKind::UnexpectedText));
+        assert_parse!(TemplateParam: b"T3wtf" => Err(ErrorKind::UnexpectedText));
+        assert_parse!(TemplateParam: b"T" => Err(ErrorKind::UnexpectedEnd));
+        assert_parse!(TemplateParam: b"T3" => Err(ErrorKind::UnexpectedEnd));
+        assert_parse!(TemplateParam: b"" => Err(ErrorKind::UnexpectedEnd));
+    }
 
     #[test]
     fn parse_unqualified_name() {
