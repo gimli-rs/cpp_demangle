@@ -183,13 +183,17 @@ struct Number;
 
 impl Number {
     fn parse(input: IndexStr) -> Result<(usize, IndexStr)> {
+        if input.is_empty() {
+            return Err(ErrorKind::UnexpectedEnd.into());
+        }
+
         let num_numeric = input.as_ref()
             .iter()
             .map(|&c| c as char)
             .take_while(|c| c.is_numeric())
             .count();
         if num_numeric == 0 {
-            return Err(ErrorKind::UnexpectedEnd.into());
+            return Err(ErrorKind::UnexpectedText.into());
         }
 
         let (head, tail) = input.split_at(num_numeric);
@@ -341,7 +345,8 @@ mod tests {
         assert_parse!(Number: b"0abcdef" => Ok(0, b"abcdef"));
         assert_parse!(Number: b"42" => Ok(42, b""));
         assert_parse!(Number: b"001" => Err(ErrorKind::UnexpectedText));
-        assert_parse!(Number: b"wutang" => Err(ErrorKind::UnexpectedEnd));
+        assert_parse!(Number: b"wutang" => Err(ErrorKind::UnexpectedText));
+        assert_parse!(Number: b"" => Err(ErrorKind::UnexpectedEnd));
     }
 
     #[test]
