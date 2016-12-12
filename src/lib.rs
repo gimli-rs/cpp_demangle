@@ -138,6 +138,12 @@ pub struct BareFunctionType(Type);
 #[derive(Clone, Debug, Hash, PartialEq, Eq)]
 pub struct SeqId(usize);
 
+impl SeqId {
+    fn parse(input: IndexStr) -> Result<(SeqId, IndexStr)> {
+        parse_number(36, input).map(|(num, tail)| (SeqId(num), tail))
+    }
+}
+
 /// TODO FITZGEN
 #[derive(Clone, Debug, Hash, PartialEq, Eq)]
 pub struct Type;
@@ -178,43 +184,48 @@ pub struct PrefixTail;
 #[derive(Clone, Debug, Hash, PartialEq, Eq)]
 pub struct TemplateParam;
 
+fn parse_number(base: u32, input: IndexStr) -> Result<(usize, IndexStr)> {
+    if input.is_empty() {
+        return Err(ErrorKind::UnexpectedEnd.into());
+    }
+
+    let num_numeric = input.as_ref()
+        .iter()
+        .map(|&c| c as char)
+        .take_while(|c| c.is_digit(base) && (c.is_numeric() || c.is_uppercase()))
+        .count();
+    if num_numeric == 0 {
+        return Err(ErrorKind::UnexpectedText.into());
+    }
+
+    let (head, tail) = input.split_at(num_numeric);
+    let head = head.as_ref();
+
+    if num_numeric > 1 && head[0] == b'0' {
+        // "<number>s appearing in mangled names never have leading zeroes,
+        // except for the value zero, represented as '0'."
+        //
+        // There is similar behavior for <seq-id>.
+        return Err(ErrorKind::UnexpectedText.into());
+    }
+
+    let head = unsafe {
+        // Safe because we know we only have valid numeric chars in this
+        // slice.
+        ::std::str::from_utf8_unchecked(head)
+    };
+
+    let number = usize::from_str_radix(head, base).expect("We should only have numeric characters");
+
+    Ok((number, tail))
+}
+
 #[derive(Clone, Debug, Hash, PartialEq, Eq)]
-struct Number;
+enum Number {}
 
 impl Number {
     fn parse(input: IndexStr) -> Result<(usize, IndexStr)> {
-        if input.is_empty() {
-            return Err(ErrorKind::UnexpectedEnd.into());
-        }
-
-        let num_numeric = input.as_ref()
-            .iter()
-            .map(|&c| c as char)
-            .take_while(|c| c.is_numeric())
-            .count();
-        if num_numeric == 0 {
-            return Err(ErrorKind::UnexpectedText.into());
-        }
-
-        let (head, tail) = input.split_at(num_numeric);
-        let head = head.as_ref();
-
-        if num_numeric > 1 && head[0] == b'0' {
-            // "<number>s appearing in mangled names never have leading zeroes,
-            // except for the value zero, represented as '0'."
-            return Err(ErrorKind::UnexpectedText.into());
-        }
-
-        let head = unsafe {
-            // Safe because we know we only have valid numeric chars in this
-            // slice.
-            ::std::str::from_utf8_unchecked(head)
-        };
-
-        let number = usize::from_str_radix(head, 10)
-            .expect("We should only have numeric characters");
-
-        Ok((number, tail))
+        parse_number(10, input)
     }
 }
 
@@ -336,7 +347,7 @@ define_vocabulary! {
 
 #[cfg(test)]
 mod tests {
-    use super::{CtorDtorName, Number, OperatorName};
+    use super::{CtorDtorName, Number, OperatorName, SeqId};
     use error::ErrorKind;
 
     #[test]
@@ -347,6 +358,17 @@ mod tests {
         assert_parse!(Number: b"001" => Err(ErrorKind::UnexpectedText));
         assert_parse!(Number: b"wutang" => Err(ErrorKind::UnexpectedText));
         assert_parse!(Number: b"" => Err(ErrorKind::UnexpectedEnd));
+    }
+
+    #[test]
+    fn parse_seq_id() {
+        assert_parse!(SeqId: b"1_" => Ok(SeqId(1), b"_"));
+        assert_parse!(SeqId: b"42" => Ok(SeqId(146), b""));
+        assert_parse!(SeqId: b"ABCabc" => Ok(SeqId(13368), b"abc"));
+        assert_parse!(SeqId: b"abc" => Err(ErrorKind::UnexpectedText));
+        assert_parse!(SeqId: b"001" => Err(ErrorKind::UnexpectedText));
+        assert_parse!(SeqId: b"wutang" => Err(ErrorKind::UnexpectedText));
+        assert_parse!(SeqId: b"" => Err(ErrorKind::UnexpectedEnd));
     }
 
     #[test]
