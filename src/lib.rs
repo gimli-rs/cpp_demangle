@@ -140,7 +140,7 @@ pub struct SeqId(usize);
 
 impl SeqId {
     fn parse(input: IndexStr) -> Result<(SeqId, IndexStr)> {
-        parse_number(36, input).map(|(num, tail)| (SeqId(num), tail))
+        parse_number(36, false, input).map(|(num, tail)| (SeqId(num as _), tail))
     }
 }
 
@@ -184,10 +184,17 @@ pub struct PrefixTail;
 #[derive(Clone, Debug, Hash, PartialEq, Eq)]
 pub struct TemplateParam;
 
-fn parse_number(base: u32, input: IndexStr) -> Result<(usize, IndexStr)> {
+fn parse_number(base: u32, allow_signed: bool, mut input: IndexStr) -> Result<(isize, IndexStr)> {
     if input.is_empty() {
         return Err(ErrorKind::UnexpectedEnd.into());
     }
+
+    let num_is_negative = if allow_signed && input.as_ref()[0] == b'n' {
+        input = input.range_from(1..);
+        true
+    } else {
+        false
+    };
 
     let num_numeric = input.as_ref()
         .iter()
@@ -215,7 +222,11 @@ fn parse_number(base: u32, input: IndexStr) -> Result<(usize, IndexStr)> {
         ::std::str::from_utf8_unchecked(head)
     };
 
-    let number = usize::from_str_radix(head, base).expect("We should only have numeric characters");
+    let mut number = isize::from_str_radix(head, base)
+        .expect("We should only have numeric characters");
+    if num_is_negative {
+        number = -number;
+    }
 
     Ok((number, tail))
 }
@@ -224,8 +235,8 @@ fn parse_number(base: u32, input: IndexStr) -> Result<(usize, IndexStr)> {
 enum Number {}
 
 impl Number {
-    fn parse(input: IndexStr) -> Result<(usize, IndexStr)> {
-        parse_number(10, input)
+    fn parse(input: IndexStr) -> Result<(isize, IndexStr)> {
+        parse_number(10, true, input)
     }
 }
 
@@ -352,6 +363,7 @@ mod tests {
 
     #[test]
     fn parse_number() {
+        assert_parse!(Number: b"n2n3" => Ok(-2, b"n3"));
         assert_parse!(Number: b"12345abcdef" => Ok(12345, b"abcdef"));
         assert_parse!(Number: b"0abcdef" => Ok(0, b"abcdef"));
         assert_parse!(Number: b"42" => Ok(42, b""));
