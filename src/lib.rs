@@ -179,7 +179,7 @@ pub struct PrefixTail;
 pub struct TemplateParam;
 
 #[derive(Clone, Debug, Hash, PartialEq, Eq)]
-struct Number;
+enum Number {}
 
 impl Number {
     fn parse(input: IndexStr) -> Result<(usize, IndexStr)> {
