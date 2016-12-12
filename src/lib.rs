@@ -178,6 +178,42 @@ pub struct PrefixTail;
 #[derive(Clone, Debug, Hash, PartialEq, Eq)]
 pub struct TemplateParam;
 
+#[derive(Clone, Debug, Hash, PartialEq, Eq)]
+struct Number;
+
+impl Number {
+    fn parse(input: IndexStr) -> Result<(usize, IndexStr)> {
+        let num_numeric = input.as_ref()
+            .iter()
+            .map(|&c| c as char)
+            .take_while(|c| c.is_numeric())
+            .count();
+        if num_numeric == 0 {
+            return Err(ErrorKind::UnexpectedEnd.into());
+        }
+
+        let (head, tail) = input.split_at(num_numeric);
+        let head = head.as_ref();
+
+        if num_numeric > 1 && head[0] == b'0' {
+            // "<number>s appearing in mangled names never have leading zeroes,
+            // except for the value zero, represented as '0'."
+            return Err(ErrorKind::UnexpectedText.into());
+        }
+
+        let head = unsafe {
+            // Safe because we know we only have valid numeric chars in this
+            // slice.
+            ::std::str::from_utf8_unchecked(head)
+        };
+
+        let number = usize::from_str_radix(head, 10)
+            .expect("We should only have numeric characters");
+
+        Ok((number, tail))
+    }
+}
+
 /// Define a "vocabulary" nonterminal, something like `OperatorName` or
 /// `CtorDtorName` that's basically a big list of constant strings.
 /// This declares:
@@ -296,8 +332,17 @@ define_vocabulary! {
 
 #[cfg(test)]
 mod tests {
-    use super::{CtorDtorName, OperatorName};
+    use super::*;
     use error::ErrorKind;
+
+    #[test]
+    fn parse_number() {
+        assert_parse!(Number: b"12345abcdef" => Ok(12345, b"abcdef"));
+        assert_parse!(Number: b"0abcdef" => Ok(0, b"abcdef"));
+        assert_parse!(Number: b"42" => Ok(42, b""));
+        assert_parse!(Number: b"001" => Err(ErrorKind::UnexpectedText));
+        assert_parse!(Number: b"wutang" => Err(ErrorKind::UnexpectedEnd));
+    }
 
     #[test]
     fn parse_ctor_dtor_name() {
