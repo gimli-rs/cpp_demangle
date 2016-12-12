@@ -160,9 +160,37 @@ pub struct TemplateArgs;
 #[derive(Clone, Debug, Hash, PartialEq, Eq)]
 pub struct LocalName;
 
-/// TODO FITZGEN
+/// The <unqualified-name> production.
 #[derive(Clone, Debug, Hash, PartialEq, Eq)]
-pub struct UnqualifiedName;
+pub enum UnqualifiedName {
+    /// An operator name.
+    Operator(OperatorName),
+    /// A constructor/destructor name.
+    CtorDtor(CtorDtorName),
+    /// A source name.
+    Source(SourceName),
+    /// A generated name for an unnamed type.
+    UnnamedType(UnnamedTypeName),
+}
+
+impl UnqualifiedName {
+    fn parse(input: IndexStr) -> Result<(UnqualifiedName, IndexStr)> {
+        if let Ok((op, tail)) = OperatorName::parse(input) {
+            return Ok((UnqualifiedName::Operator(op), tail));
+        }
+
+        if let Ok((ctor_dtor, tail)) = CtorDtorName::parse(input) {
+            return Ok((UnqualifiedName::CtorDtor(ctor_dtor), tail));
+        }
+
+        if let Ok((source, tail)) = SourceName::parse(input) {
+            return Ok((UnqualifiedName::Source(source), tail));
+        }
+
+        UnnamedTypeName::parse(input)
+            .map(|(unnamed, tail)| (UnqualifiedName::UnnamedType(unnamed), tail))
+    }
+}
 
 /// The <source-name> non-terminal.
 #[derive(Clone, Debug, Hash, PartialEq, Eq)]
@@ -339,10 +367,12 @@ impl Number {
 ///
 /// See the definition of `CTorDtorName` for an example of its use.
 macro_rules! define_vocabulary {
-    ( $typename:ident { $($variant:ident ( $mangled:pat, $printable:expr )),* } ) => {
+    ( $(#[$attr:meta])* pub enum $typename:ident {
+        $($variant:ident ( $mangled:pat, $printable:expr )),*
+    } ) => {
 
-        #[derive(Clone, Debug, Hash, PartialEq, Eq)]
-        enum $typename {
+        $(#[$attr])*
+        pub enum $typename {
             $(
                 #[doc=$printable]
                 $variant
@@ -382,7 +412,9 @@ macro_rules! define_vocabulary {
 }
 
 define_vocabulary! {
-    OperatorName {
+    /// The <operator-name> production.
+    #[derive(Clone, Debug, Hash, PartialEq, Eq)]
+    pub enum OperatorName {
         // enum variant(mangled form, printable description)
         New              (b"nw",  "`new`"),
         NewArray         (b"na",  "`new[]`"),
@@ -435,7 +467,9 @@ define_vocabulary! {
 }
 
 define_vocabulary! {
-    CtorDtorName {
+    /// The <ctor-dtor-name> production.
+    #[derive(Clone, Debug, Hash, PartialEq, Eq)]
+    pub enum CtorDtorName {
         CompleteConstructor             (b"C1", "complete object constructor"),
         BaseConstructor                 (b"C2", "base object constructor"),
         CompleteAllocatingConstructor   (b"C3", "complete object allocating constructor"),
@@ -447,8 +481,26 @@ define_vocabulary! {
 
 #[cfg(test)]
 mod tests {
-    use super::{CtorDtorName, Identifier, Number, OperatorName, SeqId, SourceName, UnnamedTypeName};
+    use super::{CtorDtorName, Identifier, Number, OperatorName, SeqId, SourceName,
+                UnnamedTypeName, UnqualifiedName};
     use error::ErrorKind;
+
+    #[test]
+    fn parse_unqualified_name() {
+        assert_parse!(UnqualifiedName: b"qu.." =>
+                      Ok(UnqualifiedName::Operator(OperatorName::Question), b".."));
+        assert_parse!(UnqualifiedName: b"C1.." =>
+                      Ok(UnqualifiedName::CtorDtor(CtorDtorName::CompleteConstructor), b".."));
+        assert_parse!(UnqualifiedName: b"10abcdefghij..." =>
+                      Ok(UnqualifiedName::Source(SourceName(Identifier {
+                          start: 2,
+                          end: 12,
+                      })),
+                         b"..."));
+        assert_parse!(UnqualifiedName: b"Ut5_..." =>
+                      Ok(UnqualifiedName::UnnamedType(UnnamedTypeName(Some(5))),
+                         b"..."));
+    }
 
     #[test]
     fn parse_unnamed_type_name() {
