@@ -46,6 +46,63 @@ impl<T> Symbol<T>
     }
 }
 
+/// Define a "vocabulary" nonterminal, something like `OperatorName` or
+/// `CtorDtorName` that's basically a big list of constant strings.
+/// This declares:
+///
+/// - the enum itself
+/// - a `parse` method
+/// - a `std::fmt::Display` impl
+///
+/// See the definition of `CTorDtorName` for an example of its use.
+macro_rules! define_vocabulary {
+    ( $(#[$attr:meta])* pub enum $typename:ident {
+        $($variant:ident ( $mangled:expr, $printable:expr )),*
+    } ) => {
+
+        $(#[$attr])*
+        pub enum $typename {
+            $(
+                #[doc=$printable]
+                $variant
+            ),*
+        }
+
+        impl $typename {
+            fn parse(input: IndexStr) -> Result<($typename, IndexStr)> {
+                let mut found_prefix = false;
+                $(
+                    if let Some((head, tail)) = input.try_split_at($mangled.len()) {
+                        if head.as_ref() == $mangled {
+                            return Ok(($typename::$variant, tail));
+                        }
+                    } else {
+                        found_prefix |= 0 < input.len() &&
+                            input.len() < $mangled.len() &&
+                            input.as_ref() == &$mangled[..input.len()];
+                    }
+                )*
+
+                if input.len() == 0 || found_prefix {
+                    Err(ErrorKind::UnexpectedEnd.into())
+                } else {
+                    Err(ErrorKind::UnexpectedText.into())
+                }
+            }
+        }
+
+        impl fmt::Display for $typename {
+            fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+                f.write_str(match *self {
+                    $(
+                        $typename::$variant => $printable
+                    ),*
+                })
+            }
+        }
+    }
+}
+
 /// TODO FITZGEN
 #[derive(Clone, Debug, Hash, PartialEq, Eq)]
 pub struct MangledName(usize, Encoding);
@@ -308,6 +365,63 @@ pub struct CvQualifiers;
 #[derive(Clone, Debug, Hash, PartialEq, Eq)]
 pub struct RefQualifier;
 
+define_vocabulary! {
+    /// A standard builtin type.
+    #[derive(Clone, Debug, Hash, PartialEq, Eq)]
+    pub enum StandardBuiltinType {
+        Void             (b"v",  "void"),
+        Wchar            (b"w",  "wchar_t"),
+        Bool             (b"b",  "bool"),
+        Char             (b"c",  "char"),
+        SignedChar       (b"a",  "signed char"),
+        UnsignedChar     (b"h",  "unsigned char"),
+        Short            (b"s",  "short"),
+        UnsignedShort    (b"t",  "unsigned short"),
+        Int              (b"i",  "int"),
+        UnsignedInt      (b"j",  "unsigned int"),
+        Long             (b"l",  "long"),
+        UnsignedLong     (b"m",  "unsigned long"),
+        LongLong         (b"x",  "long long, __int64"),
+        UnsignedLongLong (b"y",  "unsigned long long, __int64"),
+        Int128           (b"n",  "__int128"),
+        Uint128          (b"o",  "unsigned __int128"),
+        Float            (b"f",  "float"),
+        Double           (b"d",  "double"),
+        LongDouble       (b"e",  "long double, __float80"),
+        Float128         (b"g",  "__float128"),
+        Ellipsis         (b"z",  "ellipsis"),
+        DecimalFloat64   (b"Dd", "IEEE 754r decimal floating point (64 bits)"),
+        DecimalFloat128  (b"De", "IEEE 754r decimal floating point (128 bits)"),
+        DecimalFloat32   (b"Df", "IEEE 754r decimal floating point (32 bits)"),
+        DecimalFloat16   (b"Dh", "IEEE 754r half-precision floating point (16 bits)"),
+        Char32           (b"Di", "char32_t"),
+        Char16           (b"Ds", "char16_t"),
+        Auto             (b"Da", "auto"),
+        Decltype         (b"Dc", "decltype(auto)"),
+        Nullptr          (b"Dn", "std::nullptr_t (i.e., decltype(nullptr))")
+    }
+}
+
+/// The <builtin-type> production.
+#[derive(Clone, Debug, Hash, PartialEq, Eq)]
+pub enum BuiltinType {
+    /// A standards compliant builtin type.
+    Standard(StandardBuiltinType),
+    /// A non-standard vendor extension type.
+    Extension(SourceName),
+}
+
+impl BuiltinType {
+    fn parse(input: IndexStr) -> Result<(BuiltinType, IndexStr)> {
+        let res = StandardBuiltinType::parse(input);
+        if let Ok((ty, tail)) = res {
+            return Ok((BuiltinType::Standard(ty), tail));
+        }
+
+        SourceName::parse(input).map(|(name, tail)| (BuiltinType::Extension(name), tail))
+    }
+}
+
 /// TODO FITZGEN
 #[derive(Clone, Debug, Hash, PartialEq, Eq)]
 pub struct TemplatePrefix;
@@ -384,60 +498,6 @@ impl Number {
     }
 }
 
-/// Define a "vocabulary" nonterminal, something like `OperatorName` or
-/// `CtorDtorName` that's basically a big list of constant strings.
-/// This declares:
-///
-/// - the enum itself
-/// - a `parse` method
-/// - a `std::fmt::Display` impl
-///
-/// See the definition of `CTorDtorName` for an example of its use.
-macro_rules! define_vocabulary {
-    ( $(#[$attr:meta])* pub enum $typename:ident {
-        $($variant:ident ( $mangled:pat, $printable:expr )),*
-    } ) => {
-
-        $(#[$attr])*
-        pub enum $typename {
-            $(
-                #[doc=$printable]
-                $variant
-            ),*
-        }
-
-        impl $typename {
-            fn parse(input: IndexStr) -> Result<($typename, IndexStr)> {
-                let (head, tail) = match input.try_split_at(2) {
-                    Some((head, tail)) => (head, tail),
-                    None => {
-                        return Err(ErrorKind::UnexpectedEnd.into());
-                    }
-                };
-                let name = match head.as_ref() {
-                    $(
-                        $mangled => $typename::$variant,
-                    )*
-                    _ => {
-                        return Err(ErrorKind::UnexpectedText.into());
-                    }
-                };
-                Ok((name, tail))
-            }
-        }
-
-        impl fmt::Display for $typename {
-            fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-                f.write_str(match *self {
-                    $(
-                        $typename::$variant => $printable
-                    ),*
-                })
-            }
-        }
-    }
-}
-
 define_vocabulary! {
     /// The <operator-name> production.
     #[derive(Clone, Debug, Hash, PartialEq, Eq)]
@@ -508,9 +568,25 @@ define_vocabulary! {
 
 #[cfg(test)]
 mod tests {
-    use super::{CtorDtorName, Identifier, Number, OperatorName, SeqId, SourceName,
-                TemplateParam, UnnamedTypeName, UnqualifiedName};
+    use super::{BuiltinType, CtorDtorName, Identifier, Number, OperatorName, SeqId, SourceName,
+                StandardBuiltinType, TemplateParam, UnnamedTypeName, UnqualifiedName};
     use error::ErrorKind;
+
+    #[test]
+    fn parse_builtin_type() {
+        assert_parse!(BuiltinType: b"c..." =>
+                      Ok(BuiltinType::Standard(StandardBuiltinType::Char), b"..."));
+        assert_parse!(BuiltinType: b"c" =>
+                      Ok(BuiltinType::Standard(StandardBuiltinType::Char), b""));
+        assert_parse!(BuiltinType: b"3abc..." =>
+                      Ok(BuiltinType::Extension(SourceName(Identifier {
+                          start: 1,
+                          end: 4,
+                      })),
+                         b"..."));
+        assert_parse!(BuiltinType: b"." => Err(ErrorKind::UnexpectedText));
+        assert_parse!(BuiltinType: b"" => Err(ErrorKind::UnexpectedEnd));
+    }
 
     #[test]
     fn parse_template_param() {
@@ -611,7 +687,7 @@ mod tests {
         assert_parse!(OperatorName: b"qu" => Ok(OperatorName::Question, b""));
         assert_parse!(OperatorName: b"quokka" => Ok(OperatorName::Question, b"okka"));
         assert_parse!(OperatorName: b"bu-buuu" => Err(ErrorKind::UnexpectedText));
-        assert_parse!(OperatorName: b"b" => Err(ErrorKind::UnexpectedEnd));
+        assert_parse!(OperatorName: b"q" => Err(ErrorKind::UnexpectedEnd));
         assert_parse!(OperatorName: b"" => Err(ErrorKind::UnexpectedEnd));
     }
 }
