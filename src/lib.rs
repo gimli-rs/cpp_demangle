@@ -592,6 +592,39 @@ define_vocabulary! {
     }
 }
 
+/// The <call-offset> production.
+#[derive(Clone, Debug, Hash, PartialEq, Eq)]
+pub enum CallOffset {
+    /// A non-virtual offset.
+    NonVirtual(NvOffset),
+    /// A virtual offset.
+    Virtual(VOffset),
+}
+
+impl Parse for CallOffset {
+    type Output = Self;
+
+    fn parse(input: IndexStr) -> Result<(CallOffset, IndexStr)> {
+        if input.len() == 0 {
+            return Err(ErrorKind::UnexpectedEnd.into());
+        }
+
+        if let Ok(tail) = consume(b"h", input) {
+            let (offset, tail) = try!(NvOffset::parse(tail));
+            let tail = try!(consume(b"_", tail));
+            return Ok((CallOffset::NonVirtual(offset), tail));
+        }
+
+        if let Ok(tail) = consume(b"v", input) {
+            let (offset, tail) = try!(VOffset::parse(tail));
+            let tail = try!(consume(b"_", tail));
+            return Ok((CallOffset::Virtual(offset), tail));
+        }
+
+        Err(ErrorKind::UnexpectedText.into())
+    }
+}
+
 /// A non-virtual offset, as described by the <nv-offset> production.
 #[derive(Clone, Debug, Hash, PartialEq, Eq)]
 pub struct NvOffset(isize);
@@ -635,9 +668,9 @@ define_vocabulary! {
 #[cfg(test)]
 mod tests {
     use error::ErrorKind;
-    use super::{BuiltinType, CtorDtorName, Identifier, Number, NvOffset, OperatorName,
-                Parse, SeqId, SourceName, StandardBuiltinType, TemplateParam,
-                UnnamedTypeName, UnqualifiedName, VOffset};
+    use super::{BuiltinType, CallOffset, CtorDtorName, Identifier, Number, NvOffset,
+                OperatorName, Parse, SeqId, SourceName, StandardBuiltinType,
+                TemplateParam, UnnamedTypeName, UnqualifiedName, VOffset};
 
     #[test]
     fn parse_builtin_type() {
@@ -728,6 +761,20 @@ mod tests {
         assert_parse!(Number: b"wutang" => Err(ErrorKind::UnexpectedText));
         assert_parse!(Number: b"n" => Err(ErrorKind::UnexpectedEnd));
         assert_parse!(Number: b"" => Err(ErrorKind::UnexpectedEnd));
+    }
+
+    #[test]
+    fn parse_call_offset() {
+        assert_parse!(CallOffset: b"hn42_..." =>
+                      Ok(CallOffset::NonVirtual(NvOffset(-42)), b"..."));
+        assert_parse!(CallOffset: b"vn42_36_..." =>
+                      Ok(CallOffset::Virtual(VOffset(-42, 36)), b"..."));
+        assert_parse!(CallOffset: b"h1..." => Err(ErrorKind::UnexpectedText));
+        assert_parse!(CallOffset: b"v1_1..." => Err(ErrorKind::UnexpectedText));
+        assert_parse!(CallOffset: b"hh" => Err(ErrorKind::UnexpectedText));
+        assert_parse!(CallOffset: b"vv" => Err(ErrorKind::UnexpectedText));
+        assert_parse!(CallOffset: b"z" => Err(ErrorKind::UnexpectedText));
+        assert_parse!(CallOffset: b"" => Err(ErrorKind::UnexpectedEnd));
     }
 
     #[test]
