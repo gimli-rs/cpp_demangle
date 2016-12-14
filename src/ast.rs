@@ -17,10 +17,11 @@ trait Parse {
 
 /// Define a "vocabulary" nonterminal, something like `OperatorName` or
 /// `CtorDtorName` that's basically a big list of constant strings.
+///
 /// This declares:
 ///
 /// - the enum itself
-/// - a `parse` method
+/// - a `Parse` impl
 /// - a `std::fmt::Display` impl
 ///
 /// See the definition of `CTorDtorName` for an example of its use.
