@@ -481,6 +481,11 @@ fn parse_number(base: u32,
 
     let num_is_negative = if allow_signed && input.as_ref()[0] == b'n' {
         input = input.range_from(1..);
+
+        if input.is_empty() {
+            return Err(ErrorKind::UnexpectedEnd.into());
+        }
+
         true
     } else {
         false
@@ -599,6 +604,21 @@ impl Parse for NvOffset {
     }
 }
 
+/// A virtual offset, as described by the <v-offset> production.
+#[derive(Clone, Debug, Hash, PartialEq, Eq)]
+pub struct VOffset(isize, isize);
+
+impl Parse for VOffset {
+    type Output = Self;
+
+    fn parse(input: IndexStr) -> Result<(VOffset, IndexStr)> {
+        let (offset, tail) = try!(Number::parse(input));
+        let tail = try!(consume(b"_", tail));
+        let (virtual_offset, tail) = try!(Number::parse(tail));
+        Ok((VOffset(offset, virtual_offset), tail))
+    }
+}
+
 define_vocabulary! {
     /// The <ctor-dtor-name> production.
     #[derive(Clone, Debug, Hash, PartialEq, Eq)]
@@ -617,7 +637,7 @@ mod tests {
     use error::ErrorKind;
     use super::{BuiltinType, CtorDtorName, Identifier, Number, NvOffset, OperatorName,
                 Parse, SeqId, SourceName, StandardBuiltinType, TemplateParam,
-                UnnamedTypeName, UnqualifiedName};
+                UnnamedTypeName, UnqualifiedName, VOffset};
 
     #[test]
     fn parse_builtin_type() {
@@ -706,7 +726,24 @@ mod tests {
         assert_parse!(Number: b"42" => Ok(42, b""));
         assert_parse!(Number: b"001" => Err(ErrorKind::UnexpectedText));
         assert_parse!(Number: b"wutang" => Err(ErrorKind::UnexpectedText));
+        assert_parse!(Number: b"n" => Err(ErrorKind::UnexpectedEnd));
         assert_parse!(Number: b"" => Err(ErrorKind::UnexpectedEnd));
+    }
+
+    #[test]
+    fn parse_v_offset() {
+        assert_parse!(VOffset: b"n2_n3abcdef" => Ok(VOffset(-2, -3), b"abcdef"));
+        assert_parse!(VOffset: b"12345_12345abcdef" => Ok(VOffset(12345, 12345), b"abcdef"));
+        assert_parse!(VOffset: b"0_0abcdef" => Ok(VOffset(0, 0), b"abcdef"));
+        assert_parse!(VOffset: b"42_n3" => Ok(VOffset(42, -3), b""));
+        assert_parse!(VOffset: b"001" => Err(ErrorKind::UnexpectedText));
+        assert_parse!(VOffset: b"1_001" => Err(ErrorKind::UnexpectedText));
+        assert_parse!(VOffset: b"wutang" => Err(ErrorKind::UnexpectedText));
+        assert_parse!(VOffset: b"n_" => Err(ErrorKind::UnexpectedText));
+        assert_parse!(VOffset: b"1_n" => Err(ErrorKind::UnexpectedEnd));
+        assert_parse!(VOffset: b"1_" => Err(ErrorKind::UnexpectedEnd));
+        assert_parse!(VOffset: b"n" => Err(ErrorKind::UnexpectedEnd));
+        assert_parse!(VOffset: b"" => Err(ErrorKind::UnexpectedEnd));
     }
 
     #[test]
