@@ -1,6 +1,31 @@
-//! TODO FITZGEN
+//! This crate can parse a C++ “mangled” linker symbol name into a Rust value
+//! describing what the name refers to: a variable, a function, a virtual table,
+//! etc. The description type implements `Display`, producing human-readable
+//! text describing the mangled name. Debuggers and profilers can use this crate
+//! to provide more meaningful output.
+//!
+//! C++ requires the compiler to choose names for linker symbols consistently
+//! across compilation units, so that two compilation units that have seen the
+//! same declarations can pair up definitions in one unit with references in
+//! another.  Almost all platforms other than Microsoft Windows follow the
+//! [Itanium C++ ABI][itanium]'s rules for this.
+//!
+//! [itanium]: http://mentorembedded.github.io/cxx-abi/abi.html#mangling
+//!
+//! For example, suppose a C++ compilation unit has the definition:
+//!
+//! ```c++
+//! namespace space {
+//!   int foo(int x, int y) { return x+y; }
+//! }
+//! ```
+//!
+//! The Itanium C++ ABI specifies that the linker symbol for that function must
+//! be named `_ZN5space3fooEii`. This crate can parse that name into a Rust
+//! value representing its structure. Formatting the value with `format!` or
+//! `to_string` would yield the string `"space::foo(int, int)"`, which is more
+//! meaningful to the C++ developer.
 
-#![allow(dead_code, unused_variables)]
 #![deny(missing_docs)]
 #![deny(missing_debug_implementations)]
 #![deny(warnings)]
@@ -21,13 +46,16 @@ use error::{ErrorKind, Result};
 use index_str::IndexStr;
 use std::fmt;
 
-/// TODO FITZGEN
+/// A `Symbol` which owns the underlying storage for the mangled name.
 pub type OwnedSymbol = Symbol<Vec<u8>>;
 
-/// TODO FITZGEN
+/// A `Symbol` which borrows the underlying storage for the mangled name.
 pub type BorrowedSymbol<'a> = Symbol<&'a [u8]>;
 
-/// TODO FITZGEN
+/// A mangled symbol that has been parsed into an AST.
+///
+/// This is generic over some storage type `T` which can be either owned or
+/// borrowed. See the `OwnedSymbol` and `BorrowedSymbol` type aliases.
 #[derive(Clone, Debug, Hash, PartialEq, Eq)]
 pub struct Symbol<T> {
     raw: T,
@@ -37,10 +65,27 @@ pub struct Symbol<T> {
 impl<T> Symbol<T>
     where T: AsRef<[u8]>
 {
-    /// TODO FITZGEN
+    /// Given some raw storage, parse the mangled symbol from it.
+    ///
+    /// ```should-panic
+    /// use cpp_demangle::Symbol;
+    ///
+    /// let mangled = b"_ZN5space3fooEii";
+    /// let sym = Symbol::new(mangled).expect("Could not parse mangled symbol!");
+    /// println!("The demangled symbol is '{}'", sym);
+    /// // prints "The demangled symbol is 'space::foo(int, int)'"
+    /// ```
     pub fn new(raw: T) -> Result<Symbol<T>> {
         let input = IndexStr::new(raw.as_ref());
         let _ = input;
+        unimplemented!()
+    }
+}
+
+impl<T> fmt::Display for Symbol<T>
+    where T: AsRef<[u8]>
+{
+    fn fmt(&self, _f: &mut fmt::Formatter) -> fmt::Result {
         unimplemented!()
     }
 }
@@ -115,116 +160,196 @@ macro_rules! define_vocabulary {
     }
 }
 
-/// TODO FITZGEN
+/// The root AST node, and starting production.
+///
+/// ```text
+/// <mangled-name> ::= _Z <encoding>
+/// ```
 #[derive(Clone, Debug, Hash, PartialEq, Eq)]
 pub struct MangledName(usize, Encoding);
 
 impl Parse for MangledName {
     type Output = Self;
 
-    fn parse(input: IndexStr) -> Result<(MangledName, IndexStr)> {
+    fn parse(_input: IndexStr) -> Result<(MangledName, IndexStr)> {
         unimplemented!()
     }
 }
 
-/// TODO FITZGEN
+/// The <encoding> production.
+///
+/// ```text
+/// <encoding> ::= <function name> <bare-function-type>
+///            ::= <data name>
+///            ::= <special-name>
+/// ```
 #[derive(Clone, Debug, Hash, PartialEq, Eq)]
 pub enum Encoding {
-    /// TODO FITZGEN
+    /// An encoded function.
     Function(Name, BareFunctionType),
 
-    /// TODO FITZGEN
+    /// An encoded static variable.
     Data(Name),
 
-    /// TODO FITZGEN
+    /// A special encoding.
     Special(SpecialName),
 }
 
-/// TODO FITZGEN
+/// The <name> production.
+///
+/// ```text
+/// <name> ::= <nested-name>
+///        ::= <unscoped-name>
+///        ::= <unscoped-template-name> <template-args>
+///        ::= <local-name>
+/// ```
 #[derive(Clone, Debug, Hash, PartialEq, Eq)]
 pub enum Name {
-    /// TODO FITZGEN
+    /// A nested name
     Nested(NestedName),
 
-    /// TODO FITZGEN
+    /// An unscoped name.
     Unscoped(UnscopedName),
 
-    /// TODO FITZGEN
+    /// An unscoped template.
     UnscopedTemplate(UnscopedTemplateName, TemplateArgs),
 
-    /// TODO FITZGEN
+    /// A local name.
     Local(LocalName),
 }
 
-/// TODO FITZGEN
+/// The <unscoped-name> production.
+///
+/// ```text
+/// <unscoped-name> ::= <unqualified-name>
+///                 ::= St <unqualified-name>   # ::std::
+///```
 #[derive(Clone, Debug, Hash, PartialEq, Eq)]
 pub enum UnscopedName {
-    /// TODO FITZGEN
+    /// An unqualified name.
     Unqualified(UnqualifiedName),
 
-    /// TODO FITZGEN
+    /// A name within the `std::` namespace.
     Std(UnqualifiedName),
 }
 
-/// TODO FITZGEN
+/// The <unscoped-template-name> production.
+///
+/// ```text
+/// <unscoped-template-name> ::= <unscoped-name>
+///                          ::= <substitution>
+///```
 #[derive(Clone, Debug, Hash, PartialEq, Eq)]
 pub enum UnscopedTemplateName {
-    /// TODO FITZGEN
+    /// An unscoped name.
     Unscoped(UnscopedName),
 
-    /// TODO FITZGEN
+    /// A substitution.
     Substitution(Substitution),
 }
 
-/// TODO FITZGEN
+/// The <nested-name> production.
+///
+/// ```text
+/// <nested-name> ::= N [<CV-qualifiers>] [<ref-qualifier>] <prefix> <unqualified-name> E
+///               ::= N [<CV-qualifiers>] [<ref-qualifier>] <template-prefix> <template-args> E
+///```
 #[derive(Clone, Debug, Hash, PartialEq, Eq)]
 pub enum NestedName {
-    /// TODO FITZGEN
+    /// An unquaified name.
     Unqualified(CvQualifiers, RefQualifier, Prefix, UnqualifiedName),
 
-    /// TODO FITZGEN
+    /// A template name.
     Template(CvQualifiers, RefQualifier, TemplatePrefix, TemplateArgs),
 }
 
-/// TODO FITZGEN
+/// The <prefix> production.
+///
+/// Note that it has been refactored and split into `Prefix` and `PrefixTail` to
+/// remove the left-recursion.
+///
+/// ```text
+/// <prefix> ::= <unqualified-name>                 # global class or namespace
+///          ::= <prefix> <unqualified-name>        # nested class or namespace
+///          ::= <template-prefix> <template-args>  # class template specialization
+///          ::= <template-param>                   # template type parameter
+///          ::= <decltype>                         # decltype qualifier
+///          ::= <prefix> <data-member-prefix>      # initializer of a data member
+///          ::= <substitution>
+///```
 #[derive(Clone, Debug, Hash, PartialEq, Eq)]
 pub enum Prefix {
-    /// TODO FITZGEN
+    /// An unqualified name and optionally more prefix.
     Unqualified(UnqualifiedName, Option<PrefixTail>),
-    /// TODO FITZGEN
+    /// A template and optionally more prefix.
     Template(TemplatePrefix, TemplateArgs, Option<PrefixTail>),
-    /// TODO FITZGEN
+    /// A template parameter and optionally more prefix.
     TemplateParam(TemplateParam, Option<PrefixTail>),
-    /// TODO FITZGEN
+    /// A `decltype` and optionally more prefix.
     Decltype(Decltype, Option<PrefixTail>),
 }
 
-/// TODO FITZGEN
+/// The second half of the <prefix> production with left-recursion factored out.
 #[derive(Clone, Debug, Hash, PartialEq, Eq)]
 pub enum PrefixTail {
-    /// TODO FITZGEN
+    /// An unqualified name and optionally more prefix.
     Unqualified(UnqualifiedName, Option<Box<PrefixTail>>),
-    /// TODO FITZGEN
+    /// A data member and optionally more prefix.
     DataMember(DataMemberPrefix, Option<Box<PrefixTail>>),
 }
 
-/// TODO FITZGEN
+/// The <data-member-prefix> production.
+///
+/// ```text
+/// <data-member-prefix> := <member source-name> M
+/// ```
 #[derive(Clone, Debug, Hash, PartialEq, Eq)]
-pub struct DataMemberPrefix;
+pub struct DataMemberPrefix(SourceName);
 
-/// TODO FITZGEN
+/// The <decltype> production.
+///
+/// ```text
+/// <decltype> ::= Dt <expression> E  # decltype of an id-expression or class member access (C++0x)
+///            ::= DT <expression> E  # decltype of an expression (C++0x)
+/// ```
 #[derive(Clone, Debug, Hash, PartialEq, Eq)]
 pub struct Decltype;
 
-/// TODO FITZGEN
+/// The <substitution> form: a back-reference to some component we've already
+/// parsed.
+///
+/// ```text
+/// <substitution> ::= S <seq-id> _
+///                ::= S_
+///                ::= St # ::std::
+///                ::= Sa # ::std::allocator
+///                ::= Sb # ::std::basic_string
+///                ::= Ss # ::std::basic_string < char,
+///                                               ::std::char_traits<char>,
+///                                               ::std::allocator<char> >
+///                ::= Si # ::std::basic_istream<char,  std::char_traits<char> >
+///                ::= So # ::std::basic_ostream<char,  std::char_traits<char> >
+///                ::= Sd # ::std::basic_iostream<char, std::char_traits<char> >
+/// ```
+///
+/// TODO FITZGEN: support the other substitution forms
 #[derive(Clone, Debug, Hash, PartialEq, Eq)]
 pub struct Substitution(Option<SeqId>);
 
-/// TODO FITZGEN
+/// The <bare-function-type> production.
+///
+/// ```text
+/// <bare-function-type> ::= <signature type>+
+///      # types are possible return type, then parameter types
+/// ```
 #[derive(Clone, Debug, Hash, PartialEq, Eq)]
-pub struct BareFunctionType(Type);
+pub struct BareFunctionType(Vec<Type>);
 
-/// TODO FITZGEN
+/// A <seq-id> production encoding a base-36 positive number.
+///
+/// ```text
+/// <seq-id> ::= <0-9A-Z>+
+/// ```
 #[derive(Clone, Debug, Hash, PartialEq, Eq)]
 pub struct SeqId(usize);
 
@@ -236,28 +361,84 @@ impl Parse for SeqId {
     }
 }
 
-/// TODO FITZGEN
+/// The <type> production.
+///
+/// ```text
+///
+/// <type> ::= <builtin-type>
+///        ::= <function-type>
+///        ::= <class-enum-type>
+///        ::= <array-type>
+///        ::= <pointer-to-member-type>
+///        ::= <template-param>
+///        ::= <template-template-param> <template-args>
+///        ::= <decltype>
+///        ::= <substitution>                           # See Compression below
+///        ::= <CV-qualifiers> <type>
+///        ::= P <type>                                 # pointer-to
+///        ::= R <type>                                 # reference-to
+///        ::= O <type>                                 # rvalue reference-to (C++0x)
+///        ::= C <type>                                 # complex pair (C 2000)
+///        ::= G <type>                                 # imaginary (C 2000)
+///        ::= U <source-name> [<template-args>] <type> # vendor extended type qualifier
+/// ```
 #[derive(Clone, Debug, Hash, PartialEq, Eq)]
 pub struct Type;
 
-/// TODO FITZGEN
+/// The <special-name> production.
 #[derive(Clone, Debug, Hash, PartialEq, Eq)]
 pub struct SpecialName;
 
-/// TODO FITZGEN
+/// The <template-args> production.
+///
+/// ```text
+/// <template-args> ::= I <template-arg>+ E
+/// ```
 #[derive(Clone, Debug, Hash, PartialEq, Eq)]
-pub struct TemplateArgs;
+pub struct TemplateArgs(Vec<TemplateArg>);
 
-/// TODO FITZGEN
+/// A <template-arg> production.
+///
+/// ```text
+/// <template-arg> ::= <type>                # type or template
+///                ::= X <expression> E      # expression
+///                ::= <expr-primary>        # simple expressions
+///                ::= J <template-arg>* E   # argument pack
+/// ```
+#[derive(Clone, Debug, Hash, PartialEq, Eq)]
+pub struct TemplateArg;
+
+/// The <local-name> production.
+///
+/// ```text
+/// <local-name> := Z <function encoding> E <entity name> [<discriminator>]
+///              := Z <function encoding> E s [<discriminator>]
+///```
 #[derive(Clone, Debug, Hash, PartialEq, Eq)]
 pub struct LocalName;
 
+/// The <discriminator> production.
+///
+/// ```text
+/// <discriminator> := _ <non-negative number>      # when number < 10
+///                 := __ <non-negative number> _   # when number >= 10
+/// ```
+#[derive(Clone, Debug, Hash, PartialEq, Eq)]
+pub struct Discriminator(usize);
+
 /// The <unqualified-name> production.
+///
+/// ```text
+/// <unqualified-name> ::= <operator-name>
+///                    ::= <ctor-dtor-name>
+///                    ::= <source-name>
+///                    ::= <unnamed-type-name>
+/// ```
 #[derive(Clone, Debug, Hash, PartialEq, Eq)]
 pub enum UnqualifiedName {
     /// An operator name.
     Operator(OperatorName),
-    /// A constructor/destructor name.
+    /// A constructor or destructor name.
     CtorDtor(CtorDtorName),
     /// A source name.
     Source(SourceName),
@@ -287,6 +468,10 @@ impl Parse for UnqualifiedName {
 }
 
 /// The <source-name> non-terminal.
+///
+/// ```text
+/// <source-name> ::= <positive length number> <identifier>
+///```
 #[derive(Clone, Debug, Hash, PartialEq, Eq)]
 pub struct SourceName(Identifier);
 
@@ -315,7 +500,16 @@ impl Parse for SourceName {
     }
 }
 
-/// The <identifier> pseudo terminal.
+/// The <identifier> pseudo-terminal.
+///
+/// ```text
+/// <identifier> ::= <unqualified source code identifier>
+/// ```
+///
+/// > `<identifier>` is a pseudo-terminal representing the characters in the
+/// > unqualified identifier for the entity in the source code. This ABI does not
+/// > yet specify a mangling for identifiers containing characters outside of
+/// > `_A-Za-z0-9`.
 #[derive(Clone, Debug, Hash, PartialEq, Eq)]
 pub struct Identifier {
     start: usize,
@@ -363,7 +557,11 @@ fn consume<'a>(expected: &[u8], input: IndexStr<'a>) -> Result<IndexStr<'a>> {
     }
 }
 
-/// The <unnamed-type-name> non-terminal.
+/// The <unnamed-type-name> production.
+///
+/// ```text
+/// <unnamed-type-name> ::= Ut [ <nonnegative number> ] _
+/// ```
 #[derive(Clone, Debug, Hash, PartialEq, Eq)]
 pub struct UnnamedTypeName(Option<usize>);
 
@@ -381,16 +579,58 @@ impl Parse for UnnamedTypeName {
     }
 }
 
-/// TODO FITZGEN
+/// The <CV-qualifiers> production.
+///
+/// ```text
+/// <CV-qualifiers> ::= [r] [V] [K]   # restrict (C99), volatile, const
+/// ```
 #[derive(Clone, Debug, Hash, PartialEq, Eq)]
 pub struct CvQualifiers;
 
-/// TODO FITZGEN
+/// A <ref-qualifier> production.
+///
+/// ```text
+/// <ref-qualifier> ::= R   # & ref-qualifier
+///                 ::= O   # && ref-qualifier
+/// ```
 #[derive(Clone, Debug, Hash, PartialEq, Eq)]
 pub struct RefQualifier;
 
 define_vocabulary! {
-    /// A standard builtin type.
+    /// A one of the standard variants of the <builtin-type> production.
+    ///
+    /// ```text
+    /// <builtin-type> ::= v  # void
+    ///                ::= w  # wchar_t
+    ///                ::= b  # bool
+    ///                ::= c  # char
+    ///                ::= a  # signed char
+    ///                ::= h  # unsigned char
+    ///                ::= s  # short
+    ///                ::= t  # unsigned short
+    ///                ::= i  # int
+    ///                ::= j  # unsigned int
+    ///                ::= l  # long
+    ///                ::= m  # unsigned long
+    ///                ::= x  # long long, __int64
+    ///                ::= y  # unsigned long long, __int64
+    ///                ::= n  # __int128
+    ///                ::= o  # unsigned __int128
+    ///                ::= f  # float
+    ///                ::= d  # double
+    ///                ::= e  # long double, __float80
+    ///                ::= g  # __float128
+    ///                ::= z  # ellipsis
+    ///                ::= Dd # IEEE 754r decimal floating point (64 bits)
+    ///                ::= De # IEEE 754r decimal floating point (128 bits)
+    ///                ::= Df # IEEE 754r decimal floating point (32 bits)
+    ///                ::= Dh # IEEE 754r half-precision floating point (16 bits)
+    ///                ::= Di # char32_t
+    ///                ::= Ds # char16_t
+    ///                ::= Da # auto
+    ///                ::= Dc # decltype(auto)
+    ///                ::= Dn # std::nullptr_t (i.e., decltype(nullptr))
+    /// ```
     #[derive(Clone, Debug, Hash, PartialEq, Eq)]
     pub enum StandardBuiltinType {
         Void             (b"v",  "void"),
@@ -431,7 +671,12 @@ define_vocabulary! {
 pub enum BuiltinType {
     /// A standards compliant builtin type.
     Standard(StandardBuiltinType),
-    /// A non-standard vendor extension type.
+
+    /// A non-standard, vendor extension type.
+    ///
+    /// ```text
+    /// <builtin-type> ::= u <source-name>   # vendor extended type
+    /// ```
     Extension(SourceName),
 }
 
@@ -439,22 +684,44 @@ impl Parse for BuiltinType {
     type Output = Self;
 
     fn parse(input: IndexStr) -> Result<(BuiltinType, IndexStr)> {
-        let res = StandardBuiltinType::parse(input);
-        if let Ok((ty, tail)) = res {
+        if let Ok((ty, tail)) = StandardBuiltinType::parse(input) {
             return Ok((BuiltinType::Standard(ty), tail));
         }
 
-        SourceName::parse(input).map(|(name, tail)| (BuiltinType::Extension(name), tail))
+        let tail = try!(consume(b"u", input));
+        let (name, tail) = try!(SourceName::parse(tail));
+        Ok((BuiltinType::Extension(name), tail))
     }
 }
 
-/// TODO FITZGEN
+/// The <template-prefix> production.
+///
+/// ```text
+/// <template-prefix> ::= <template unqualified-name>            # global template
+///                   ::= <prefix> <template unqualified-name>   # nested template
+///                   ::= <template-param>                       # template template parameter
+///                   ::= <substitution>
+/// ```
 #[derive(Clone, Debug, Hash, PartialEq, Eq)]
 pub struct TemplatePrefix;
 
-/// TODO FITZGEN
+/// The <template-param> production.
+///
+/// ```text
+/// <template-param> ::= T_ # first template parameter
+///                  ::= T <parameter-2 non-negative number> _
+/// ```
 #[derive(Clone, Debug, Hash, PartialEq, Eq)]
 pub struct TemplateParam(Option<usize>);
+
+/// The <template-template-param> production.
+///
+/// ```text
+/// <template-template-param> ::= <template-param>
+///                           ::= <substitution>
+/// ```
+#[derive(Clone, Debug, Hash, PartialEq, Eq)]
+pub struct TemplateTemplateParam;
 
 impl Parse for TemplateParam {
     type Output = Self;
@@ -470,6 +737,8 @@ impl Parse for TemplateParam {
     }
 }
 
+/// Parse a number with the given `base`. Do not allow negative numbers
+/// (prefixed with an 'n' instead of a '-') if `allow_signed` is false.
 fn parse_number(base: u32,
                 allow_signed: bool,
                 mut input: IndexStr)
@@ -505,8 +774,6 @@ fn parse_number(base: u32,
     if num_numeric > 1 && head[0] == b'0' {
         // "<number>s appearing in mangled names never have leading zeroes,
         // except for the value zero, represented as '0'."
-        //
-        // There is similar behavior for <seq-id>.
         return Err(ErrorKind::UnexpectedText.into());
     }
 
@@ -525,6 +792,11 @@ fn parse_number(base: u32,
     Ok((number, tail))
 }
 
+/// The <number> production.
+///
+/// ```text
+/// <number> ::= [n] <non-negative decimal integer>
+/// ```
 #[derive(Clone, Debug, Hash, PartialEq, Eq)]
 enum Number {}
 
@@ -536,6 +808,11 @@ impl Parse for Number {
     }
 }
 
+// TODO: support the rest of <operator-name>:
+//
+// ::= cv <type>               # (cast)
+// ::= li <source-name>        # operator ""
+// ::= v <digit> <source-name> # vendor extended operator
 define_vocabulary! {
     /// The <operator-name> production.
     #[derive(Clone, Debug, Hash, PartialEq, Eq)]
@@ -592,6 +869,11 @@ define_vocabulary! {
 }
 
 /// The <call-offset> production.
+///
+/// ```text
+/// <call-offset> ::= h <nv-offset> _
+///               ::= v <v-offset> _
+/// ```
 #[derive(Clone, Debug, Hash, PartialEq, Eq)]
 pub enum CallOffset {
     /// A non-virtual offset.
@@ -625,6 +907,10 @@ impl Parse for CallOffset {
 }
 
 /// A non-virtual offset, as described by the <nv-offset> production.
+///
+/// ```text
+/// <nv-offset> ::= <offset number>
+/// ```
 #[derive(Clone, Debug, Hash, PartialEq, Eq)]
 pub struct NvOffset(isize);
 
@@ -637,6 +923,10 @@ impl Parse for NvOffset {
 }
 
 /// A virtual offset, as described by the <v-offset> production.
+///
+/// ```text
+/// <v-offset> ::= <offset number> _ <virtual offset number>
+/// ```
 #[derive(Clone, Debug, Hash, PartialEq, Eq)]
 pub struct VOffset(isize, isize);
 
@@ -653,6 +943,15 @@ impl Parse for VOffset {
 
 define_vocabulary! {
     /// The <ctor-dtor-name> production.
+    ///
+    /// ```text
+    /// <ctor-dtor-name> ::= C1  # complete object constructor
+    ///                  ::= C2  # base object constructor
+    ///                  ::= C3  # complete object allocating constructor
+    ///                  ::= D0  # deleting destructor
+    ///                  ::= D1  # complete object destructor
+    ///                  ::= D2  # base object destructor
+    /// ```
     #[derive(Clone, Debug, Hash, PartialEq, Eq)]
     pub enum CtorDtorName {
         CompleteConstructor             (b"C1", "complete object constructor"),
@@ -677,10 +976,10 @@ mod tests {
                       Ok(BuiltinType::Standard(StandardBuiltinType::Char), b"..."));
         assert_parse!(BuiltinType: b"c" =>
                       Ok(BuiltinType::Standard(StandardBuiltinType::Char), b""));
-        assert_parse!(BuiltinType: b"3abc..." =>
+        assert_parse!(BuiltinType: b"u3abc..." =>
                       Ok(BuiltinType::Extension(SourceName(Identifier {
-                          start: 1,
-                          end: 4,
+                          start: 2,
+                          end: 5,
                       })),
                          b"..."));
         assert_parse!(BuiltinType: b"." => Err(ErrorKind::UnexpectedText));
