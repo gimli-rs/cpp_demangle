@@ -1,0 +1,5 @@
+max_width = 90
+format_strings = false
+reorder_imports = true
+reorder_imported_names = true
+write_mode = "Overwrite"

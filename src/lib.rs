@@ -46,6 +46,17 @@ impl<T> Symbol<T>
     }
 }
 
+/// A trait for anything that can be parsed from an `IndexStr` and return a
+/// `Result` of the parsed `Self::Output` value and the rest of the `IndexStr`
+/// input that has not been consumed in parsing the `Self::Output` value.
+trait Parse {
+    /// The result of parsing.
+    type Output: Sized;
+
+    /// Parse the `Self::Output` value from `input`.
+    fn parse(input: IndexStr) -> Result<(Self::Output, IndexStr)>;
+}
+
 /// Define a "vocabulary" nonterminal, something like `OperatorName` or
 /// `CtorDtorName` that's basically a big list of constant strings.
 /// This declares:
@@ -68,7 +79,9 @@ macro_rules! define_vocabulary {
             ),*
         }
 
-        impl $typename {
+        impl Parse for $typename {
+            type Output = Self;
+
             fn parse(input: IndexStr) -> Result<($typename, IndexStr)> {
                 let mut found_prefix = false;
                 $(
@@ -107,7 +120,9 @@ macro_rules! define_vocabulary {
 #[derive(Clone, Debug, Hash, PartialEq, Eq)]
 pub struct MangledName(usize, Encoding);
 
-impl MangledName {
+impl Parse for MangledName {
+    type Output = Self;
+
     fn parse(input: IndexStr) -> Result<(MangledName, IndexStr)> {
         unimplemented!()
     }
@@ -214,7 +229,9 @@ pub struct BareFunctionType(Type);
 #[derive(Clone, Debug, Hash, PartialEq, Eq)]
 pub struct SeqId(usize);
 
-impl SeqId {
+impl Parse for SeqId {
+    type Output = Self;
+
     fn parse(input: IndexStr) -> Result<(SeqId, IndexStr)> {
         parse_number(36, false, input).map(|(num, tail)| (SeqId(num as _), tail))
     }
@@ -249,7 +266,9 @@ pub enum UnqualifiedName {
     UnnamedType(UnnamedTypeName),
 }
 
-impl UnqualifiedName {
+impl Parse for UnqualifiedName {
+    type Output = Self;
+
     fn parse(input: IndexStr) -> Result<(UnqualifiedName, IndexStr)> {
         if let Ok((op, tail)) = OperatorName::parse(input) {
             return Ok((UnqualifiedName::Operator(op), tail));
@@ -272,7 +291,9 @@ impl UnqualifiedName {
 #[derive(Clone, Debug, Hash, PartialEq, Eq)]
 pub struct SourceName(Identifier);
 
-impl SourceName {
+impl Parse for SourceName {
+    type Output = Self;
+
     fn parse(input: IndexStr) -> Result<(SourceName, IndexStr)> {
         let (source_name_len, input) = try!(parse_number(10, false, input));
         debug_assert!(source_name_len >= 0);
@@ -302,7 +323,9 @@ pub struct Identifier {
     end: usize,
 }
 
-impl Identifier {
+impl Parse for Identifier {
+    type Output = Self;
+
     fn parse(input: IndexStr) -> Result<(Identifier, IndexStr)> {
         if input.len() == 0 {
             return Err(ErrorKind::UnexpectedEnd.into());
@@ -345,7 +368,9 @@ fn consume<'a>(expected: &[u8], input: IndexStr<'a>) -> Result<IndexStr<'a>> {
 #[derive(Clone, Debug, Hash, PartialEq, Eq)]
 pub struct UnnamedTypeName(Option<usize>);
 
-impl UnnamedTypeName {
+impl Parse for UnnamedTypeName {
+    type Output = Self;
+
     fn parse(input: IndexStr) -> Result<(UnnamedTypeName, IndexStr)> {
         let input = try!(consume(b"Ut", input));
         let (number, input) = match parse_number(10, false, input) {
@@ -411,7 +436,9 @@ pub enum BuiltinType {
     Extension(SourceName),
 }
 
-impl BuiltinType {
+impl Parse for BuiltinType {
+    type Output = Self;
+
     fn parse(input: IndexStr) -> Result<(BuiltinType, IndexStr)> {
         let res = StandardBuiltinType::parse(input);
         if let Ok((ty, tail)) = res {
@@ -430,7 +457,9 @@ pub struct TemplatePrefix;
 #[derive(Clone, Debug, Hash, PartialEq, Eq)]
 pub struct TemplateParam(Option<usize>);
 
-impl TemplateParam {
+impl Parse for TemplateParam {
+    type Output = Self;
+
     fn parse(input: IndexStr) -> Result<(TemplateParam, IndexStr)> {
         let input = try!(consume(b"T", input));
         let (number, input) = match parse_number(10, false, input) {
@@ -442,13 +471,21 @@ impl TemplateParam {
     }
 }
 
-fn parse_number(base: u32, allow_signed: bool, mut input: IndexStr) -> Result<(isize, IndexStr)> {
+fn parse_number(base: u32,
+                allow_signed: bool,
+                mut input: IndexStr)
+                -> Result<(isize, IndexStr)> {
     if input.is_empty() {
         return Err(ErrorKind::UnexpectedEnd.into());
     }
 
     let num_is_negative = if allow_signed && input.as_ref()[0] == b'n' {
         input = input.range_from(1..);
+
+        if input.is_empty() {
+            return Err(ErrorKind::UnexpectedEnd.into());
+        }
+
         true
     } else {
         false
@@ -492,7 +529,9 @@ fn parse_number(base: u32, allow_signed: bool, mut input: IndexStr) -> Result<(i
 #[derive(Clone, Debug, Hash, PartialEq, Eq)]
 enum Number {}
 
-impl Number {
+impl Parse for Number {
+    type Output = isize;
+
     fn parse(input: IndexStr) -> Result<(isize, IndexStr)> {
         parse_number(10, true, input)
     }
@@ -553,6 +592,66 @@ define_vocabulary! {
     }
 }
 
+/// The <call-offset> production.
+#[derive(Clone, Debug, Hash, PartialEq, Eq)]
+pub enum CallOffset {
+    /// A non-virtual offset.
+    NonVirtual(NvOffset),
+    /// A virtual offset.
+    Virtual(VOffset),
+}
+
+impl Parse for CallOffset {
+    type Output = Self;
+
+    fn parse(input: IndexStr) -> Result<(CallOffset, IndexStr)> {
+        if input.len() == 0 {
+            return Err(ErrorKind::UnexpectedEnd.into());
+        }
+
+        if let Ok(tail) = consume(b"h", input) {
+            let (offset, tail) = try!(NvOffset::parse(tail));
+            let tail = try!(consume(b"_", tail));
+            return Ok((CallOffset::NonVirtual(offset), tail));
+        }
+
+        if let Ok(tail) = consume(b"v", input) {
+            let (offset, tail) = try!(VOffset::parse(tail));
+            let tail = try!(consume(b"_", tail));
+            return Ok((CallOffset::Virtual(offset), tail));
+        }
+
+        Err(ErrorKind::UnexpectedText.into())
+    }
+}
+
+/// A non-virtual offset, as described by the <nv-offset> production.
+#[derive(Clone, Debug, Hash, PartialEq, Eq)]
+pub struct NvOffset(isize);
+
+impl Parse for NvOffset {
+    type Output = Self;
+
+    fn parse(input: IndexStr) -> Result<(NvOffset, IndexStr)> {
+        Number::parse(input).map(|(num, tail)| (NvOffset(num), tail))
+    }
+}
+
+/// A virtual offset, as described by the <v-offset> production.
+#[derive(Clone, Debug, Hash, PartialEq, Eq)]
+pub struct VOffset(isize, isize);
+
+impl Parse for VOffset {
+    type Output = Self;
+
+    fn parse(input: IndexStr) -> Result<(VOffset, IndexStr)> {
+        let (offset, tail) = try!(Number::parse(input));
+        let tail = try!(consume(b"_", tail));
+        let (virtual_offset, tail) = try!(Number::parse(tail));
+        Ok((VOffset(offset, virtual_offset), tail))
+    }
+}
+
 define_vocabulary! {
     /// The <ctor-dtor-name> production.
     #[derive(Clone, Debug, Hash, PartialEq, Eq)]
@@ -568,9 +667,10 @@ define_vocabulary! {
 
 #[cfg(test)]
 mod tests {
-    use super::{BuiltinType, CtorDtorName, Identifier, Number, OperatorName, SeqId, SourceName,
-                StandardBuiltinType, TemplateParam, UnnamedTypeName, UnqualifiedName};
     use error::ErrorKind;
+    use super::{BuiltinType, CallOffset, CtorDtorName, Identifier, Number, NvOffset,
+                OperatorName, Parse, SeqId, SourceName, StandardBuiltinType,
+                TemplateParam, UnnamedTypeName, UnqualifiedName, VOffset};
 
     #[test]
     fn parse_builtin_type() {
@@ -659,7 +759,49 @@ mod tests {
         assert_parse!(Number: b"42" => Ok(42, b""));
         assert_parse!(Number: b"001" => Err(ErrorKind::UnexpectedText));
         assert_parse!(Number: b"wutang" => Err(ErrorKind::UnexpectedText));
+        assert_parse!(Number: b"n" => Err(ErrorKind::UnexpectedEnd));
         assert_parse!(Number: b"" => Err(ErrorKind::UnexpectedEnd));
+    }
+
+    #[test]
+    fn parse_call_offset() {
+        assert_parse!(CallOffset: b"hn42_..." =>
+                      Ok(CallOffset::NonVirtual(NvOffset(-42)), b"..."));
+        assert_parse!(CallOffset: b"vn42_36_..." =>
+                      Ok(CallOffset::Virtual(VOffset(-42, 36)), b"..."));
+        assert_parse!(CallOffset: b"h1..." => Err(ErrorKind::UnexpectedText));
+        assert_parse!(CallOffset: b"v1_1..." => Err(ErrorKind::UnexpectedText));
+        assert_parse!(CallOffset: b"hh" => Err(ErrorKind::UnexpectedText));
+        assert_parse!(CallOffset: b"vv" => Err(ErrorKind::UnexpectedText));
+        assert_parse!(CallOffset: b"z" => Err(ErrorKind::UnexpectedText));
+        assert_parse!(CallOffset: b"" => Err(ErrorKind::UnexpectedEnd));
+    }
+
+    #[test]
+    fn parse_v_offset() {
+        assert_parse!(VOffset: b"n2_n3abcdef" => Ok(VOffset(-2, -3), b"abcdef"));
+        assert_parse!(VOffset: b"12345_12345abcdef" => Ok(VOffset(12345, 12345), b"abcdef"));
+        assert_parse!(VOffset: b"0_0abcdef" => Ok(VOffset(0, 0), b"abcdef"));
+        assert_parse!(VOffset: b"42_n3" => Ok(VOffset(42, -3), b""));
+        assert_parse!(VOffset: b"001" => Err(ErrorKind::UnexpectedText));
+        assert_parse!(VOffset: b"1_001" => Err(ErrorKind::UnexpectedText));
+        assert_parse!(VOffset: b"wutang" => Err(ErrorKind::UnexpectedText));
+        assert_parse!(VOffset: b"n_" => Err(ErrorKind::UnexpectedText));
+        assert_parse!(VOffset: b"1_n" => Err(ErrorKind::UnexpectedEnd));
+        assert_parse!(VOffset: b"1_" => Err(ErrorKind::UnexpectedEnd));
+        assert_parse!(VOffset: b"n" => Err(ErrorKind::UnexpectedEnd));
+        assert_parse!(VOffset: b"" => Err(ErrorKind::UnexpectedEnd));
+    }
+
+    #[test]
+    fn parse_nv_offset() {
+        assert_parse!(NvOffset: b"n2n3" => Ok(NvOffset(-2), b"n3"));
+        assert_parse!(NvOffset: b"12345abcdef" => Ok(NvOffset(12345), b"abcdef"));
+        assert_parse!(NvOffset: b"0abcdef" => Ok(NvOffset(0), b"abcdef"));
+        assert_parse!(NvOffset: b"42" => Ok(NvOffset(42), b""));
+        assert_parse!(NvOffset: b"001" => Err(ErrorKind::UnexpectedText));
+        assert_parse!(NvOffset: b"wutang" => Err(ErrorKind::UnexpectedText));
+        assert_parse!(NvOffset: b"" => Err(ErrorKind::UnexpectedEnd));
     }
 
     #[test]
