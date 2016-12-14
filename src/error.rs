@@ -1,4 +1,4 @@
-//! TODO FITZGEN
+//! Custom `Error` and `Result` types for the `cpp_demangle` crate.
 
 error_chain! {
     errors {
