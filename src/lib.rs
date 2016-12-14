@@ -46,6 +46,17 @@ impl<T> Symbol<T>
     }
 }
 
+/// A trait for anything that can be parsed from an `IndexStr` and return a
+/// `Result` of the parsed `Self::Output` value and the rest of the `IndexStr`
+/// input that has not been consumed in parsing the `Self::Output` value.
+trait Parse {
+    /// The result of parsing.
+    type Output: Sized;
+
+    /// Parse the `Self::Output` value from `input`.
+    fn parse(input: IndexStr) -> Result<(Self::Output, IndexStr)>;
+}
+
 /// Define a "vocabulary" nonterminal, something like `OperatorName` or
 /// `CtorDtorName` that's basically a big list of constant strings.
 /// This declares:
@@ -68,7 +79,9 @@ macro_rules! define_vocabulary {
             ),*
         }
 
-        impl $typename {
+        impl Parse for $typename {
+            type Output = Self;
+
             fn parse(input: IndexStr) -> Result<($typename, IndexStr)> {
                 let mut found_prefix = false;
                 $(
@@ -107,7 +120,9 @@ macro_rules! define_vocabulary {
 #[derive(Clone, Debug, Hash, PartialEq, Eq)]
 pub struct MangledName(usize, Encoding);
 
-impl MangledName {
+impl Parse for MangledName {
+    type Output = Self;
+
     fn parse(input: IndexStr) -> Result<(MangledName, IndexStr)> {
         unimplemented!()
     }
@@ -214,7 +229,9 @@ pub struct BareFunctionType(Type);
 #[derive(Clone, Debug, Hash, PartialEq, Eq)]
 pub struct SeqId(usize);
 
-impl SeqId {
+impl Parse for SeqId {
+    type Output = Self;
+
     fn parse(input: IndexStr) -> Result<(SeqId, IndexStr)> {
         parse_number(36, false, input).map(|(num, tail)| (SeqId(num as _), tail))
     }
@@ -249,7 +266,9 @@ pub enum UnqualifiedName {
     UnnamedType(UnnamedTypeName),
 }
 
-impl UnqualifiedName {
+impl Parse for UnqualifiedName {
+    type Output = Self;
+
     fn parse(input: IndexStr) -> Result<(UnqualifiedName, IndexStr)> {
         if let Ok((op, tail)) = OperatorName::parse(input) {
             return Ok((UnqualifiedName::Operator(op), tail));
@@ -272,7 +291,9 @@ impl UnqualifiedName {
 #[derive(Clone, Debug, Hash, PartialEq, Eq)]
 pub struct SourceName(Identifier);
 
-impl SourceName {
+impl Parse for SourceName {
+    type Output = Self;
+
     fn parse(input: IndexStr) -> Result<(SourceName, IndexStr)> {
         let (source_name_len, input) = try!(parse_number(10, false, input));
         debug_assert!(source_name_len >= 0);
@@ -302,7 +323,9 @@ pub struct Identifier {
     end: usize,
 }
 
-impl Identifier {
+impl Parse for Identifier {
+    type Output = Self;
+
     fn parse(input: IndexStr) -> Result<(Identifier, IndexStr)> {
         if input.len() == 0 {
             return Err(ErrorKind::UnexpectedEnd.into());
@@ -345,7 +368,9 @@ fn consume<'a>(expected: &[u8], input: IndexStr<'a>) -> Result<IndexStr<'a>> {
 #[derive(Clone, Debug, Hash, PartialEq, Eq)]
 pub struct UnnamedTypeName(Option<usize>);
 
-impl UnnamedTypeName {
+impl Parse for UnnamedTypeName {
+    type Output = Self;
+
     fn parse(input: IndexStr) -> Result<(UnnamedTypeName, IndexStr)> {
         let input = try!(consume(b"Ut", input));
         let (number, input) = match parse_number(10, false, input) {
@@ -411,7 +436,9 @@ pub enum BuiltinType {
     Extension(SourceName),
 }
 
-impl BuiltinType {
+impl Parse for BuiltinType {
+    type Output = Self;
+
     fn parse(input: IndexStr) -> Result<(BuiltinType, IndexStr)> {
         let res = StandardBuiltinType::parse(input);
         if let Ok((ty, tail)) = res {
@@ -430,7 +457,9 @@ pub struct TemplatePrefix;
 #[derive(Clone, Debug, Hash, PartialEq, Eq)]
 pub struct TemplateParam(Option<usize>);
 
-impl TemplateParam {
+impl Parse for TemplateParam {
+    type Output = Self;
+
     fn parse(input: IndexStr) -> Result<(TemplateParam, IndexStr)> {
         let input = try!(consume(b"T", input));
         let (number, input) = match parse_number(10, false, input) {
@@ -495,7 +524,9 @@ fn parse_number(base: u32,
 #[derive(Clone, Debug, Hash, PartialEq, Eq)]
 enum Number {}
 
-impl Number {
+impl Parse for Number {
+    type Output = isize;
+
     fn parse(input: IndexStr) -> Result<(isize, IndexStr)> {
         parse_number(10, true, input)
     }
@@ -572,8 +603,8 @@ define_vocabulary! {
 #[cfg(test)]
 mod tests {
     use error::ErrorKind;
-    use super::{BuiltinType, CtorDtorName, Identifier, Number, OperatorName, SeqId,
-                SourceName, StandardBuiltinType, TemplateParam, UnnamedTypeName,
+    use super::{BuiltinType, CtorDtorName, Identifier, Number, OperatorName, Parse,
+                SeqId, SourceName, StandardBuiltinType, TemplateParam, UnnamedTypeName,
                 UnqualifiedName};
 
     #[test]
