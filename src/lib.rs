@@ -3,12 +3,10 @@
 #![allow(dead_code, unused_variables)]
 #![deny(missing_docs)]
 #![deny(missing_debug_implementations)]
-// #![deny(warnings)]
+#![deny(warnings)]
 
 // The `error_chain!` macro can recurse deeply.
 #![recursion_limit = "1024"]
-
-use std::fmt;
 
 #[macro_use]
 extern crate error_chain;
@@ -16,11 +14,12 @@ extern crate error_chain;
 pub mod error;
 mod index_str;
 
-use error::{ErrorKind, Result};
-use index_str::IndexStr;
-
 #[macro_use]
 mod testing;
+
+use error::{ErrorKind, Result};
+use index_str::IndexStr;
+use std::fmt;
 
 /// TODO FITZGEN
 pub type OwnedSymbol = Symbol<Vec<u8>>;
