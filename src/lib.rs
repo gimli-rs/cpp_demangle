@@ -587,6 +587,18 @@ define_vocabulary! {
     }
 }
 
+/// A non-virtual offset, as described by the <nv-offset> production.
+#[derive(Clone, Debug, Hash, PartialEq, Eq)]
+pub struct NvOffset(isize);
+
+impl Parse for NvOffset {
+    type Output = Self;
+
+    fn parse(input: IndexStr) -> Result<(NvOffset, IndexStr)> {
+        Number::parse(input).map(|(num, tail)| (NvOffset(num), tail))
+    }
+}
+
 define_vocabulary! {
     /// The <ctor-dtor-name> production.
     #[derive(Clone, Debug, Hash, PartialEq, Eq)]
@@ -603,9 +615,9 @@ define_vocabulary! {
 #[cfg(test)]
 mod tests {
     use error::ErrorKind;
-    use super::{BuiltinType, CtorDtorName, Identifier, Number, OperatorName, Parse,
-                SeqId, SourceName, StandardBuiltinType, TemplateParam, UnnamedTypeName,
-                UnqualifiedName};
+    use super::{BuiltinType, CtorDtorName, Identifier, Number, NvOffset, OperatorName,
+                Parse, SeqId, SourceName, StandardBuiltinType, TemplateParam,
+                UnnamedTypeName, UnqualifiedName};
 
     #[test]
     fn parse_builtin_type() {
@@ -695,6 +707,17 @@ mod tests {
         assert_parse!(Number: b"001" => Err(ErrorKind::UnexpectedText));
         assert_parse!(Number: b"wutang" => Err(ErrorKind::UnexpectedText));
         assert_parse!(Number: b"" => Err(ErrorKind::UnexpectedEnd));
+    }
+
+    #[test]
+    fn parse_nv_offset() {
+        assert_parse!(NvOffset: b"n2n3" => Ok(NvOffset(-2), b"n3"));
+        assert_parse!(NvOffset: b"12345abcdef" => Ok(NvOffset(12345), b"abcdef"));
+        assert_parse!(NvOffset: b"0abcdef" => Ok(NvOffset(0), b"abcdef"));
+        assert_parse!(NvOffset: b"42" => Ok(NvOffset(42), b""));
+        assert_parse!(NvOffset: b"001" => Err(ErrorKind::UnexpectedText));
+        assert_parse!(NvOffset: b"wutang" => Err(ErrorKind::UnexpectedText));
+        assert_parse!(NvOffset: b"" => Err(ErrorKind::UnexpectedEnd));
     }
 
     #[test]
