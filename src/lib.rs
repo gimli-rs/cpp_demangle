@@ -442,7 +442,10 @@ impl TemplateParam {
     }
 }
 
-fn parse_number(base: u32, allow_signed: bool, mut input: IndexStr) -> Result<(isize, IndexStr)> {
+fn parse_number(base: u32,
+                allow_signed: bool,
+                mut input: IndexStr)
+                -> Result<(isize, IndexStr)> {
     if input.is_empty() {
         return Err(ErrorKind::UnexpectedEnd.into());
     }
@@ -568,9 +571,10 @@ define_vocabulary! {
 
 #[cfg(test)]
 mod tests {
-    use super::{BuiltinType, CtorDtorName, Identifier, Number, OperatorName, SeqId, SourceName,
-                StandardBuiltinType, TemplateParam, UnnamedTypeName, UnqualifiedName};
     use error::ErrorKind;
+    use super::{BuiltinType, CtorDtorName, Identifier, Number, OperatorName, SeqId,
+                SourceName, StandardBuiltinType, TemplateParam, UnnamedTypeName,
+                UnqualifiedName};
 
     #[test]
     fn parse_builtin_type() {
