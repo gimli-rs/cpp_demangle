@@ -4,6 +4,19 @@ use error::{ErrorKind, Result};
 use index_str::IndexStr;
 use std::fmt;
 
+/// TODO FITZGEN: enum of all types that can be substituted.
+#[derive(Clone, Debug, Hash, PartialEq, Eq)]
+pub enum Substitutable {
+    // ...
+}
+
+/// TODO FITZGEN: is this what we want?
+pub type SubstitutionTable = Vec<Substitutable>;
+
+// TODO FITZGEN: anything that is substitutable will return a handle (aka index)
+// into the vec in its Parse method? and anything that has sub-AST nodes that
+// are substitutable will have that too?
+
 /// A trait for anything that can be parsed from an `IndexStr` and return a
 /// `Result` of the parsed `Self::Output` value and the rest of the `IndexStr`
 /// input that has not been consumed in parsing the `Self::Output` value.
@@ -110,6 +123,14 @@ pub enum Encoding {
     Special(SpecialName),
 }
 
+impl Parse for Encoding {
+    type Output = Self;
+
+    fn parse(_input: IndexStr) -> Result<(Encoding, IndexStr)> {
+        unimplemented!()
+    }
+}
+
 /// The `<name>` production.
 ///
 /// ```text
@@ -117,7 +138,10 @@ pub enum Encoding {
 ///        ::= <unscoped-name>
 ///        ::= <unscoped-template-name> <template-args>
 ///        ::= <local-name>
+///        ::= St <unqualified-name> # ::std::
 /// ```
+///
+/// TODO: the `std` variant
 #[derive(Clone, Debug, Hash, PartialEq, Eq)]
 pub enum Name {
     /// A nested name
@@ -131,6 +155,14 @@ pub enum Name {
 
     /// A local name.
     Local(LocalName),
+}
+
+impl Parse for Name {
+    type Output = Self;
+
+    fn parse(_input: IndexStr) -> Result<(Name, IndexStr)> {
+        unimplemented!()
+    }
 }
 
 /// The `<unscoped-name>` production.
@@ -148,6 +180,14 @@ pub enum UnscopedName {
     Std(UnqualifiedName),
 }
 
+impl Parse for UnscopedName {
+    type Output = Self;
+
+    fn parse(_input: IndexStr) -> Result<(UnscopedName, IndexStr)> {
+        unimplemented!()
+    }
+}
+
 /// The `<unscoped-template-name>` production.
 ///
 /// ```text
@@ -155,12 +195,14 @@ pub enum UnscopedName {
 ///                          ::= <substitution>
 /// ```
 #[derive(Clone, Debug, Hash, PartialEq, Eq)]
-pub enum UnscopedTemplateName {
-    /// An unscoped name.
-    Unscoped(UnscopedName),
+pub struct UnscopedTemplateName(UnscopedName);
 
-    /// A substitution.
-    Substitution(Substitution),
+impl Parse for UnscopedTemplateName {
+    type Output = Self;
+
+    fn parse(_input: IndexStr) -> Result<(UnscopedTemplateName, IndexStr)> {
+        unimplemented!()
+    }
 }
 
 /// The `<nested-name>` production.
@@ -176,6 +218,14 @@ pub enum NestedName {
 
     /// A template name.
     Template(CvQualifiers, RefQualifier, TemplatePrefix, TemplateArgs),
+}
+
+impl Parse for NestedName {
+    type Output = Self;
+
+    fn parse(_input: IndexStr) -> Result<(NestedName, IndexStr)> {
+        unimplemented!()
+    }
 }
 
 /// The `<prefix>` production.
@@ -204,6 +254,14 @@ pub enum Prefix {
     Decltype(Decltype, Option<PrefixTail>),
 }
 
+impl Parse for Prefix {
+    type Output = Self;
+
+    fn parse(_input: IndexStr) -> Result<(Prefix, IndexStr)> {
+        unimplemented!()
+    }
+}
+
 /// The second half of the <prefix> production with left-recursion factored out.
 #[derive(Clone, Debug, Hash, PartialEq, Eq)]
 pub enum PrefixTail {
@@ -213,143 +271,32 @@ pub enum PrefixTail {
     DataMember(DataMemberPrefix, Option<Box<PrefixTail>>),
 }
 
-/// The `<data-member-prefix>` production.
-///
-/// ```text
-/// <data-member-prefix> := <member source-name> M
-/// ```
-#[derive(Clone, Debug, Hash, PartialEq, Eq)]
-pub struct DataMemberPrefix(SourceName);
-
-impl Parse for DataMemberPrefix {
+impl Parse for PrefixTail {
     type Output = Self;
 
-    fn parse(input: IndexStr) -> Result<(DataMemberPrefix, IndexStr)> {
-        let (name, tail) = try!(SourceName::parse(input));
-        let tail = try!(consume(b"M", tail));
-        Ok((DataMemberPrefix(name), tail))
+    fn parse(_input: IndexStr) -> Result<(PrefixTail, IndexStr)> {
+        unimplemented!()
     }
 }
 
-/// The `<decltype>` production.
+/// The `<template-prefix>` production.
 ///
 /// ```text
-/// <decltype> ::= Dt <expression> E  # decltype of an id-expression or class member access (C++0x)
-///            ::= DT <expression> E  # decltype of an expression (C++0x)
+/// <template-prefix> ::= <template unqualified-name>            # global template
+///                   ::= <prefix> <template unqualified-name>   # nested template
+///                   ::= <template-param>                       # template template parameter
+///                   ::= <substitution>
 /// ```
 #[derive(Clone, Debug, Hash, PartialEq, Eq)]
-pub struct Decltype;
+pub struct TemplatePrefix;
 
-/// The `<substitution>` form: a back-reference to some component we've already
-/// parsed.
-///
-/// ```text
-/// <substitution> ::= S <seq-id> _
-///                ::= S_
-///                ::= St # ::std::
-///                ::= Sa # ::std::allocator
-///                ::= Sb # ::std::basic_string
-///                ::= Ss # ::std::basic_string < char,
-///                                               ::std::char_traits<char>,
-///                                               ::std::allocator<char> >
-///                ::= Si # ::std::basic_istream<char,  std::char_traits<char> >
-///                ::= So # ::std::basic_ostream<char,  std::char_traits<char> >
-///                ::= Sd # ::std::basic_iostream<char, std::char_traits<char> >
-/// ```
-///
-/// TODO FITZGEN: support the other substitution forms
-#[derive(Clone, Debug, Hash, PartialEq, Eq)]
-pub struct Substitution(Option<SeqId>);
-
-/// The `<bare-function-type>` production.
-///
-/// ```text
-/// <bare-function-type> ::= <signature type>+
-///      # types are possible return type, then parameter types
-/// ```
-#[derive(Clone, Debug, Hash, PartialEq, Eq)]
-pub struct BareFunctionType(Vec<Type>);
-
-/// A <seq-id> production encoding a base-36 positive number.
-///
-/// ```text
-/// <seq-id> ::= <0-9A-Z>+
-/// ```
-#[derive(Clone, Debug, Hash, PartialEq, Eq)]
-pub struct SeqId(usize);
-
-impl Parse for SeqId {
+impl Parse for TemplatePrefix {
     type Output = Self;
 
-    fn parse(input: IndexStr) -> Result<(SeqId, IndexStr)> {
-        parse_number(36, false, input).map(|(num, tail)| (SeqId(num as _), tail))
+    fn parse(_input: IndexStr) -> Result<(TemplatePrefix, IndexStr)> {
+        unimplemented!()
     }
 }
-
-/// The `<type>` production.
-///
-/// ```text
-///
-/// <type> ::= <builtin-type>
-///        ::= <function-type>
-///        ::= <class-enum-type>
-///        ::= <array-type>
-///        ::= <pointer-to-member-type>
-///        ::= <template-param>
-///        ::= <template-template-param> <template-args>
-///        ::= <decltype>
-///        ::= <substitution>                           # See Compression below
-///        ::= <CV-qualifiers> <type>
-///        ::= P <type>                                 # pointer-to
-///        ::= R <type>                                 # reference-to
-///        ::= O <type>                                 # rvalue reference-to (C++0x)
-///        ::= C <type>                                 # complex pair (C 2000)
-///        ::= G <type>                                 # imaginary (C 2000)
-///        ::= U <source-name> [<template-args>] <type> # vendor extended type qualifier
-/// ```
-#[derive(Clone, Debug, Hash, PartialEq, Eq)]
-pub struct Type;
-
-/// The `<special-name>` production.
-#[derive(Clone, Debug, Hash, PartialEq, Eq)]
-pub struct SpecialName;
-
-/// The `<template-args>` production.
-///
-/// ```text
-/// <template-args> ::= I <template-arg>+ E
-/// ```
-#[derive(Clone, Debug, Hash, PartialEq, Eq)]
-pub struct TemplateArgs(Vec<TemplateArg>);
-
-/// A <template-arg> production.
-///
-/// ```text
-/// <template-arg> ::= <type>                # type or template
-///                ::= X <expression> E      # expression
-///                ::= <expr-primary>        # simple expressions
-///                ::= J <template-arg>* E   # argument pack
-/// ```
-#[derive(Clone, Debug, Hash, PartialEq, Eq)]
-pub struct TemplateArg;
-
-/// The `<local-name>` production.
-///
-/// ```text
-/// <local-name> := Z <function encoding> E <entity name> [<discriminator>]
-///              := Z <function encoding> E s [<discriminator>]
-/// ```
-#[derive(Clone, Debug, Hash, PartialEq, Eq)]
-pub struct LocalName;
-
-/// The `<discriminator>` production.
-///
-/// ```text
-/// <discriminator> := _ <non-negative number>      # when number < 10
-///                 := __ <non-negative number> _   # when number >= 10
-/// ```
-#[derive(Clone, Debug, Hash, PartialEq, Eq)]
-pub struct Discriminator(usize);
 
 /// The `<unqualified-name>` production.
 ///
@@ -470,37 +417,223 @@ impl Parse for Identifier {
     }
 }
 
-/// Expect and consume the given byte str, and return the advanced `IndexStr` if
-/// we saw the expectation. Otherwise return an error of kind
-/// `ErrorKind::UnexpectedText` if the input doesn't match, or
-/// `ErrorKind::UnexpectedEnd` if it isn't long enough.
-fn consume<'a>(expected: &[u8], input: IndexStr<'a>) -> Result<IndexStr<'a>> {
-    match input.try_split_at(expected.len()) {
-        Some((head, tail)) if head == expected => Ok(tail),
-        Some(_) => Err(ErrorKind::UnexpectedText.into()),
-        None => Err(ErrorKind::UnexpectedEnd.into()),
+/// The `<number>` production.
+///
+/// ```text
+/// <number> ::= [n] <non-negative decimal integer>
+/// ```
+#[derive(Clone, Debug, Hash, PartialEq, Eq)]
+enum Number {}
+
+impl Parse for Number {
+    type Output = isize;
+
+    fn parse(input: IndexStr) -> Result<(isize, IndexStr)> {
+        parse_number(10, true, input)
     }
 }
 
-/// The `<unnamed-type-name>` production.
+/// A <seq-id> production encoding a base-36 positive number.
 ///
 /// ```text
-/// <unnamed-type-name> ::= Ut [ <nonnegative number> ] _
+/// <seq-id> ::= <0-9A-Z>+
 /// ```
 #[derive(Clone, Debug, Hash, PartialEq, Eq)]
-pub struct UnnamedTypeName(Option<usize>);
+pub struct SeqId(usize);
 
-impl Parse for UnnamedTypeName {
+impl Parse for SeqId {
     type Output = Self;
 
-    fn parse(input: IndexStr) -> Result<(UnnamedTypeName, IndexStr)> {
-        let input = try!(consume(b"Ut", input));
-        let (number, input) = match parse_number(10, false, input) {
-            Ok((number, input)) => (Some(number as _), input),
-            Err(_) => (None, input),
-        };
-        let input = try!(consume(b"_", input));
-        Ok((UnnamedTypeName(number), input))
+    fn parse(input: IndexStr) -> Result<(SeqId, IndexStr)> {
+        parse_number(36, false, input).map(|(num, tail)| (SeqId(num as _), tail))
+    }
+}
+
+// TODO: support the rest of <operator-name>:
+//
+// ::= cv <type>               # (cast)
+// ::= li <source-name>        # operator ""
+// ::= v <digit> <source-name> # vendor extended operator
+define_vocabulary! {
+    /// The `<operator-name>` production.
+    #[derive(Clone, Debug, Hash, PartialEq, Eq)]
+    pub enum OperatorName {
+        // enum variant(mangled form, printable description)
+        New              (b"nw",  "`new`"),
+        NewArray         (b"na",  "`new[]`"),
+        Delete           (b"dl",  "`delete`"),
+        DeleteArray      (b"da",  "`delete[]`"),
+        UnaryPlus        (b"ps",  "`+` (unary)"),
+        Neg              (b"ng",  "`-` (unary)"),
+        AddressOf        (b"ad",  "`&` (unary)"),
+        Deref            (b"de",  "`*` (unary)"),
+        BitNot           (b"co",  "`~`"),
+        Add              (b"pl",  "`+`"),
+        Sub              (b"mi",  "`-`"),
+        Mul              (b"ml",  "`*`"),
+        Div              (b"dv",  "`/`"),
+        Rem              (b"rm",  "`%`"),
+        BitAnd           (b"an",  "`&`"),
+        BitOr            (b"or",  "`|`"),
+        BitXor           (b"eo",  "`^`"),
+        Assign           (b"aS",  "`=`"),
+        AddAssign        (b"pL",  "`+=`"),
+        SubAssign        (b"mI",  "`-=`"),
+        MulAssign        (b"mL",  "`*=`"),
+        DivAssign        (b"dV",  "`/=`"),
+        RemAssign        (b"rM",  "`%=`"),
+        BitAndAssign     (b"aN",  "`&=`"),
+        BitOrAssign      (b"oR",  "`|=`"),
+        BitXorAssign     (b"eO",  "`^=`"),
+        Shl              (b"ls",  "`<<`"),
+        Shr              (b"rs",  "`>>`"),
+        ShlAssign        (b"lS",  "`<<=`"),
+        ShrAssign        (b"rS",  "`>>=`"),
+        Eq               (b"eq",  "`==`"),
+        Ne               (b"ne",  "`!=`"),
+        Less             (b"lt",  "`<`"),
+        Greater          (b"gt",  "`>`"),
+        LessEq           (b"le",  "`<=`"),
+        GreaterEq        (b"ge",  "`>=`"),
+        Not              (b"nt",  "`!`"),
+        LogicalAnd       (b"aa",  "`&&`"),
+        LogicalOr        (b"oo",  "`||`"),
+        PostInc          (b"pp",  "`++` (postfix in <expression> context)"),
+        PostDec          (b"mm",  "`--` (postfix in <expression> context)"),
+        Comma            (b"cm",  "`,`"),
+        DerefMemberPtr   (b"pm",  "`->*`"),
+        DerefMember      (b"pt",  "`->`"),
+        Call             (b"cl",  "`()`"),
+        Index            (b"ix",  "`[]`"),
+        Question         (b"qu",  "`?:`")
+    }
+}
+
+/// The `<call-offset>` production.
+///
+/// ```text
+/// <call-offset> ::= h <nv-offset> _
+///               ::= v <v-offset> _
+/// ```
+#[derive(Clone, Debug, Hash, PartialEq, Eq)]
+pub enum CallOffset {
+    /// A non-virtual offset.
+    NonVirtual(NvOffset),
+    /// A virtual offset.
+    Virtual(VOffset),
+}
+
+impl Parse for CallOffset {
+    type Output = Self;
+
+    fn parse(input: IndexStr) -> Result<(CallOffset, IndexStr)> {
+        if input.len() == 0 {
+            return Err(ErrorKind::UnexpectedEnd.into());
+        }
+
+        if let Ok(tail) = consume(b"h", input) {
+            let (offset, tail) = try!(NvOffset::parse(tail));
+            let tail = try!(consume(b"_", tail));
+            return Ok((CallOffset::NonVirtual(offset), tail));
+        }
+
+        if let Ok(tail) = consume(b"v", input) {
+            let (offset, tail) = try!(VOffset::parse(tail));
+            let tail = try!(consume(b"_", tail));
+            return Ok((CallOffset::Virtual(offset), tail));
+        }
+
+        Err(ErrorKind::UnexpectedText.into())
+    }
+}
+
+/// A non-virtual offset, as described by the <nv-offset> production.
+///
+/// ```text
+/// <nv-offset> ::= <offset number>
+/// ```
+#[derive(Clone, Debug, Hash, PartialEq, Eq)]
+pub struct NvOffset(isize);
+
+impl Parse for NvOffset {
+    type Output = Self;
+
+    fn parse(input: IndexStr) -> Result<(NvOffset, IndexStr)> {
+        Number::parse(input).map(|(num, tail)| (NvOffset(num), tail))
+    }
+}
+
+/// A virtual offset, as described by the <v-offset> production.
+///
+/// ```text
+/// <v-offset> ::= <offset number> _ <virtual offset number>
+/// ```
+#[derive(Clone, Debug, Hash, PartialEq, Eq)]
+pub struct VOffset(isize, isize);
+
+impl Parse for VOffset {
+    type Output = Self;
+
+    fn parse(input: IndexStr) -> Result<(VOffset, IndexStr)> {
+        let (offset, tail) = try!(Number::parse(input));
+        let tail = try!(consume(b"_", tail));
+        let (virtual_offset, tail) = try!(Number::parse(tail));
+        Ok((VOffset(offset, virtual_offset), tail))
+    }
+}
+
+define_vocabulary! {
+    /// The `<ctor-dtor-name>` production.
+    ///
+    /// ```text
+    /// <ctor-dtor-name> ::= C1  # complete object constructor
+    ///                  ::= C2  # base object constructor
+    ///                  ::= C3  # complete object allocating constructor
+    ///                  ::= D0  # deleting destructor
+    ///                  ::= D1  # complete object destructor
+    ///                  ::= D2  # base object destructor
+    /// ```
+    #[derive(Clone, Debug, Hash, PartialEq, Eq)]
+    pub enum CtorDtorName {
+        CompleteConstructor             (b"C1", "complete object constructor"),
+        BaseConstructor                 (b"C2", "base object constructor"),
+        CompleteAllocatingConstructor   (b"C3", "complete object allocating constructor"),
+        DeletingDestructor              (b"D0", "deleting destructor"),
+        CompleteDestructor              (b"D1", "complete object destructor"),
+        BaseDestructor                  (b"D2", "base object destructor")
+    }
+}
+
+/// The `<type>` production.
+///
+/// ```text
+///
+/// <type> ::= <builtin-type>
+///        ::= <function-type>
+///        ::= <class-enum-type>
+///        ::= <array-type>
+///        ::= <pointer-to-member-type>
+///        ::= <template-param>
+///        ::= <template-template-param> <template-args>
+///        ::= <decltype>
+///        ::= <CV-qualifiers> <type>
+///        ::= P <type>                                 # pointer-to
+///        ::= R <type>                                 # reference-to
+///        ::= O <type>                                 # rvalue reference-to (C++0x)
+///        ::= C <type>                                 # complex pair (C 2000)
+///        ::= G <type>                                 # imaginary (C 2000)
+///        ::= U <source-name> [<template-args>] <type> # vendor extended type qualifier
+///        ::= Dp <type>                                # pack expansion (C++0x)
+///        ::= <substitution>
+/// ```
+#[derive(Clone, Debug, Hash, PartialEq, Eq)]
+pub struct Type;
+
+impl Parse for Type {
+    type Output = Self;
+
+    fn parse(_input: IndexStr) -> Result<(Type, IndexStr)> {
+        unimplemented!()
     }
 }
 
@@ -663,16 +796,134 @@ impl Parse for BuiltinType {
     }
 }
 
-/// The `<template-prefix>` production.
+/// The `<function-type>` production.
 ///
 /// ```text
-/// <template-prefix> ::= <template unqualified-name>            # global template
-///                   ::= <prefix> <template unqualified-name>   # nested template
-///                   ::= <template-param>                       # template template parameter
-///                   ::= <substitution>
+/// <function-type> ::= [<CV-qualifiers>] [Dx] F [Y] <bare-function-type> [<ref-qualifier>] E
 /// ```
 #[derive(Clone, Debug, Hash, PartialEq, Eq)]
-pub struct TemplatePrefix;
+pub struct FunctionType;
+
+impl Parse for FunctionType {
+    type Output = Self;
+
+    fn parse(_input: IndexStr) -> Result<(FunctionType, IndexStr)> {
+        unimplemented!()
+    }
+}
+
+/// The `<bare-function-type>` production.
+///
+/// ```text
+/// <bare-function-type> ::= <signature type>+
+///      # types are possible return type, then parameter types
+/// ```
+#[derive(Clone, Debug, Hash, PartialEq, Eq)]
+pub struct BareFunctionType(Vec<Type>);
+
+impl Parse for BareFunctionType {
+    type Output = Self;
+
+    fn parse(_input: IndexStr) -> Result<(BareFunctionType, IndexStr)> {
+        unimplemented!()
+    }
+}
+
+/// The `<decltype>` production.
+///
+/// ```text
+/// <decltype> ::= Dt <expression> E  # decltype of an id-expression or class member access (C++0x)
+///            ::= DT <expression> E  # decltype of an expression (C++0x)
+/// ```
+#[derive(Clone, Debug, Hash, PartialEq, Eq)]
+pub struct Decltype;
+
+impl Parse for Decltype {
+    type Output = Self;
+
+    fn parse(_input: IndexStr) -> Result<(Decltype, IndexStr)> {
+        unimplemented!()
+    }
+}
+
+/// The `<class-enum-type>` production.
+///
+/// ```text
+/// <class-enum-type> ::= <name>     # non-dependent type name, dependent type name, or
+///                                  # dependent typename-specifier
+///                   ::= Ts <name>  # dependent elaborated type specifier using 'struct'
+///                                  # or 'class'
+///                   ::= Tu <name>  # dependent elaborated type specifier using 'union'
+///                   ::= Te <name>  # dependent elaborated type specifier using 'enum'
+/// ```
+#[derive(Clone, Debug, Hash, PartialEq, Eq)]
+pub struct ClassEnumType;
+
+impl Parse for ClassEnumType {
+    type Output = Self;
+
+    fn parse(_input: IndexStr) -> Result<(ClassEnumType, IndexStr)> {
+        unimplemented!()
+    }
+}
+
+/// The `<unnamed-type-name>` production.
+///
+/// ```text
+/// <unnamed-type-name> ::= Ut [ <nonnegative number> ] _
+///                     ::= <closure-type-name>
+/// ```
+///
+/// TODO: parse the <closure-type-name> variant
+#[derive(Clone, Debug, Hash, PartialEq, Eq)]
+pub struct UnnamedTypeName(Option<usize>);
+
+impl Parse for UnnamedTypeName {
+    type Output = Self;
+
+    fn parse(input: IndexStr) -> Result<(UnnamedTypeName, IndexStr)> {
+        let input = try!(consume(b"Ut", input));
+        let (number, input) = match parse_number(10, false, input) {
+            Ok((number, input)) => (Some(number as _), input),
+            Err(_) => (None, input),
+        };
+        let input = try!(consume(b"_", input));
+        Ok((UnnamedTypeName(number), input))
+    }
+}
+
+/// The `<array-type>` production.
+///
+/// ```text
+/// <array-type> ::= A <positive dimension number> _ <element type>
+///              ::= A [<dimension expression>] _ <element type>
+/// ```
+#[derive(Clone, Debug, Hash, PartialEq, Eq)]
+pub struct ArrayType;
+
+impl Parse for ArrayType {
+    type Output = Self;
+
+    fn parse(_input: IndexStr) -> Result<(ArrayType, IndexStr)> {
+        unimplemented!()
+    }
+}
+
+/// The `<pointer-to-member-type>` production.
+///
+/// ```text
+/// <pointer-to-member-type> ::= M <class type> <member type>
+/// ```
+#[derive(Clone, Debug, Hash, PartialEq, Eq)]
+pub struct PointerToMemberType;
+
+impl Parse for PointerToMemberType {
+    type Output = Self;
+
+    fn parse(_input: IndexStr) -> Result<(PointerToMemberType, IndexStr)> {
+        unimplemented!()
+    }
+}
 
 /// The `<template-param>` production.
 ///
@@ -682,15 +933,6 @@ pub struct TemplatePrefix;
 /// ```
 #[derive(Clone, Debug, Hash, PartialEq, Eq)]
 pub struct TemplateParam(Option<usize>);
-
-/// The `<template-template-param>` production.
-///
-/// ```text
-/// <template-template-param> ::= <template-param>
-///                           ::= <substitution>
-/// ```
-#[derive(Clone, Debug, Hash, PartialEq, Eq)]
-pub struct TemplateTemplateParam;
 
 impl Parse for TemplateParam {
     type Output = Self;
@@ -703,6 +945,416 @@ impl Parse for TemplateParam {
         };
         let input = try!(consume(b"_", input));
         Ok((TemplateParam(number), input))
+    }
+}
+
+/// The `<template-template-param>` production.
+///
+/// ```text
+/// <template-template-param> ::= <template-param>
+///                           ::= <substitution>
+/// ```
+#[derive(Clone, Debug, Hash, PartialEq, Eq)]
+pub struct TemplateTemplateParam;
+
+impl Parse for TemplateTemplateParam {
+    type Output = Self;
+
+    fn parse(_input: IndexStr) -> Result<(TemplateTemplateParam, IndexStr)> {
+        unimplemented!()
+    }
+}
+
+/// The <function-param> production.
+///
+/// ```text
+/// <function-param> ::= fp <top-level CV-qualifiers> _
+///                          # L == 0, first parameter
+///                  ::= fp <top-level CV-qualifiers> <parameter-2 non-negative number> _
+///                          # L == 0, second and later parameters
+///                  ::= fL <L-1 non-negative number> p <top-level CV-qualifiers> _
+///                          # L > 0, first parameter
+///                  ::= fL <L-1 non-negative number> p <top-level CV-qualifiers> <parameter-2 non-negative number> _
+///                          # L > 0, second and later parameters
+/// ```
+#[derive(Clone, Debug, Hash, PartialEq, Eq)]
+pub struct FunctionParam;
+
+impl Parse for FunctionParam {
+    type Output = Self;
+
+    fn parse(_input: IndexStr) -> Result<(FunctionParam, IndexStr)> {
+        unimplemented!()
+    }
+}
+
+/// The `<template-args>` production.
+///
+/// ```text
+/// <template-args> ::= I <template-arg>+ E
+/// ```
+#[derive(Clone, Debug, Hash, PartialEq, Eq)]
+pub struct TemplateArgs(Vec<TemplateArg>);
+
+impl Parse for TemplateArgs {
+    type Output = Self;
+
+    fn parse(_input: IndexStr) -> Result<(TemplateArgs, IndexStr)> {
+        unimplemented!()
+    }
+}
+
+/// A <template-arg> production.
+///
+/// ```text
+/// <template-arg> ::= <type>                # type or template
+///                ::= X <expression> E      # expression
+///                ::= <expr-primary>        # simple expressions
+///                ::= J <template-arg>* E   # argument pack
+/// ```
+#[derive(Clone, Debug, Hash, PartialEq, Eq)]
+pub struct TemplateArg;
+
+impl Parse for TemplateArg {
+    type Output = Self;
+
+    fn parse(_input: IndexStr) -> Result<(TemplateArg, IndexStr)> {
+        unimplemented!()
+    }
+}
+
+/// The `<expression>` production.
+///
+/// ```text
+///  <expression> ::= <unary operator-name> <expression>
+///               ::= <binary operator-name> <expression> <expression>
+///               ::= <ternary operator-name> <expression> <expression> <expression>
+///               ::= pp_ <expression>                             # prefix ++
+///               ::= mm_ <expression>                             # prefix --
+///               ::= cl <expression>+ E                           # expression (expr-list), call
+///               ::= cv <type> <expression>                       # type (expression), conversion with one argument
+///               ::= cv <type> _ <expression>* E                  # type (expr-list), conversion with other than one argument
+///               ::= tl <type> <expression>* E                    # type {expr-list}, conversion with braced-init-list argument
+///               ::= il <expression> E                            # {expr-list}, braced-init-list in any other context
+///               ::= [gs] nw <expression>* _ <type> E             # new (expr-list) type
+///               ::= [gs] nw <expression>* _ <type> <initializer> # new (expr-list) type (init)
+///               ::= [gs] na <expression>* _ <type> E             # new[] (expr-list) type
+///               ::= [gs] na <expression>* _ <type> <initializer> # new[] (expr-list) type (init)
+///               ::= [gs] dl <expression>                         # delete expression
+///               ::= [gs] da <expression>                         # delete[] expression
+///               ::= dc <type> <expression>                       # dynamic_cast<type> (expression)
+///               ::= sc <type> <expression>                       # static_cast<type> (expression)
+///               ::= cc <type> <expression>                       # const_cast<type> (expression)
+///               ::= rc <type> <expression>                       # reinterpret_cast<type> (expression)
+///               ::= ti <type>                                    # typeid (type)
+///               ::= te <expression>                              # typeid (expression)
+///               ::= st <type>                                    # sizeof (type)
+///               ::= sz <expression>                              # sizeof (expression)
+///               ::= at <type>                                    # alignof (type)
+///               ::= az <expression>                              # alignof (expression)
+///               ::= nx <expression>                              # noexcept (expression)
+///               ::= <template-param>
+///               ::= <function-param>
+///               ::= dt <expression> <unresolved-name>            # expr.name
+///               ::= pt <expression> <unresolved-name>            # expr->name
+///               ::= ds <expression> <expression>                 # expr.*expr
+///               ::= sZ <template-param>                          # sizeof...(T), size of a template parameter pack
+///               ::= sZ <function-param>                          # sizeof...(parameter), size of a function parameter pack
+///               ::= sP <template-arg>* E                         # sizeof...(T), size of a captured template parameter pack from an alias template
+///               ::= sp <expression>                              # expression..., pack expansion
+///               ::= tw <expression>                              # throw expression
+///               ::= tr                                           # throw with no operand (rethrow)
+///               ::= <unresolved-name>                            # f(p), N::f(p), ::f(p),
+///                                                                # freestanding dependent name (e.g., T::x),
+///                                                                # objectless nonstatic member reference
+///               ::= <expr-primary>
+/// ```
+#[derive(Clone, Debug, Hash, PartialEq, Eq)]
+pub struct Expression;
+
+impl Parse for Expression {
+    type Output = Self;
+
+    fn parse(_input: IndexStr) -> Result<(Expression, IndexStr)> {
+        unimplemented!()
+    }
+}
+
+/// The `<unresolved-name>` production.
+///
+/// ```text
+/// <unresolved-name> ::= [gs] <base-unresolved-name>
+///                          # x or (with "gs") ::x
+///                  ::= sr <unresolved-type> <base-unresolved-name>
+///                          # T::x / decltype(p)::x
+///                  ::= srN <unresolved-type> <unresolved-qualifier-level>+ E <base-unresolved-name>
+///                          # T::N::x /decltype(p)::N::x
+///                  ::= [gs] sr <unresolved-qualifier-level>+ E <base-unresolved-name>
+///                          # A::x, N::y, A<T>::z; "gs" means leading "::"
+/// ```
+#[derive(Clone, Debug, Hash, PartialEq, Eq)]
+pub struct UnresolvedName;
+
+impl Parse for UnresolvedName {
+    type Output = Self;
+
+    fn parse(_input: IndexStr) -> Result<(UnresolvedName, IndexStr)> {
+        unimplemented!()
+    }
+}
+
+/// The `<unresolved-type>` production.
+///
+/// ```text
+/// <unresolved-type> ::= <template-param> [ <template-args> ]  # T:: or T<X,Y>::
+///                  ::= <decltype>                            # decltype(p)::
+///                  ::= <substitution>
+/// ```
+#[derive(Clone, Debug, Hash, PartialEq, Eq)]
+pub struct UnresolvedType;
+
+impl Parse for UnresolvedType {
+    type Output = Self;
+
+    fn parse(_input: IndexStr) -> Result<(UnresolvedType, IndexStr)> {
+        unimplemented!()
+    }
+}
+
+/// The `<unresolved-qualifier-level>` production.
+///
+/// ```text
+/// <unresolved-qualifier-level> ::= <simple-id>
+/// ```
+#[derive(Clone, Debug, Hash, PartialEq, Eq)]
+pub struct UnresolvedQualifierLevel;
+
+impl Parse for UnresolvedQualifierLevel {
+    type Output = Self;
+
+    fn parse(_input: IndexStr) -> Result<(UnresolvedQualifierLevel, IndexStr)> {
+        unimplemented!()
+    }
+}
+
+/// The `<simple-id>` production.
+///
+/// ```text
+/// <simple-id> ::= <source-name> [ <template-args> ]
+/// ```
+#[derive(Clone, Debug, Hash, PartialEq, Eq)]
+pub struct SimpleId;
+
+impl Parse for SimpleId {
+    type Output = Self;
+
+    fn parse(_input: IndexStr) -> Result<(SimpleId, IndexStr)> {
+        unimplemented!()
+    }
+}
+
+/// The `<base-unresolved-name>` production.
+///
+/// ```text
+/// <base-unresolved-name> ::= <simple-id>                        # unresolved name
+///                        ::= on <operator-name>                 # unresolved operator-function-id
+///                        ::= on <operator-name> <template-args> # unresolved operator template-id
+///                        ::= dn <destructor-name>               # destructor or pseudo-destructor;
+///                                                               # e.g. ~X or ~X<N-1>
+/// ```
+#[derive(Clone, Debug, Hash, PartialEq, Eq)]
+pub struct BaseUnresolvedName;
+
+impl Parse for BaseUnresolvedName {
+    type Output = Self;
+
+    fn parse(_input: IndexStr) -> Result<(BaseUnresolvedName, IndexStr)> {
+        unimplemented!()
+    }
+}
+
+/// The `<destructor-name>` production.
+///
+/// ```text
+/// <destructor-name> ::= <unresolved-type> # e.g., ~T or ~decltype(f())
+///                   ::= <simple-id>       # e.g., ~A<2*N>
+/// ```
+#[derive(Clone, Debug, Hash, PartialEq, Eq)]
+pub struct DestructorName;
+
+impl Parse for DestructorName {
+    type Output = Self;
+
+    fn parse(_input: IndexStr) -> Result<(DestructorName, IndexStr)> {
+        unimplemented!()
+    }
+}
+
+/// The `<expr-primary>` production.
+///
+/// ```text
+/// <expr-primary> ::= L <type> <value number> E                        # integer literal
+///                ::= L <type> <value float> E                         # floating literal
+///                ::= L <string type> E                                # string literal
+///                ::= L <nullptr type> E                               # nullptr literal (i.e., "LDnE")
+///                ::= L <pointer type> 0 E                             # null pointer template argument
+///                ::= L <type> <real-part float> _ <imag-part float> E # complex floating point literal (C 2000)
+///                ::= L <mangled-name> E                               # external name
+/// ```
+#[derive(Clone, Debug, Hash, PartialEq, Eq)]
+pub struct ExprPrimary;
+
+impl Parse for ExprPrimary {
+    type Output = Self;
+
+    fn parse(_input: IndexStr) -> Result<(ExprPrimary, IndexStr)> {
+        unimplemented!()
+    }
+}
+
+/// The `<initializer>` production.
+///
+/// ```text
+/// <initializer> ::= pi <expression>* E # parenthesized initialization
+/// ```
+#[derive(Clone, Debug, Hash, PartialEq, Eq)]
+pub struct Initializer;
+
+impl Parse for Initializer {
+    type Output = Self;
+
+    fn parse(_input: IndexStr) -> Result<(Initializer, IndexStr)> {
+        unimplemented!()
+    }
+}
+
+/// The `<local-name>` production.
+///
+/// ```text
+/// <local-name> := Z <function encoding> E <entity name> [<discriminator>]
+///              := Z <function encoding> E s [<discriminator>]
+///              := Z <function encoding> Ed [ <parameter number> ] _ <entity name>
+/// ```
+#[derive(Clone, Debug, Hash, PartialEq, Eq)]
+pub struct LocalName;
+
+impl Parse for LocalName {
+    type Output = Self;
+
+    fn parse(_input: IndexStr) -> Result<(LocalName, IndexStr)> {
+        unimplemented!()
+    }
+}
+
+/// The `<discriminator>` production.
+///
+/// ```text
+/// <discriminator> := _ <non-negative number>      # when number < 10
+///                 := __ <non-negative number> _   # when number >= 10
+/// ```
+#[derive(Clone, Debug, Hash, PartialEq, Eq)]
+pub struct Discriminator(usize);
+
+impl Parse for Discriminator {
+    type Output = Self;
+
+    fn parse(_input: IndexStr) -> Result<(Discriminator, IndexStr)> {
+        unimplemented!()
+    }
+}
+
+/// The `<closure-type-name>` production.
+///
+/// ```text
+/// <closure-type-name> ::= Ul <lambda-sig> E [ <nonnegative number> ] _
+/// ```
+#[derive(Clone, Debug, Hash, PartialEq, Eq)]
+pub struct ClosureTypeName;
+
+impl Parse for ClosureTypeName {
+    type Output = Self;
+
+    fn parse(_input: IndexStr) -> Result<(ClosureTypeName, IndexStr)> {
+        unimplemented!()
+    }
+}
+
+/// The `<lambda-sig>` production.
+///
+/// ```text
+/// <lambda-sig> ::= <parameter type>+  # Parameter types or "v" if the lambda has no parameters
+/// ```
+#[derive(Clone, Debug, Hash, PartialEq, Eq)]
+pub struct LambdaSig;
+
+impl Parse for LambdaSig {
+    type Output = Self;
+
+    fn parse(_input: IndexStr) -> Result<(LambdaSig, IndexStr)> {
+        unimplemented!()
+    }
+}
+
+/// The `<data-member-prefix>` production.
+///
+/// ```text
+/// <data-member-prefix> := <member source-name> M
+/// ```
+#[derive(Clone, Debug, Hash, PartialEq, Eq)]
+pub struct DataMemberPrefix(SourceName);
+
+impl Parse for DataMemberPrefix {
+    type Output = Self;
+
+    fn parse(input: IndexStr) -> Result<(DataMemberPrefix, IndexStr)> {
+        let (name, tail) = try!(SourceName::parse(input));
+        let tail = try!(consume(b"M", tail));
+        Ok((DataMemberPrefix(name), tail))
+    }
+}
+
+/// The `<substitution>` form: a back-reference to some component we've already
+/// parsed.
+///
+/// ```text
+/// <substitution> ::= S <seq-id> _
+///                ::= S_
+///                ::= St # ::std::
+///                ::= Sa # ::std::allocator
+///                ::= Sb # ::std::basic_string
+///                ::= Ss # ::std::basic_string < char,
+///                                               ::std::char_traits<char>,
+///                                               ::std::allocator<char> >
+///                ::= Si # ::std::basic_istream<char,  std::char_traits<char> >
+///                ::= So # ::std::basic_ostream<char,  std::char_traits<char> >
+///                ::= Sd # ::std::basic_iostream<char, std::char_traits<char> >
+/// ```
+///
+/// TODO: support the other substitution forms
+#[derive(Clone, Debug, Hash, PartialEq, Eq)]
+pub struct Substitution(Option<SeqId>);
+
+/// The `<special-name>` production.
+#[derive(Clone, Debug, Hash, PartialEq, Eq)]
+pub struct SpecialName;
+
+impl Parse for SpecialName {
+    type Output = Self;
+
+    fn parse(_input: IndexStr) -> Result<(SpecialName, IndexStr)> {
+        unimplemented!()
+    }
+}
+
+/// Expect and consume the given byte str, and return the advanced `IndexStr` if
+/// we saw the expectation. Otherwise return an error of kind
+/// `ErrorKind::UnexpectedText` if the input doesn't match, or
+/// `ErrorKind::UnexpectedEnd` if it isn't long enough.
+fn consume<'a>(expected: &[u8], input: IndexStr<'a>) -> Result<IndexStr<'a>> {
+    match input.try_split_at(expected.len()) {
+        Some((head, tail)) if head == expected => Ok(tail),
+        Some(_) => Err(ErrorKind::UnexpectedText.into()),
+        None => Err(ErrorKind::UnexpectedEnd.into()),
     }
 }
 
@@ -759,177 +1411,6 @@ fn parse_number(base: u32,
     }
 
     Ok((number, tail))
-}
-
-/// The `<number>` production.
-///
-/// ```text
-/// <number> ::= [n] <non-negative decimal integer>
-/// ```
-#[derive(Clone, Debug, Hash, PartialEq, Eq)]
-enum Number {}
-
-impl Parse for Number {
-    type Output = isize;
-
-    fn parse(input: IndexStr) -> Result<(isize, IndexStr)> {
-        parse_number(10, true, input)
-    }
-}
-
-// TODO: support the rest of <operator-name>:
-//
-// ::= cv <type>               # (cast)
-// ::= li <source-name>        # operator ""
-// ::= v <digit> <source-name> # vendor extended operator
-define_vocabulary! {
-    /// The `<operator-name>` production.
-    #[derive(Clone, Debug, Hash, PartialEq, Eq)]
-    pub enum OperatorName {
-        // enum variant(mangled form, printable description)
-        New              (b"nw",  "`new`"),
-        NewArray         (b"na",  "`new[]`"),
-        Delete           (b"dl",  "`delete`"),
-        DeleteArray      (b"da",  "`delete[]`"),
-        UnaryPlus        (b"ps",  "`+` (unary)"),
-        Neg              (b"ng",  "`-` (unary)"),
-        AddressOf        (b"ad",  "`&` (unary)"),
-        Deref            (b"de",  "`*` (unary)"),
-        BitNot           (b"co",  "`~`"),
-        Add              (b"pl",  "`+`"),
-        Sub              (b"mi",  "`-`"),
-        Mul              (b"ml",  "`*`"),
-        Div              (b"dv",  "`/`"),
-        Rem              (b"rm",  "`%`"),
-        BitAnd           (b"an",  "`&`"),
-        BitOr            (b"or",  "`|`"),
-        BitXor           (b"eo",  "`^`"),
-        Assign           (b"aS",  "`=`"),
-        AddAssign        (b"pL",  "`+=`"),
-        SubAssign        (b"mI",  "`-=`"),
-        MulAssign        (b"mL",  "`*=`"),
-        DivAssign        (b"dV",  "`/=`"),
-        RemAssign        (b"rM",  "`%=`"),
-        BitAndAssign     (b"aN",  "`&=`"),
-        BitOrAssign      (b"oR",  "`|=`"),
-        BitXorAssign     (b"eO",  "`^=`"),
-        Shl              (b"ls",  "`<<`"),
-        Shr              (b"rs",  "`>>`"),
-        ShlAssign        (b"lS",  "`<<=`"),
-        ShrAssign        (b"rS",  "`>>=`"),
-        Eq               (b"eq",  "`==`"),
-        Ne               (b"ne",  "`!=`"),
-        Less             (b"lt",  "`<`"),
-        Greater          (b"gt",  "`>`"),
-        LessEq           (b"le",  "`<=`"),
-        GreaterEq        (b"ge",  "`>=`"),
-        Not              (b"nt",  "`!`"),
-        LogicalAnd       (b"aa",  "`&&`"),
-        LogicalOr        (b"oo",  "`||`"),
-        PostInc          (b"pp",  "`++` (postfix in <expression> context)"),
-        PostDec          (b"mm",  "`--` (postfix in <expression> context)"),
-        Comma            (b"cm",  "`,`"),
-        DerefMemberPtr   (b"pm",  "`->*`"),
-        DerefMember      (b"pt",  "`->`"),
-        Call             (b"cl",  "`()`"),
-        Index            (b"ix",  "`[]`"),
-        Question         (b"qu",  "`?:`")
-    }
-}
-
-/// The `<call-offset>` production.
-///
-/// ```text
-/// <call-offset> ::= h <nv-offset> _
-///               ::= v <v-offset> _
-/// ```
-#[derive(Clone, Debug, Hash, PartialEq, Eq)]
-pub enum CallOffset {
-    /// A non-virtual offset.
-    NonVirtual(NvOffset),
-    /// A virtual offset.
-    Virtual(VOffset),
-}
-
-impl Parse for CallOffset {
-    type Output = Self;
-
-    fn parse(input: IndexStr) -> Result<(CallOffset, IndexStr)> {
-        if input.len() == 0 {
-            return Err(ErrorKind::UnexpectedEnd.into());
-        }
-
-        if let Ok(tail) = consume(b"h", input) {
-            let (offset, tail) = try!(NvOffset::parse(tail));
-            let tail = try!(consume(b"_", tail));
-            return Ok((CallOffset::NonVirtual(offset), tail));
-        }
-
-        if let Ok(tail) = consume(b"v", input) {
-            let (offset, tail) = try!(VOffset::parse(tail));
-            let tail = try!(consume(b"_", tail));
-            return Ok((CallOffset::Virtual(offset), tail));
-        }
-
-        Err(ErrorKind::UnexpectedText.into())
-    }
-}
-
-/// A non-virtual offset, as described by the <nv-offset> production.
-///
-/// ```text
-/// <nv-offset> ::= <offset number>
-/// ```
-#[derive(Clone, Debug, Hash, PartialEq, Eq)]
-pub struct NvOffset(isize);
-
-impl Parse for NvOffset {
-    type Output = Self;
-
-    fn parse(input: IndexStr) -> Result<(NvOffset, IndexStr)> {
-        Number::parse(input).map(|(num, tail)| (NvOffset(num), tail))
-    }
-}
-
-/// A virtual offset, as described by the <v-offset> production.
-///
-/// ```text
-/// <v-offset> ::= <offset number> _ <virtual offset number>
-/// ```
-#[derive(Clone, Debug, Hash, PartialEq, Eq)]
-pub struct VOffset(isize, isize);
-
-impl Parse for VOffset {
-    type Output = Self;
-
-    fn parse(input: IndexStr) -> Result<(VOffset, IndexStr)> {
-        let (offset, tail) = try!(Number::parse(input));
-        let tail = try!(consume(b"_", tail));
-        let (virtual_offset, tail) = try!(Number::parse(tail));
-        Ok((VOffset(offset, virtual_offset), tail))
-    }
-}
-
-define_vocabulary! {
-    /// The `<ctor-dtor-name>` production.
-    ///
-    /// ```text
-    /// <ctor-dtor-name> ::= C1  # complete object constructor
-    ///                  ::= C2  # base object constructor
-    ///                  ::= C3  # complete object allocating constructor
-    ///                  ::= D0  # deleting destructor
-    ///                  ::= D1  # complete object destructor
-    ///                  ::= D2  # base object destructor
-    /// ```
-    #[derive(Clone, Debug, Hash, PartialEq, Eq)]
-    pub enum CtorDtorName {
-        CompleteConstructor             (b"C1", "complete object constructor"),
-        BaseConstructor                 (b"C2", "base object constructor"),
-        CompleteAllocatingConstructor   (b"C3", "complete object allocating constructor"),
-        DeletingDestructor              (b"D0", "deleting destructor"),
-        CompleteDestructor              (b"D1", "complete object destructor"),
-        BaseDestructor                  (b"D2", "base object destructor")
-    }
 }
 
 #[cfg(test)]

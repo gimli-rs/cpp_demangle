@@ -57,6 +57,7 @@ pub type BorrowedSymbol<'a> = Symbol<&'a [u8]>;
 #[derive(Clone, Debug, Hash, PartialEq, Eq)]
 pub struct Symbol<T> {
     raw: T,
+    substitutions: ast::SubstitutionTable,
     parsed: ast::MangledName,
 }
 
