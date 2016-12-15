@@ -221,6 +221,16 @@ pub enum PrefixTail {
 #[derive(Clone, Debug, Hash, PartialEq, Eq)]
 pub struct DataMemberPrefix(SourceName);
 
+impl Parse for DataMemberPrefix {
+    type Output = Self;
+
+    fn parse(input: IndexStr) -> Result<(DataMemberPrefix, IndexStr)> {
+        let (name, tail) = try!(SourceName::parse(input));
+        let tail = try!(consume(b"M", tail));
+        Ok((DataMemberPrefix(name), tail))
+    }
+}
+
 /// The `<decltype>` production.
 ///
 /// ```text
@@ -925,10 +935,10 @@ define_vocabulary! {
 #[cfg(test)]
 mod tests {
     use error::ErrorKind;
-    use super::{BuiltinType, CallOffset, CtorDtorName, CvQualifiers, Identifier, Number,
-                NvOffset, OperatorName, Parse, RefQualifier, SeqId, SourceName,
-                StandardBuiltinType, TemplateParam, UnnamedTypeName, UnqualifiedName,
-                VOffset};
+    use super::{BuiltinType, CallOffset, CtorDtorName, CvQualifiers, DataMemberPrefix,
+                Identifier, Number, NvOffset, OperatorName, Parse, RefQualifier, SeqId,
+                SourceName, StandardBuiltinType, TemplateParam, UnnamedTypeName,
+                UnqualifiedName, VOffset};
 
     /// Try to parse something, and check the result. For example:
     ///
@@ -977,6 +987,17 @@ mod tests {
                 }
             }
         }
+    }
+
+    #[test]
+    fn parse_data_member_prefix() {
+        assert_parse!(DataMemberPrefix: b"3fooM..." =>
+                      Ok(DataMemberPrefix(SourceName(Identifier {
+                          start: 1,
+                          end: 4,
+                      })),
+                         b"..."));
+        assert_parse!(DataMemberPrefix: b"zzz" => Err(ErrorKind::UnexpectedText));
     }
 
     #[test]
