@@ -541,14 +541,19 @@ impl Parse for CvQualifiers {
     }
 }
 
-/// A <ref-qualifier> production.
-///
-/// ```text
-/// <ref-qualifier> ::= R   # & ref-qualifier
-///                 ::= O   # && ref-qualifier
-/// ```
-#[derive(Clone, Debug, Hash, PartialEq, Eq)]
-pub struct RefQualifier;
+define_vocabulary! {
+    /// A <ref-qualifier> production.
+    ///
+    /// ```text
+    /// <ref-qualifier> ::= R   # & ref-qualifier
+    ///                 ::= O   # && ref-qualifier
+    /// ```
+    #[derive(Clone, Debug, Hash, PartialEq, Eq)]
+    pub enum RefQualifier {
+        LValueRef(b"R", "& ref-qualifier"),
+        RValueRef(b"O", "&& ref-qualifier")
+    }
+}
 
 define_vocabulary! {
     /// A one of the standard variants of the <builtin-type> production.
@@ -921,8 +926,9 @@ define_vocabulary! {
 mod tests {
     use error::ErrorKind;
     use super::{BuiltinType, CallOffset, CtorDtorName, CvQualifiers, Identifier, Number,
-                NvOffset, OperatorName, Parse, SeqId, SourceName, StandardBuiltinType,
-                TemplateParam, UnnamedTypeName, UnqualifiedName, VOffset};
+                NvOffset, OperatorName, Parse, RefQualifier, SeqId, SourceName,
+                StandardBuiltinType, TemplateParam, UnnamedTypeName, UnqualifiedName,
+                VOffset};
 
     /// Try to parse something, and check the result. For example:
     ///
@@ -971,6 +977,14 @@ mod tests {
                 }
             }
         }
+    }
+
+    #[test]
+    fn parse_ref_qualifier() {
+        assert_parse!(RefQualifier: b"R..." => Ok(RefQualifier::LValueRef, b"..."));
+        assert_parse!(RefQualifier: b"O..." => Ok(RefQualifier::RValueRef, b"..."));
+        assert_parse!(RefQualifier: b"..." => Err(ErrorKind::UnexpectedText));
+        assert_parse!(RefQualifier: b"" => Err(ErrorKind::UnexpectedEnd));
     }
 
     #[test]
