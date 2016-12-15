@@ -170,8 +170,14 @@ pub enum UnscopedName {
 }
 
 impl Parse for UnscopedName {
-    fn parse(_input: IndexStr) -> Result<(UnscopedName, IndexStr)> {
-        unimplemented!()
+    fn parse(input: IndexStr) -> Result<(UnscopedName, IndexStr)> {
+        if let Ok(tail) = consume(b"St", input) {
+            let (name, tail) = try!(UnqualifiedName::parse(tail));
+            return Ok((UnscopedName::Std(name), tail));
+        }
+
+        let (name, tail) = try!(UnqualifiedName::parse(input));
+        Ok((UnscopedName::Unqualified(name), tail))
     }
 }
 
@@ -1348,7 +1354,7 @@ mod tests {
     use super::{BuiltinType, CallOffset, CtorDtorName, CvQualifiers, DataMemberPrefix,
                 Discriminator, Identifier, Number, NvOffset, OperatorName, Parse,
                 RefQualifier, SeqId, SourceName, StandardBuiltinType, TemplateParam,
-                UnnamedTypeName, UnqualifiedName, VOffset};
+                UnnamedTypeName, UnqualifiedName, UnscopedName, VOffset};
 
     /// Try to parse something, and check the result. For example:
     ///
@@ -1486,6 +1492,25 @@ mod tests {
         assert_parse!(TemplateParam: b"T" => Err(ErrorKind::UnexpectedEnd));
         assert_parse!(TemplateParam: b"T3" => Err(ErrorKind::UnexpectedEnd));
         assert_parse!(TemplateParam: b"" => Err(ErrorKind::UnexpectedEnd));
+    }
+
+    #[test]
+    fn parse_unscoped_name() {
+        assert_parse!(UnscopedName: b"St5hello..." =>
+                      Ok(UnscopedName::Std(UnqualifiedName::Source(SourceName(Identifier {
+                          start: 3,
+                          end: 8,
+                      }))),
+                         b"..."));
+        assert_parse!(UnscopedName: b"5hello..." =>
+                      Ok(UnscopedName::Unqualified(UnqualifiedName::Source(SourceName(Identifier {
+                          start: 1,
+                          end: 6,
+                      }))),
+                         b"..."));
+        assert_parse!(UnscopedName: b"St..." => Err(ErrorKind::UnexpectedText));
+        assert_parse!(UnscopedName: b"..." => Err(ErrorKind::UnexpectedText));
+        assert_parse!(UnscopedName: b"" => Err(ErrorKind::UnexpectedEnd));
     }
 
     #[test]
