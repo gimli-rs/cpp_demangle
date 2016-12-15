@@ -18,14 +18,11 @@ pub type SubstitutionTable = Vec<Substitutable>;
 // are substitutable will have that too?
 
 /// A trait for anything that can be parsed from an `IndexStr` and return a
-/// `Result` of the parsed `Self::Output` value and the rest of the `IndexStr`
-/// input that has not been consumed in parsing the `Self::Output` value.
-trait Parse {
-    /// The result of parsing.
-    type Output: Sized;
-
+/// `Result` of the parsed `Self` value and the rest of the `IndexStr` input
+/// that has not been consumed in parsing the `Self` value.
+trait Parse: Sized {
     /// Parse the `Self::Output` value from `input`.
-    fn parse(input: IndexStr) -> Result<(Self::Output, IndexStr)>;
+    fn parse(input: IndexStr) -> Result<(Self, IndexStr)>;
 }
 
 /// Define a "vocabulary" nonterminal, something like `OperatorName` or
@@ -52,8 +49,6 @@ macro_rules! define_vocabulary {
         }
 
         impl Parse for $typename {
-            type Output = Self;
-
             fn parse(input: IndexStr) -> Result<($typename, IndexStr)> {
                 let mut found_prefix = false;
                 $(
@@ -97,8 +92,6 @@ macro_rules! define_vocabulary {
 pub struct MangledName(usize, Encoding);
 
 impl Parse for MangledName {
-    type Output = Self;
-
     fn parse(_input: IndexStr) -> Result<(MangledName, IndexStr)> {
         unimplemented!()
     }
@@ -124,8 +117,6 @@ pub enum Encoding {
 }
 
 impl Parse for Encoding {
-    type Output = Self;
-
     fn parse(_input: IndexStr) -> Result<(Encoding, IndexStr)> {
         unimplemented!()
     }
@@ -158,8 +149,6 @@ pub enum Name {
 }
 
 impl Parse for Name {
-    type Output = Self;
-
     fn parse(_input: IndexStr) -> Result<(Name, IndexStr)> {
         unimplemented!()
     }
@@ -181,8 +170,6 @@ pub enum UnscopedName {
 }
 
 impl Parse for UnscopedName {
-    type Output = Self;
-
     fn parse(_input: IndexStr) -> Result<(UnscopedName, IndexStr)> {
         unimplemented!()
     }
@@ -198,8 +185,6 @@ impl Parse for UnscopedName {
 pub struct UnscopedTemplateName(UnscopedName);
 
 impl Parse for UnscopedTemplateName {
-    type Output = Self;
-
     fn parse(_input: IndexStr) -> Result<(UnscopedTemplateName, IndexStr)> {
         unimplemented!()
     }
@@ -221,8 +206,6 @@ pub enum NestedName {
 }
 
 impl Parse for NestedName {
-    type Output = Self;
-
     fn parse(_input: IndexStr) -> Result<(NestedName, IndexStr)> {
         unimplemented!()
     }
@@ -255,8 +238,6 @@ pub enum Prefix {
 }
 
 impl Parse for Prefix {
-    type Output = Self;
-
     fn parse(_input: IndexStr) -> Result<(Prefix, IndexStr)> {
         unimplemented!()
     }
@@ -272,8 +253,6 @@ pub enum PrefixTail {
 }
 
 impl Parse for PrefixTail {
-    type Output = Self;
-
     fn parse(_input: IndexStr) -> Result<(PrefixTail, IndexStr)> {
         unimplemented!()
     }
@@ -291,8 +270,6 @@ impl Parse for PrefixTail {
 pub struct TemplatePrefix;
 
 impl Parse for TemplatePrefix {
-    type Output = Self;
-
     fn parse(_input: IndexStr) -> Result<(TemplatePrefix, IndexStr)> {
         unimplemented!()
     }
@@ -319,8 +296,6 @@ pub enum UnqualifiedName {
 }
 
 impl Parse for UnqualifiedName {
-    type Output = Self;
-
     fn parse(input: IndexStr) -> Result<(UnqualifiedName, IndexStr)> {
         if let Ok((op, tail)) = OperatorName::parse(input) {
             return Ok((UnqualifiedName::Operator(op), tail));
@@ -348,8 +323,6 @@ impl Parse for UnqualifiedName {
 pub struct SourceName(Identifier);
 
 impl Parse for SourceName {
-    type Output = Self;
-
     fn parse(input: IndexStr) -> Result<(SourceName, IndexStr)> {
         let (source_name_len, input) = try!(parse_number(10, false, input));
         debug_assert!(source_name_len >= 0);
@@ -389,8 +362,6 @@ pub struct Identifier {
 }
 
 impl Parse for Identifier {
-    type Output = Self;
-
     fn parse(input: IndexStr) -> Result<(Identifier, IndexStr)> {
         if input.len() == 0 {
             return Err(ErrorKind::UnexpectedEnd.into());
@@ -422,12 +393,9 @@ impl Parse for Identifier {
 /// ```text
 /// <number> ::= [n] <non-negative decimal integer>
 /// ```
-#[derive(Clone, Debug, Hash, PartialEq, Eq)]
-enum Number {}
+type Number = isize;
 
 impl Parse for Number {
-    type Output = isize;
-
     fn parse(input: IndexStr) -> Result<(isize, IndexStr)> {
         parse_number(10, true, input)
     }
@@ -442,8 +410,6 @@ impl Parse for Number {
 pub struct SeqId(usize);
 
 impl Parse for SeqId {
-    type Output = Self;
-
     fn parse(input: IndexStr) -> Result<(SeqId, IndexStr)> {
         parse_number(36, false, input).map(|(num, tail)| (SeqId(num as _), tail))
     }
@@ -524,8 +490,6 @@ pub enum CallOffset {
 }
 
 impl Parse for CallOffset {
-    type Output = Self;
-
     fn parse(input: IndexStr) -> Result<(CallOffset, IndexStr)> {
         if input.len() == 0 {
             return Err(ErrorKind::UnexpectedEnd.into());
@@ -556,8 +520,6 @@ impl Parse for CallOffset {
 pub struct NvOffset(isize);
 
 impl Parse for NvOffset {
-    type Output = Self;
-
     fn parse(input: IndexStr) -> Result<(NvOffset, IndexStr)> {
         Number::parse(input).map(|(num, tail)| (NvOffset(num), tail))
     }
@@ -572,8 +534,6 @@ impl Parse for NvOffset {
 pub struct VOffset(isize, isize);
 
 impl Parse for VOffset {
-    type Output = Self;
-
     fn parse(input: IndexStr) -> Result<(VOffset, IndexStr)> {
         let (offset, tail) = try!(Number::parse(input));
         let tail = try!(consume(b"_", tail));
@@ -630,8 +590,6 @@ define_vocabulary! {
 pub struct Type;
 
 impl Parse for Type {
-    type Output = Self;
-
     fn parse(_input: IndexStr) -> Result<(Type, IndexStr)> {
         unimplemented!()
     }
@@ -653,8 +611,6 @@ pub struct CvQualifiers {
 }
 
 impl Parse for CvQualifiers {
-    type Output = Self;
-
     fn parse(input: IndexStr) -> Result<(CvQualifiers, IndexStr)> {
         let (restrict, tail) = if let Ok(tail) = consume(b"r", input) {
             (true, tail)
@@ -783,8 +739,6 @@ pub enum BuiltinType {
 }
 
 impl Parse for BuiltinType {
-    type Output = Self;
-
     fn parse(input: IndexStr) -> Result<(BuiltinType, IndexStr)> {
         if let Ok((ty, tail)) = StandardBuiltinType::parse(input) {
             return Ok((BuiltinType::Standard(ty), tail));
@@ -805,8 +759,6 @@ impl Parse for BuiltinType {
 pub struct FunctionType;
 
 impl Parse for FunctionType {
-    type Output = Self;
-
     fn parse(_input: IndexStr) -> Result<(FunctionType, IndexStr)> {
         unimplemented!()
     }
@@ -822,8 +774,6 @@ impl Parse for FunctionType {
 pub struct BareFunctionType(Vec<Type>);
 
 impl Parse for BareFunctionType {
-    type Output = Self;
-
     fn parse(_input: IndexStr) -> Result<(BareFunctionType, IndexStr)> {
         unimplemented!()
     }
@@ -839,8 +789,6 @@ impl Parse for BareFunctionType {
 pub struct Decltype;
 
 impl Parse for Decltype {
-    type Output = Self;
-
     fn parse(_input: IndexStr) -> Result<(Decltype, IndexStr)> {
         unimplemented!()
     }
@@ -860,8 +808,6 @@ impl Parse for Decltype {
 pub struct ClassEnumType;
 
 impl Parse for ClassEnumType {
-    type Output = Self;
-
     fn parse(_input: IndexStr) -> Result<(ClassEnumType, IndexStr)> {
         unimplemented!()
     }
@@ -879,8 +825,6 @@ impl Parse for ClassEnumType {
 pub struct UnnamedTypeName(Option<usize>);
 
 impl Parse for UnnamedTypeName {
-    type Output = Self;
-
     fn parse(input: IndexStr) -> Result<(UnnamedTypeName, IndexStr)> {
         let input = try!(consume(b"Ut", input));
         let (number, input) = match parse_number(10, false, input) {
@@ -902,8 +846,6 @@ impl Parse for UnnamedTypeName {
 pub struct ArrayType;
 
 impl Parse for ArrayType {
-    type Output = Self;
-
     fn parse(_input: IndexStr) -> Result<(ArrayType, IndexStr)> {
         unimplemented!()
     }
@@ -918,8 +860,6 @@ impl Parse for ArrayType {
 pub struct PointerToMemberType;
 
 impl Parse for PointerToMemberType {
-    type Output = Self;
-
     fn parse(_input: IndexStr) -> Result<(PointerToMemberType, IndexStr)> {
         unimplemented!()
     }
@@ -935,8 +875,6 @@ impl Parse for PointerToMemberType {
 pub struct TemplateParam(Option<usize>);
 
 impl Parse for TemplateParam {
-    type Output = Self;
-
     fn parse(input: IndexStr) -> Result<(TemplateParam, IndexStr)> {
         let input = try!(consume(b"T", input));
         let (number, input) = match parse_number(10, false, input) {
@@ -958,8 +896,6 @@ impl Parse for TemplateParam {
 pub struct TemplateTemplateParam;
 
 impl Parse for TemplateTemplateParam {
-    type Output = Self;
-
     fn parse(_input: IndexStr) -> Result<(TemplateTemplateParam, IndexStr)> {
         unimplemented!()
     }
@@ -981,8 +917,6 @@ impl Parse for TemplateTemplateParam {
 pub struct FunctionParam;
 
 impl Parse for FunctionParam {
-    type Output = Self;
-
     fn parse(_input: IndexStr) -> Result<(FunctionParam, IndexStr)> {
         unimplemented!()
     }
@@ -997,8 +931,6 @@ impl Parse for FunctionParam {
 pub struct TemplateArgs(Vec<TemplateArg>);
 
 impl Parse for TemplateArgs {
-    type Output = Self;
-
     fn parse(_input: IndexStr) -> Result<(TemplateArgs, IndexStr)> {
         unimplemented!()
     }
@@ -1016,8 +948,6 @@ impl Parse for TemplateArgs {
 pub struct TemplateArg;
 
 impl Parse for TemplateArg {
-    type Output = Self;
-
     fn parse(_input: IndexStr) -> Result<(TemplateArg, IndexStr)> {
         unimplemented!()
     }
@@ -1073,8 +1003,6 @@ impl Parse for TemplateArg {
 pub struct Expression;
 
 impl Parse for Expression {
-    type Output = Self;
-
     fn parse(_input: IndexStr) -> Result<(Expression, IndexStr)> {
         unimplemented!()
     }
@@ -1096,8 +1024,6 @@ impl Parse for Expression {
 pub struct UnresolvedName;
 
 impl Parse for UnresolvedName {
-    type Output = Self;
-
     fn parse(_input: IndexStr) -> Result<(UnresolvedName, IndexStr)> {
         unimplemented!()
     }
@@ -1114,8 +1040,6 @@ impl Parse for UnresolvedName {
 pub struct UnresolvedType;
 
 impl Parse for UnresolvedType {
-    type Output = Self;
-
     fn parse(_input: IndexStr) -> Result<(UnresolvedType, IndexStr)> {
         unimplemented!()
     }
@@ -1130,8 +1054,6 @@ impl Parse for UnresolvedType {
 pub struct UnresolvedQualifierLevel;
 
 impl Parse for UnresolvedQualifierLevel {
-    type Output = Self;
-
     fn parse(_input: IndexStr) -> Result<(UnresolvedQualifierLevel, IndexStr)> {
         unimplemented!()
     }
@@ -1146,8 +1068,6 @@ impl Parse for UnresolvedQualifierLevel {
 pub struct SimpleId;
 
 impl Parse for SimpleId {
-    type Output = Self;
-
     fn parse(_input: IndexStr) -> Result<(SimpleId, IndexStr)> {
         unimplemented!()
     }
@@ -1166,8 +1086,6 @@ impl Parse for SimpleId {
 pub struct BaseUnresolvedName;
 
 impl Parse for BaseUnresolvedName {
-    type Output = Self;
-
     fn parse(_input: IndexStr) -> Result<(BaseUnresolvedName, IndexStr)> {
         unimplemented!()
     }
@@ -1183,8 +1101,6 @@ impl Parse for BaseUnresolvedName {
 pub struct DestructorName;
 
 impl Parse for DestructorName {
-    type Output = Self;
-
     fn parse(_input: IndexStr) -> Result<(DestructorName, IndexStr)> {
         unimplemented!()
     }
@@ -1205,8 +1121,6 @@ impl Parse for DestructorName {
 pub struct ExprPrimary;
 
 impl Parse for ExprPrimary {
-    type Output = Self;
-
     fn parse(_input: IndexStr) -> Result<(ExprPrimary, IndexStr)> {
         unimplemented!()
     }
@@ -1221,8 +1135,6 @@ impl Parse for ExprPrimary {
 pub struct Initializer;
 
 impl Parse for Initializer {
-    type Output = Self;
-
     fn parse(_input: IndexStr) -> Result<(Initializer, IndexStr)> {
         unimplemented!()
     }
@@ -1239,8 +1151,6 @@ impl Parse for Initializer {
 pub struct LocalName;
 
 impl Parse for LocalName {
-    type Output = Self;
-
     fn parse(_input: IndexStr) -> Result<(LocalName, IndexStr)> {
         unimplemented!()
     }
@@ -1256,8 +1166,6 @@ impl Parse for LocalName {
 pub struct Discriminator(usize);
 
 impl Parse for Discriminator {
-    type Output = Self;
-
     fn parse(_input: IndexStr) -> Result<(Discriminator, IndexStr)> {
         unimplemented!()
     }
@@ -1272,8 +1180,6 @@ impl Parse for Discriminator {
 pub struct ClosureTypeName;
 
 impl Parse for ClosureTypeName {
-    type Output = Self;
-
     fn parse(_input: IndexStr) -> Result<(ClosureTypeName, IndexStr)> {
         unimplemented!()
     }
@@ -1288,8 +1194,6 @@ impl Parse for ClosureTypeName {
 pub struct LambdaSig;
 
 impl Parse for LambdaSig {
-    type Output = Self;
-
     fn parse(_input: IndexStr) -> Result<(LambdaSig, IndexStr)> {
         unimplemented!()
     }
@@ -1304,8 +1208,6 @@ impl Parse for LambdaSig {
 pub struct DataMemberPrefix(SourceName);
 
 impl Parse for DataMemberPrefix {
-    type Output = Self;
-
     fn parse(input: IndexStr) -> Result<(DataMemberPrefix, IndexStr)> {
         let (name, tail) = try!(SourceName::parse(input));
         let tail = try!(consume(b"M", tail));
@@ -1339,8 +1241,6 @@ pub struct Substitution(Option<SeqId>);
 pub struct SpecialName;
 
 impl Parse for SpecialName {
-    type Output = Self;
-
     fn parse(_input: IndexStr) -> Result<(SpecialName, IndexStr)> {
         unimplemented!()
     }
