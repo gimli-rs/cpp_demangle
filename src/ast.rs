@@ -500,7 +500,46 @@ impl Parse for UnnamedTypeName {
 /// <CV-qualifiers> ::= [r] [V] [K]   # restrict (C99), volatile, const
 /// ```
 #[derive(Clone, Debug, Hash, PartialEq, Eq)]
-pub struct CvQualifiers;
+pub struct CvQualifiers {
+    /// Is this `restrict` qualified?
+    pub restrict: bool,
+    /// Is this `volatile` qualified?
+    pub volatile: bool,
+    /// Is this `const` qualified?
+    pub const_: bool,
+}
+
+impl Parse for CvQualifiers {
+    type Output = Self;
+
+    fn parse(input: IndexStr) -> Result<(CvQualifiers, IndexStr)> {
+        let (restrict, tail) = if let Ok(tail) = consume(b"r", input) {
+            (true, tail)
+        } else {
+            (false, input)
+        };
+
+        let (volatile, tail) = if let Ok(tail) = consume(b"V", tail) {
+            (true, tail)
+        } else {
+            (false, tail)
+        };
+
+        let (const_, tail) = if let Ok(tail) = consume(b"K", tail) {
+            (true, tail)
+        } else {
+            (false, tail)
+        };
+
+        let qualifiers = CvQualifiers {
+            restrict: restrict,
+            volatile: volatile,
+            const_: const_,
+        };
+
+        Ok((qualifiers, tail))
+    }
+}
 
 /// A <ref-qualifier> production.
 ///
@@ -881,8 +920,8 @@ define_vocabulary! {
 #[cfg(test)]
 mod tests {
     use error::ErrorKind;
-    use super::{BuiltinType, CallOffset, CtorDtorName, Identifier, Number, NvOffset,
-                OperatorName, Parse, SeqId, SourceName, StandardBuiltinType,
+    use super::{BuiltinType, CallOffset, CtorDtorName, CvQualifiers, Identifier, Number,
+                NvOffset, OperatorName, Parse, SeqId, SourceName, StandardBuiltinType,
                 TemplateParam, UnnamedTypeName, UnqualifiedName, VOffset};
 
     /// Try to parse something, and check the result. For example:
@@ -932,6 +971,37 @@ mod tests {
                 }
             }
         }
+    }
+
+    #[test]
+    fn parse_cv_qualifiers() {
+        assert_parse!(CvQualifiers: b"" =>
+                      Ok(CvQualifiers { restrict: false, volatile: false, const_: false },
+                         b""));
+        assert_parse!(CvQualifiers: b"..." =>
+                      Ok(CvQualifiers { restrict: false, volatile: false, const_: false },
+                         b"..."));
+
+        assert_parse!(CvQualifiers: b"r..." =>
+                      Ok(CvQualifiers { restrict: true, volatile: false, const_: false },
+                         b"..."));
+        assert_parse!(CvQualifiers: b"rV..." =>
+                      Ok(CvQualifiers { restrict: true, volatile: true, const_: false },
+                         b"..."));
+        assert_parse!(CvQualifiers: b"rVK..." =>
+                      Ok(CvQualifiers { restrict: true, volatile: true, const_: true },
+                         b"..."));
+
+        assert_parse!(CvQualifiers: b"V" =>
+                      Ok(CvQualifiers { restrict: false, volatile: true, const_: false },
+                         b""));
+        assert_parse!(CvQualifiers: b"VK" =>
+                      Ok(CvQualifiers { restrict: false, volatile: true, const_: true },
+                         b""));
+
+        assert_parse!(CvQualifiers: b"K..." =>
+                      Ok(CvQualifiers { restrict: false, volatile: false, const_: true },
+                         b"..."));
     }
 
     #[test]
