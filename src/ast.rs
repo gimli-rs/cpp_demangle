@@ -170,8 +170,14 @@ pub enum UnscopedName {
 }
 
 impl Parse for UnscopedName {
-    fn parse(_input: IndexStr) -> Result<(UnscopedName, IndexStr)> {
-        unimplemented!()
+    fn parse(input: IndexStr) -> Result<(UnscopedName, IndexStr)> {
+        if let Ok(tail) = consume(b"St", input) {
+            let (name, tail) = try!(UnqualifiedName::parse(tail));
+            return Ok((UnscopedName::Std(name), tail));
+        }
+
+        let (name, tail) = try!(UnqualifiedName::parse(input));
+        Ok((UnscopedName::Unqualified(name), tail))
     }
 }
 
@@ -914,11 +920,33 @@ impl Parse for TemplateTemplateParam {
 ///                          # L > 0, second and later parameters
 /// ```
 #[derive(Clone, Debug, Hash, PartialEq, Eq)]
-pub struct FunctionParam;
+pub struct FunctionParam(usize, CvQualifiers, Option<usize>);
 
 impl Parse for FunctionParam {
-    fn parse(_input: IndexStr) -> Result<(FunctionParam, IndexStr)> {
-        unimplemented!()
+    fn parse(input: IndexStr) -> Result<(FunctionParam, IndexStr)> {
+        let tail = try!(consume(b"f", input));
+        if tail.len() == 0 {
+            return Err(ErrorKind::UnexpectedEnd.into());
+        }
+
+        let (scope, tail) = if let Ok(tail) = consume(b"L", tail) {
+            try!(parse_number(10, false, tail))
+        } else {
+            (0, tail)
+        };
+
+        let tail = try!(consume(b"p", tail));
+
+        let (qualifiers, tail) = try!(CvQualifiers::parse(tail));
+
+        let (param, tail) = if let Ok((num, tail)) = parse_number(10, false, tail) {
+            (Some(num as _), tail)
+        } else {
+            (None, tail)
+        };
+
+        let tail = try!(consume(b"_", tail));
+        Ok((FunctionParam(scope as _, qualifiers, param), tail))
     }
 }
 
@@ -1166,8 +1194,37 @@ impl Parse for LocalName {
 pub struct Discriminator(usize);
 
 impl Parse for Discriminator {
-    fn parse(_input: IndexStr) -> Result<(Discriminator, IndexStr)> {
-        unimplemented!()
+    fn parse(input: IndexStr) -> Result<(Discriminator, IndexStr)> {
+        let tail = try!(consume(b"_", input));
+
+        if let Ok(tail) = consume(b"_", tail) {
+            let (num, tail) = try!(parse_number(10, false, tail));
+            debug_assert!(num >= 0);
+            if num < 10 {
+                return Err(ErrorKind::UnexpectedText.into());
+            }
+            let tail = try!(consume(b"_", tail));
+            return Ok((Discriminator(num as _), tail));
+        }
+
+        match tail.try_split_at(1) {
+            None => Err(ErrorKind::UnexpectedEnd.into()),
+            Some((head, tail)) => {
+                match head.as_ref()[0] {
+                    b'0' => Ok((Discriminator(0), tail)),
+                    b'1' => Ok((Discriminator(1), tail)),
+                    b'2' => Ok((Discriminator(2), tail)),
+                    b'3' => Ok((Discriminator(3), tail)),
+                    b'4' => Ok((Discriminator(4), tail)),
+                    b'5' => Ok((Discriminator(5), tail)),
+                    b'6' => Ok((Discriminator(6), tail)),
+                    b'7' => Ok((Discriminator(7), tail)),
+                    b'8' => Ok((Discriminator(8), tail)),
+                    b'9' => Ok((Discriminator(9), tail)),
+                    _ => Err(ErrorKind::UnexpectedText.into()),
+                }
+            }
+        }
     }
 }
 
@@ -1250,6 +1307,7 @@ impl Parse for SpecialName {
 /// we saw the expectation. Otherwise return an error of kind
 /// `ErrorKind::UnexpectedText` if the input doesn't match, or
 /// `ErrorKind::UnexpectedEnd` if it isn't long enough.
+#[inline]
 fn consume<'a>(expected: &[u8], input: IndexStr<'a>) -> Result<IndexStr<'a>> {
     match input.try_split_at(expected.len()) {
         Some((head, tail)) if head == expected => Ok(tail),
@@ -1317,9 +1375,10 @@ fn parse_number(base: u32,
 mod tests {
     use error::ErrorKind;
     use super::{BuiltinType, CallOffset, CtorDtorName, CvQualifiers, DataMemberPrefix,
-                Identifier, Number, NvOffset, OperatorName, Parse, RefQualifier, SeqId,
-                SourceName, StandardBuiltinType, TemplateParam, UnnamedTypeName,
-                UnqualifiedName, VOffset};
+                Discriminator, FunctionParam, Identifier, Number, NvOffset,
+                OperatorName, Parse, RefQualifier, SeqId, SourceName,
+                StandardBuiltinType, TemplateParam, UnnamedTypeName, UnqualifiedName,
+                UnscopedName, VOffset};
 
     /// Try to parse something, and check the result. For example:
     ///
@@ -1368,6 +1427,55 @@ mod tests {
                 }
             }
         }
+    }
+
+    #[test]
+    fn parse_function_param() {
+        assert_parse!(FunctionParam: b"fpK_..." =>
+                      Ok(FunctionParam(0, CvQualifiers {
+                          restrict: false,
+                          volatile: false,
+                          const_: true,
+                      }, None), b"..."));
+        assert_parse!(FunctionParam: b"fL1pK_..." =>
+                      Ok(FunctionParam(1, CvQualifiers {
+                          restrict: false,
+                          volatile: false,
+                          const_: true,
+                      }, None), b"..."));
+        assert_parse!(FunctionParam: b"fpK3_..." =>
+                      Ok(FunctionParam(0, CvQualifiers {
+                          restrict: false,
+                          volatile: false,
+                          const_: true,
+                      }, Some(3)), b"..."));
+        assert_parse!(FunctionParam: b"fL1pK4_..." =>
+                      Ok(FunctionParam(1, CvQualifiers {
+                          restrict: false,
+                          volatile: false,
+                          const_: true,
+                      }, Some(4)), b"..."));
+        assert_parse!(FunctionParam: b"fz" => Err(ErrorKind::UnexpectedText));
+        assert_parse!(FunctionParam: b"fLp_" => Err(ErrorKind::UnexpectedText));
+        assert_parse!(FunctionParam: b"fpL_" => Err(ErrorKind::UnexpectedText));
+        assert_parse!(FunctionParam: b"fL1pK4z" => Err(ErrorKind::UnexpectedText));
+        assert_parse!(FunctionParam: b"fL1pK4" => Err(ErrorKind::UnexpectedEnd));
+        assert_parse!(FunctionParam: b"fL1p" => Err(ErrorKind::UnexpectedEnd));
+        assert_parse!(FunctionParam: b"fL1" => Err(ErrorKind::UnexpectedEnd));
+        assert_parse!(FunctionParam: b"fL" => Err(ErrorKind::UnexpectedEnd));
+        assert_parse!(FunctionParam: b"f" => Err(ErrorKind::UnexpectedEnd));
+        assert_parse!(FunctionParam: b"" => Err(ErrorKind::UnexpectedEnd));
+    }
+
+    #[test]
+    fn parse_discriminator() {
+        assert_parse!(Discriminator: b"_0..." => Ok(Discriminator(0), b"..."));
+        assert_parse!(Discriminator: b"_9..." => Ok(Discriminator(9), b"..."));
+        assert_parse!(Discriminator: b"__99_..." => Ok(Discriminator(99), b"..."));
+        assert_parse!(Discriminator: b"_n1" => Err(ErrorKind::UnexpectedText));
+        assert_parse!(Discriminator: b"__99..." => Err(ErrorKind::UnexpectedText));
+        assert_parse!(Discriminator: b"__99" => Err(ErrorKind::UnexpectedEnd));
+        assert_parse!(Discriminator: b"..." => Err(ErrorKind::UnexpectedText));
     }
 
     #[test]
@@ -1446,6 +1554,25 @@ mod tests {
         assert_parse!(TemplateParam: b"T" => Err(ErrorKind::UnexpectedEnd));
         assert_parse!(TemplateParam: b"T3" => Err(ErrorKind::UnexpectedEnd));
         assert_parse!(TemplateParam: b"" => Err(ErrorKind::UnexpectedEnd));
+    }
+
+    #[test]
+    fn parse_unscoped_name() {
+        assert_parse!(UnscopedName: b"St5hello..." =>
+                      Ok(UnscopedName::Std(UnqualifiedName::Source(SourceName(Identifier {
+                          start: 3,
+                          end: 8,
+                      }))),
+                         b"..."));
+        assert_parse!(UnscopedName: b"5hello..." =>
+                      Ok(UnscopedName::Unqualified(UnqualifiedName::Source(SourceName(Identifier {
+                          start: 1,
+                          end: 6,
+                      }))),
+                         b"..."));
+        assert_parse!(UnscopedName: b"St..." => Err(ErrorKind::UnexpectedText));
+        assert_parse!(UnscopedName: b"..." => Err(ErrorKind::UnexpectedText));
+        assert_parse!(UnscopedName: b"" => Err(ErrorKind::UnexpectedEnd));
     }
 
     #[test]
