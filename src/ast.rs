@@ -1166,8 +1166,37 @@ impl Parse for LocalName {
 pub struct Discriminator(usize);
 
 impl Parse for Discriminator {
-    fn parse(_input: IndexStr) -> Result<(Discriminator, IndexStr)> {
-        unimplemented!()
+    fn parse(input: IndexStr) -> Result<(Discriminator, IndexStr)> {
+        let tail = try!(consume(b"_", input));
+
+        if let Ok(tail) = consume(b"_", tail) {
+            let (num, tail) = try!(parse_number(10, false, tail));
+            debug_assert!(num >= 0);
+            if num < 10 {
+                return Err(ErrorKind::UnexpectedText.into());
+            }
+            let tail = try!(consume(b"_", tail));
+            return Ok((Discriminator(num as _), tail));
+        }
+
+        match tail.try_split_at(1) {
+            None => Err(ErrorKind::UnexpectedEnd.into()),
+            Some((head, tail)) => {
+                match head.as_ref()[0] {
+                    b'0' => Ok((Discriminator(0), tail)),
+                    b'1' => Ok((Discriminator(1), tail)),
+                    b'2' => Ok((Discriminator(2), tail)),
+                    b'3' => Ok((Discriminator(3), tail)),
+                    b'4' => Ok((Discriminator(4), tail)),
+                    b'5' => Ok((Discriminator(5), tail)),
+                    b'6' => Ok((Discriminator(6), tail)),
+                    b'7' => Ok((Discriminator(7), tail)),
+                    b'8' => Ok((Discriminator(8), tail)),
+                    b'9' => Ok((Discriminator(9), tail)),
+                    _ => Err(ErrorKind::UnexpectedText.into()),
+                }
+            }
+        }
     }
 }
 
@@ -1317,9 +1346,9 @@ fn parse_number(base: u32,
 mod tests {
     use error::ErrorKind;
     use super::{BuiltinType, CallOffset, CtorDtorName, CvQualifiers, DataMemberPrefix,
-                Identifier, Number, NvOffset, OperatorName, Parse, RefQualifier, SeqId,
-                SourceName, StandardBuiltinType, TemplateParam, UnnamedTypeName,
-                UnqualifiedName, VOffset};
+                Discriminator, Identifier, Number, NvOffset, OperatorName, Parse,
+                RefQualifier, SeqId, SourceName, StandardBuiltinType, TemplateParam,
+                UnnamedTypeName, UnqualifiedName, VOffset};
 
     /// Try to parse something, and check the result. For example:
     ///
@@ -1368,6 +1397,17 @@ mod tests {
                 }
             }
         }
+    }
+
+    #[test]
+    fn parse_discriminator() {
+        assert_parse!(Discriminator: b"_0..." => Ok(Discriminator(0), b"..."));
+        assert_parse!(Discriminator: b"_9..." => Ok(Discriminator(9), b"..."));
+        assert_parse!(Discriminator: b"__99_..." => Ok(Discriminator(99), b"..."));
+        assert_parse!(Discriminator: b"_n1" => Err(ErrorKind::UnexpectedText));
+        assert_parse!(Discriminator: b"__99..." => Err(ErrorKind::UnexpectedText));
+        assert_parse!(Discriminator: b"__99" => Err(ErrorKind::UnexpectedEnd));
+        assert_parse!(Discriminator: b"..." => Err(ErrorKind::UnexpectedText));
     }
 
     #[test]
