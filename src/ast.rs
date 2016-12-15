@@ -920,11 +920,33 @@ impl Parse for TemplateTemplateParam {
 ///                          # L > 0, second and later parameters
 /// ```
 #[derive(Clone, Debug, Hash, PartialEq, Eq)]
-pub struct FunctionParam;
+pub struct FunctionParam(usize, CvQualifiers, Option<usize>);
 
 impl Parse for FunctionParam {
-    fn parse(_input: IndexStr) -> Result<(FunctionParam, IndexStr)> {
-        unimplemented!()
+    fn parse(input: IndexStr) -> Result<(FunctionParam, IndexStr)> {
+        let tail = try!(consume(b"f", input));
+        if tail.len() == 0 {
+            return Err(ErrorKind::UnexpectedEnd.into());
+        }
+
+        let (scope, tail) = if let Ok(tail) = consume(b"L", tail) {
+            try!(parse_number(10, false, tail))
+        } else {
+            (0, tail)
+        };
+
+        let tail = try!(consume(b"p", tail));
+
+        let (qualifiers, tail) = try!(CvQualifiers::parse(tail));
+
+        let (param, tail) = if let Ok((num, tail)) = parse_number(10, false, tail) {
+            (Some(num as _), tail)
+        } else {
+            (None, tail)
+        };
+
+        let tail = try!(consume(b"_", tail));
+        Ok((FunctionParam(scope as _, qualifiers, param), tail))
     }
 }
 
@@ -1285,6 +1307,7 @@ impl Parse for SpecialName {
 /// we saw the expectation. Otherwise return an error of kind
 /// `ErrorKind::UnexpectedText` if the input doesn't match, or
 /// `ErrorKind::UnexpectedEnd` if it isn't long enough.
+#[inline]
 fn consume<'a>(expected: &[u8], input: IndexStr<'a>) -> Result<IndexStr<'a>> {
     match input.try_split_at(expected.len()) {
         Some((head, tail)) if head == expected => Ok(tail),
@@ -1352,9 +1375,10 @@ fn parse_number(base: u32,
 mod tests {
     use error::ErrorKind;
     use super::{BuiltinType, CallOffset, CtorDtorName, CvQualifiers, DataMemberPrefix,
-                Discriminator, Identifier, Number, NvOffset, OperatorName, Parse,
-                RefQualifier, SeqId, SourceName, StandardBuiltinType, TemplateParam,
-                UnnamedTypeName, UnqualifiedName, UnscopedName, VOffset};
+                Discriminator, FunctionParam, Identifier, Number, NvOffset,
+                OperatorName, Parse, RefQualifier, SeqId, SourceName,
+                StandardBuiltinType, TemplateParam, UnnamedTypeName, UnqualifiedName,
+                UnscopedName, VOffset};
 
     /// Try to parse something, and check the result. For example:
     ///
@@ -1403,6 +1427,44 @@ mod tests {
                 }
             }
         }
+    }
+
+    #[test]
+    fn parse_function_param() {
+        assert_parse!(FunctionParam: b"fpK_..." =>
+                      Ok(FunctionParam(0, CvQualifiers {
+                          restrict: false,
+                          volatile: false,
+                          const_: true,
+                      }, None), b"..."));
+        assert_parse!(FunctionParam: b"fL1pK_..." =>
+                      Ok(FunctionParam(1, CvQualifiers {
+                          restrict: false,
+                          volatile: false,
+                          const_: true,
+                      }, None), b"..."));
+        assert_parse!(FunctionParam: b"fpK3_..." =>
+                      Ok(FunctionParam(0, CvQualifiers {
+                          restrict: false,
+                          volatile: false,
+                          const_: true,
+                      }, Some(3)), b"..."));
+        assert_parse!(FunctionParam: b"fL1pK4_..." =>
+                      Ok(FunctionParam(1, CvQualifiers {
+                          restrict: false,
+                          volatile: false,
+                          const_: true,
+                      }, Some(4)), b"..."));
+        assert_parse!(FunctionParam: b"fz" => Err(ErrorKind::UnexpectedText));
+        assert_parse!(FunctionParam: b"fLp_" => Err(ErrorKind::UnexpectedText));
+        assert_parse!(FunctionParam: b"fpL_" => Err(ErrorKind::UnexpectedText));
+        assert_parse!(FunctionParam: b"fL1pK4z" => Err(ErrorKind::UnexpectedText));
+        assert_parse!(FunctionParam: b"fL1pK4" => Err(ErrorKind::UnexpectedEnd));
+        assert_parse!(FunctionParam: b"fL1p" => Err(ErrorKind::UnexpectedEnd));
+        assert_parse!(FunctionParam: b"fL1" => Err(ErrorKind::UnexpectedEnd));
+        assert_parse!(FunctionParam: b"fL" => Err(ErrorKind::UnexpectedEnd));
+        assert_parse!(FunctionParam: b"f" => Err(ErrorKind::UnexpectedEnd));
+        assert_parse!(FunctionParam: b"" => Err(ErrorKind::UnexpectedEnd));
     }
 
     #[test]
