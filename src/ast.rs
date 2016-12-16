@@ -1952,34 +1952,37 @@ impl Parse for DestructorName {
 /// ```
 #[derive(Clone, Debug, PartialEq)]
 pub enum ExprPrimary {
-    /// An integer literal.
-    Integer(Type, isize),
-
-    /// A float literal.
-    Float(Type, f64),
-
-    /// A string literal.
-    String(Type),
-
-    /// A nullptr literal.
-    Nullptr(Type),
-
-    /// A nullptr template argument.
-    TemplateNullptr(Type),
-
-    /// A complex floating point literal.
-    Complex(Type, f64, f64),
+    /// A type literal.
+    Literal(TypeHandle, usize, usize),
 
     /// An external name.
     External(MangledName),
 }
 
 impl Parse for ExprPrimary {
-    fn parse<'a, 'b>(_subs: &'a mut SubstitutionTable,
+    fn parse<'a, 'b>(subs: &'a mut SubstitutionTable,
                      input: IndexStr<'b>)
                      -> Result<(ExprPrimary, IndexStr<'b>)> {
-        let _tail = try!(consume(b"L", input));
-        Err("Not yet implemented".into())
+        let tail = try!(consume(b"L", input));
+
+        if let Ok((ty, tail)) = TypeHandle::parse(subs, input) {
+            let start = tail.index();
+            let num_bytes_in_literal = tail.as_ref()
+                .iter()
+                .take_while(|&&c| c != b'E')
+                .count();
+            let tail = tail.range_from(num_bytes_in_literal..);
+            let end = tail.index();
+            let expr = ExprPrimary::Literal(ty, start, end);
+            return Ok((expr, tail));
+        }
+
+        // TODO: apparently g++ omitted the '_' in the <mangled-name> here until
+        // -fabi-version=3, so we should detect and work around that...
+
+        let (name, tail) = try!(MangledName::parse(subs, tail));
+        let expr = ExprPrimary::External(name);
+        Ok((expr, tail))
     }
 }
 
