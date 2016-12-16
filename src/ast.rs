@@ -16,6 +16,9 @@ pub enum Substitutable {
 
     /// A `<type>` production.
     Type(Type),
+
+    /// A `<template-template-param>` production.
+    TemplateTemplateParam(TemplateTemplateParam),
 }
 
 /// The table of substitutable components that we have parsed thus far, and for
@@ -555,6 +558,8 @@ impl Parse for TemplatePrefixHandle {
                 Ok((TemplatePrefixHandle::WellKnown(component), tail))
             }
             Substitution::BackReference(idx) => {
+                // TODO: should this check if the back reference actually points
+                // to a <template-prefix> ?
                 Ok((TemplatePrefixHandle::BackReference(idx), tail))
             }
         }
@@ -908,7 +913,7 @@ pub enum Type {
     TemplateParam(TemplateParam),
 
     /// A template template type.
-    TemplateTemplate(TemplateTemplateParam, TemplateArgs),
+    TemplateTemplate(TemplateTemplateParamHandle, TemplateArgs),
 
     /// A decltype.
     Decltype(Decltype),
@@ -989,7 +994,7 @@ impl Parse for TypeHandle {
             return insert_and_return_handle(ty, subs, tail);
         }
 
-        if let Ok((ttp, tail)) = TemplateTemplateParam::parse(subs, input) {
+        if let Ok((ttp, tail)) = TemplateTemplateParamHandle::parse(subs, input) {
             let (args, tail) = try!(TemplateArgs::parse(subs, tail));
             let ty = Type::TemplateTemplate(ttp, args);
             return insert_and_return_handle(ty, subs, tail);
@@ -1066,6 +1071,8 @@ impl Parse for TypeHandle {
                 Ok((TypeHandle::WellKnown(component), tail))
             }
             Substitution::BackReference(idx) => {
+                // TODO: should this check if the back reference actually points
+                // to a <type>?
                 Ok((TypeHandle::BackReference(idx), tail))
             }
         }
@@ -1512,13 +1519,37 @@ impl Parse for TemplateParam {
 ///                           ::= <substitution>
 /// ```
 #[derive(Clone, Debug, Hash, PartialEq, Eq)]
-pub struct TemplateTemplateParam;
+pub struct TemplateTemplateParam(TemplateParam);
 
-impl Parse for TemplateTemplateParam {
-    fn parse<'a, 'b>(_subs: &'a mut SubstitutionTable,
-                     _input: IndexStr<'b>)
-                     -> Result<(TemplateTemplateParam, IndexStr<'b>)> {
-        Err("Not yet implemented".into())
+define_handle! {
+    /// A reference to a parsed `TemplateTemplateParam`.
+    pub enum TemplateTemplateParamHandle
+}
+
+impl Parse for TemplateTemplateParamHandle {
+    fn parse<'a, 'b>(subs: &'a mut SubstitutionTable,
+                     input: IndexStr<'b>)
+                     -> Result<(TemplateTemplateParamHandle, IndexStr<'b>)> {
+        if let Ok((param, tail)) = TemplateParam::parse(subs, input) {
+            let ttp = TemplateTemplateParam(param);
+            let ttp = Substitutable::TemplateTemplateParam(ttp);
+            let idx = subs.insert(ttp);
+            let handle = TemplateTemplateParamHandle::BackReference(idx);
+            return Ok((handle, tail));
+        }
+
+        let (sub, tail) = try!(Substitution::parse(subs, input));
+        match sub {
+            Substitution::WellKnown(component) => {
+                Ok((TemplateTemplateParamHandle::WellKnown(component), tail))
+            }
+            Substitution::BackReference(idx) => {
+                // TODO: should this check if the thing at idx is a
+                // template-template-param? There could otherwise be ambiguity
+                // with <type>'s <substitution> form...
+                Ok((TemplateTemplateParamHandle::BackReference(idx), tail))
+            }
+        }
     }
 }
 
