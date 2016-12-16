@@ -8,24 +8,35 @@ use std::fmt;
 #[doc(hidden)]
 #[derive(Clone, Debug, Hash, PartialEq, Eq)]
 pub enum Substitutable {
-    // ...
+    /// An `<unscoped-template-name>` production.
+    UnscopedTemplateName(UnscopedTemplateName),
 }
 
-/// TODO FITZGEN: is this what we want?
+/// The table of substitutable components that we have parsed thus far, and for
+/// which there are potential back-references.
 #[doc(hidden)]
 #[derive(Clone, Debug, Hash, PartialEq, Eq)]
 pub struct SubstitutionTable(Vec<Substitutable>);
 
 impl SubstitutionTable {
-    /// TODO FITZGEN
+    /// Construct a new `SubstitutionTable`.
     pub fn new() -> SubstitutionTable {
         SubstitutionTable(Vec::new())
     }
-}
 
-// TODO FITZGEN: anything that is substitutable will return a handle (aka index)
-// into the vec in its Parse method? and anything that has sub-AST nodes that
-// are substitutable will have that too?
+    /// Insert a freshly-parsed substitutable component into the table and
+    /// return the index at which it now lives.
+    pub fn insert(&mut self, entity: Substitutable) -> usize {
+        let idx = self.0.len();
+        self.0.push(entity);
+        idx
+    }
+
+    /// Does this substitution table contain a component at the given index?
+    pub fn contains(&self, idx: usize) -> bool {
+        idx < self.0.len()
+    }
+}
 
 /// A trait for anything that can be parsed from an `IndexStr` and return a
 /// `Result` of the parsed `Self` value and the rest of the `IndexStr` input
@@ -33,7 +44,7 @@ impl SubstitutionTable {
 ///
 /// For AST types representing productions which have `<substitution>` as a
 /// possible right hand side, do not implement this trait directly. Instead,
-/// make a newtype over `SeqId`, parse either the `<substitution>` back
+/// make a newtype over `usize`, parse either the `<substitution>` back
 /// reference or "real" value, insert the "real" value into the substitution
 /// table if needed, and *always* return the newtype index into the substitution
 /// table.
@@ -183,7 +194,7 @@ pub enum Name {
     Unscoped(UnscopedName),
 
     /// An unscoped template.
-    UnscopedTemplate(UnscopedTemplateName, TemplateArgs),
+    UnscopedTemplate(UnscopedTemplateNameHandle, TemplateArgs),
 
     /// A local name.
     Local(LocalName),
@@ -201,7 +212,7 @@ impl Parse for Name {
             return Ok((Name::Unscoped(name), tail));
         }
 
-        if let Ok((name, tail)) = UnscopedTemplateName::parse(subs, input) {
+        if let Ok((name, tail)) = UnscopedTemplateNameHandle::parse(subs, input) {
             let (args, tail) = try!(TemplateArgs::parse(subs, tail));
             return Ok((Name::UnscopedTemplate(name, args), tail));
         }
@@ -253,11 +264,40 @@ impl Parse for UnscopedName {
 #[derive(Clone, Debug, Hash, PartialEq, Eq)]
 pub struct UnscopedTemplateName(UnscopedName);
 
-impl Parse for UnscopedTemplateName {
-    fn parse<'a, 'b>(_subs: &'a mut SubstitutionTable,
-                     _input: IndexStr<'b>)
-                     -> Result<(UnscopedTemplateName, IndexStr<'b>)> {
-        Err("Not yet implemented".into())
+/// A handle to an `UnscopedTemplateName`.
+#[derive(Clone, Debug, Hash, PartialEq, Eq)]
+pub enum UnscopedTemplateNameHandle {
+    /// A reference to a "well-known" component.
+    WellKnown(WellKnownComponent),
+
+    /// A reference to an `UnscopedTemplateName` that we have already parsed,
+    /// and is at the given index in the substitution table.
+    BackReference(usize),
+}
+
+impl Parse for UnscopedTemplateNameHandle {
+    fn parse<'a, 'b>(subs: &'a mut SubstitutionTable,
+                     input: IndexStr<'b>)
+                     -> Result<(UnscopedTemplateNameHandle, IndexStr<'b>)> {
+        if let Ok((name, tail)) = UnscopedName::parse(subs, input) {
+            let name = UnscopedTemplateName(name);
+            let idx = subs.insert(Substitutable::UnscopedTemplateName(name));
+            let handle = UnscopedTemplateNameHandle::BackReference(idx);
+            return Ok((handle, tail));
+        }
+
+        let (sub, tail) = try!(Substitution::parse(subs, input));
+
+        match sub {
+            Substitution::WellKnown(component) => {
+                Ok((UnscopedTemplateNameHandle::WellKnown(component), tail))
+            }
+            Substitution::BackReference(idx) => {
+                // TODO: should this check/assert that subs[idx] is an
+                // UnscopedTemplateName?
+                Ok((UnscopedTemplateNameHandle::BackReference(idx), tail))
+            }
+        }
     }
 }
 
@@ -1858,10 +1898,57 @@ impl Parse for DataMemberPrefix {
 ///                ::= So # ::std::basic_ostream<char,  std::char_traits<char> >
 ///                ::= Sd # ::std::basic_iostream<char, std::char_traits<char> >
 /// ```
-///
-/// TODO: support the other substitution forms
 #[derive(Clone, Debug, Hash, PartialEq, Eq)]
-pub struct Substitution(Option<SeqId>);
+pub enum Substitution {
+    /// A reference to an entity that already occurred, ie the `S_` and `S
+    /// <seq-id> _` forms.
+    BackReference(usize),
+
+    /// A well-known substitution component. These are the components that do
+    /// not appear in the substitution table, but have abbreviations specified
+    /// directly in the grammar.
+    WellKnown(WellKnownComponent),
+}
+
+impl Parse for Substitution {
+    fn parse<'a, 'b>(subs: &'a mut SubstitutionTable,
+                     input: IndexStr<'b>)
+                     -> Result<(Substitution, IndexStr<'b>)> {
+        if let Ok((well_known, tail)) = WellKnownComponent::parse(subs, input) {
+            return Ok((Substitution::WellKnown(well_known), tail));
+        }
+
+        let tail = try!(consume(b"S", input));
+        let (idx, tail) = if let Ok((idx, tail)) = SeqId::parse(subs, tail) {
+            (idx.0 + 1, tail)
+        } else {
+            (0, tail)
+        };
+
+        if !subs.contains(idx) {
+            return Err(ErrorKind::BadBackReference.into());
+        }
+
+        let tail = try!(consume(b"_", tail));
+        Ok((Substitution::BackReference(idx), tail))
+    }
+}
+
+define_vocabulary! {
+/// The `<substitution>` variants that are encoded directly in the grammar,
+/// rather than as back references to other components in the substitution
+/// table.
+    #[derive(Clone, Debug, Hash, PartialEq, Eq)]
+    pub enum WellKnownComponent {
+        Std          (b"St", "::std::"),
+        StdAllocator (b"Sa", "::std::allocator"),
+        StdString1   (b"Sb", "::std::basic_string"),
+        StdString2   (b"Ss", "::std::basic_string < char, ::std::char_traits<char>, ::std::allocator<char> >"),
+        StdIstream   (b"Si", "::std::basic_istream<char, std::char_traits<char> >"),
+        StdOstream   (b"So", "::std::basic_ostream<char, std::char_traits<char> >"),
+        StdIostream  (b"Sd", "::std::basic_iostream<char, std::char_traits<char> >")
+    }
+}
 
 /// The `<special-name>` production.
 #[derive(Clone, Debug, Hash, PartialEq, Eq)]
