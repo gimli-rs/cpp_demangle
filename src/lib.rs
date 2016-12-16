@@ -40,7 +40,8 @@ pub mod ast;
 pub mod error;
 mod index_str;
 
-use error::Result;
+use ast::Parse;
+use error::{ErrorKind, Result};
 use index_str::IndexStr;
 use std::fmt;
 
@@ -54,7 +55,7 @@ pub type BorrowedSymbol<'a> = Symbol<&'a [u8]>;
 ///
 /// This is generic over some storage type `T` which can be either owned or
 /// borrowed. See the `OwnedSymbol` and `BorrowedSymbol` type aliases.
-#[derive(Clone, Debug, Hash, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Symbol<T> {
     raw: T,
     substitutions: ast::SubstitutionTable,
@@ -78,9 +79,23 @@ impl<T> Symbol<T>
     /// // The demangled symbol is 'space::foo(int, int)'
     /// ```
     pub fn new(raw: T) -> Result<Symbol<T>> {
-        let input = IndexStr::new(raw.as_ref());
-        let _ = input;
-        unimplemented!()
+        let substitutions = ast::SubstitutionTable::new();
+
+        let parsed = {
+            let input = IndexStr::new(raw.as_ref());
+            let (parsed, tail) = try!(ast::MangledName::parse(input));
+            if tail.is_empty() {
+                parsed
+            } else {
+                return Err(ErrorKind::UnexpectedText.into());
+            }
+        };
+
+        Ok(Symbol {
+            raw: raw,
+            substitutions: substitutions,
+            parsed: parsed,
+        })
     }
 }
 

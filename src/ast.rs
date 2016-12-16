@@ -20,7 +20,8 @@ pub type SubstitutionTable = Vec<Substitutable>;
 /// A trait for anything that can be parsed from an `IndexStr` and return a
 /// `Result` of the parsed `Self` value and the rest of the `IndexStr` input
 /// that has not been consumed in parsing the `Self` value.
-trait Parse: Sized {
+#[doc(hidden)]
+pub trait Parse: Sized {
     /// Parse the `Self::Output` value from `input`.
     fn parse(input: IndexStr) -> Result<(Self, IndexStr)>;
 }
@@ -63,7 +64,7 @@ macro_rules! define_vocabulary {
                     }
                 )*
 
-                if input.len() == 0 || found_prefix {
+                if input.is_empty() || found_prefix {
                     Err(ErrorKind::UnexpectedEnd.into())
                 } else {
                     Err(ErrorKind::UnexpectedText.into())
@@ -88,12 +89,14 @@ macro_rules! define_vocabulary {
 /// ```text
 /// <mangled-name> ::= _Z <encoding>
 /// ```
-#[derive(Clone, Debug, Hash, PartialEq, Eq)]
-pub struct MangledName(usize, Encoding);
+#[derive(Clone, Debug, PartialEq)]
+pub struct MangledName(Encoding);
 
 impl Parse for MangledName {
-    fn parse(_input: IndexStr) -> Result<(MangledName, IndexStr)> {
-        unimplemented!()
+    fn parse(input: IndexStr) -> Result<(MangledName, IndexStr)> {
+        let tail = try!(consume(b"_Z", input));
+        let (encoding, tail) = try!(Encoding::parse(tail));
+        Ok((MangledName(encoding), tail))
     }
 }
 
@@ -104,7 +107,7 @@ impl Parse for MangledName {
 ///            ::= <data name>
 ///            ::= <special-name>
 /// ```
-#[derive(Clone, Debug, Hash, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum Encoding {
     /// An encoded function.
     Function(Name, BareFunctionType),
@@ -117,8 +120,24 @@ pub enum Encoding {
 }
 
 impl Parse for Encoding {
-    fn parse(_input: IndexStr) -> Result<(Encoding, IndexStr)> {
-        unimplemented!()
+    fn parse(input: IndexStr) -> Result<(Encoding, IndexStr)> {
+        if input.is_empty() {
+            return Err(ErrorKind::UnexpectedEnd.into());
+        }
+
+        if let Ok((name, tail)) = Name::parse(input) {
+            if let Ok((ty, tail)) = BareFunctionType::parse(tail) {
+                return Ok((Encoding::Function(name, ty), tail));
+            } else {
+                return Ok((Encoding::Data(name), tail));
+            }
+        }
+
+        if let Ok((name, tail)) = SpecialName::parse(input) {
+            return Ok((Encoding::Special(name), tail));
+        }
+
+        Err(ErrorKind::UnexpectedText.into())
     }
 }
 
@@ -131,9 +150,7 @@ impl Parse for Encoding {
 ///        ::= <local-name>
 ///        ::= St <unqualified-name> # ::std::
 /// ```
-///
-/// TODO: the `std` variant
-#[derive(Clone, Debug, Hash, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum Name {
     /// A nested name
     Nested(NestedName),
@@ -149,8 +166,26 @@ pub enum Name {
 }
 
 impl Parse for Name {
-    fn parse(_input: IndexStr) -> Result<(Name, IndexStr)> {
-        unimplemented!()
+    fn parse(input: IndexStr) -> Result<(Name, IndexStr)> {
+        if let Ok((name, tail)) = NestedName::parse(input) {
+            return Ok((Name::Nested(name), tail));
+        }
+
+        if let Ok((name, tail)) = UnscopedName::parse(input) {
+            return Ok((Name::Unscoped(name), tail));
+        }
+
+        if let Ok((name, tail)) = UnscopedTemplateName::parse(input) {
+            let (args, tail) = try!(TemplateArgs::parse(tail));
+            return Ok((Name::UnscopedTemplate(name, args), tail));
+        }
+
+        if let Ok((name, tail)) = LocalName::parse(input) {
+            return Ok((Name::Local(name), tail));
+        }
+
+        // TODO: the `std` variant
+        Err(ErrorKind::UnexpectedText.into())
     }
 }
 
@@ -192,7 +227,7 @@ pub struct UnscopedTemplateName(UnscopedName);
 
 impl Parse for UnscopedTemplateName {
     fn parse(_input: IndexStr) -> Result<(UnscopedTemplateName, IndexStr)> {
-        unimplemented!()
+        Err("Not yet implemented".into())
     }
 }
 
@@ -202,65 +237,163 @@ impl Parse for UnscopedTemplateName {
 /// <nested-name> ::= N [<CV-qualifiers>] [<ref-qualifier>] <prefix> <unqualified-name> E
 ///               ::= N [<CV-qualifiers>] [<ref-qualifier>] <template-prefix> <template-args> E
 /// ```
-#[derive(Clone, Debug, Hash, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum NestedName {
-    /// An unquaified name.
-    Unqualified(CvQualifiers, RefQualifier, Prefix, UnqualifiedName),
+    /// An unqualified name.
+    Unqualified(CvQualifiers, Option<RefQualifier>, Prefix, UnqualifiedName),
 
     /// A template name.
-    Template(CvQualifiers, RefQualifier, TemplatePrefix, TemplateArgs),
+    Template(CvQualifiers, Option<RefQualifier>, TemplatePrefix, TemplateArgs),
 }
 
 impl Parse for NestedName {
-    fn parse(_input: IndexStr) -> Result<(NestedName, IndexStr)> {
-        unimplemented!()
+    fn parse(input: IndexStr) -> Result<(NestedName, IndexStr)> {
+        let tail = try!(consume(b"N", input));
+
+        let (cv_qualifiers, tail) = if let Ok((q, tail)) = CvQualifiers::parse(tail) {
+            (q, tail)
+        } else {
+            (Default::default(), tail)
+        };
+
+        let (ref_qualifier, tail) = if let Ok((r, tail)) = RefQualifier::parse(tail) {
+            (Some(r), tail)
+        } else {
+            (None, tail)
+        };
+
+        if let Ok((prefix, tail)) = Prefix::parse(tail) {
+            let (name, tail) = try!(UnqualifiedName::parse(tail));
+            let tail = try!(consume(b"E", tail));
+            return Ok((NestedName::Unqualified(cv_qualifiers,
+                                               ref_qualifier,
+                                               prefix,
+                                               name),
+                       tail));
+        }
+
+        let (prefix, tail) = try!(TemplatePrefix::parse(tail));
+        let (args, tail) = try!(TemplateArgs::parse(tail));
+        let tail = try!(consume(b"E", tail));
+        Ok((NestedName::Template(cv_qualifiers, ref_qualifier, prefix, args), tail))
     }
 }
 
 /// The `<prefix>` production.
 ///
-/// Note that it has been refactored and split into `Prefix` and `PrefixTail` to
-/// remove the left-recursion.
+/// Note that there is left-recursion directly within `<prefix>` itself, as well
+/// as indirectly via `<template-prefix>`. Our parser is a naive recursive
+/// descent parser, and this left-recursion will cause us to go into an infinite
+/// loop and blow the stack. So, we've refactored the grammar a little to remove
+/// the left-recursion. First, we inlined `<template-prefix>` into `<prefix>` to
+/// make all of the left-recursion direct rather than indirect. Second, we split
+/// `<prefix>` into `<prefix>` and `<prefix-rest>` using the usual algorithm for
+/// removing direct left-recursion.
+///
+/// Here are the original `<prefix>` and `<template-prefix>` productions.
 ///
 /// ```text
-/// <prefix> ::= <unqualified-name>                 # global class or namespace
-///          ::= <prefix> <unqualified-name>        # nested class or namespace
-///          ::= <template-prefix> <template-args>  # class template specialization
-///          ::= <template-param>                   # template type parameter
-///          ::= <decltype>                         # decltype qualifier
-///          ::= <prefix> <data-member-prefix>      # initializer of a data member
+/// <prefix> ::= <unqualified-name>
+///          ::= <prefix> <unqualified-name>
+///          ::= <template-prefix> <template-args>
+///          ::= <template-param>
+///          ::= <decltype>
+///          ::= <prefix> <data-member-prefix>
+///          ::= <substitution>
+///
+/// <template-prefix> ::= <template unqualified-name>
+///                   ::= <prefix> <template unqualified-name>
+///                   ::= <template-param>
+///                   ::= <substitution>
+/// ```
+///
+/// Here is the `<prefix>` production after we inline `<template-prefix>` into
+/// it.
+///
+/// ```text
+/// <prefix> ::= <unqualified-name>
+///          ::= <prefix> <unqualified-name>
+///          # ... inlining begins ...
+///          ::= <unqualified-name> <template-args>
+///          ::= <prefix> <unqualified-name> <template-args>
+///          ::= <template-param> <template-args>
+///          ::= <substitution> <template-args>
+///          # ... inlining ends ...
+///          ::= <template-param>
+///          ::= <decltype>
+///          ::= <prefix> <data-member-prefix>
 ///          ::= <substitution>
 /// ```
-#[derive(Clone, Debug, Hash, PartialEq, Eq)]
+///
+/// And here are the final `<prefix>` and `<prefix-rest>` productions once the
+/// left-recursion has been eliminated.
+///
+/// ```text
+/// <prefix> ::= <unqualified-name>                 <prefix-rest>
+///          ::= <unqualified-name> <template-args> <prefix-rest>
+///          ::= <template-param>   <template-args> <prefix-rest>
+///          ::= <substitution>     <template-args> <prefix-rest>
+///          ::= <template-param>                   <prefix-rest>
+///          ::= <decltype>                         <prefix-rest>
+///          ::= <substitution>                     <prefix-rest>
+///
+/// <prefix-rest> ::= <unqualified-name>                 <prefix-rest>
+///               ::= <unqualified-name> <template-args> <prefix-rest>
+///               ::= <data-member-prefix>               <prefix-rest>
+///               ::= nil
+/// ```
+#[derive(Clone, Debug, PartialEq)]
 pub enum Prefix {
     /// An unqualified name and optionally more prefix.
-    Unqualified(UnqualifiedName, Option<PrefixTail>),
+    Unqualified(UnqualifiedName, Option<Box<PrefixRest>>),
+
     /// A template and optionally more prefix.
-    Template(TemplatePrefix, TemplateArgs, Option<PrefixTail>),
+    Template(UnqualifiedName, TemplateArgs, Option<Box<PrefixRest>>),
+
     /// A template parameter and optionally more prefix.
-    TemplateParam(TemplateParam, Option<PrefixTail>),
+    TemplateParam(TemplateParam, Option<TemplateArgs>, Option<Box<PrefixRest>>),
+
     /// A `decltype` and optionally more prefix.
-    Decltype(Decltype, Option<PrefixTail>),
+    Decltype(Decltype, Option<Box<PrefixRest>>), // TODO: substitution variant
 }
 
 impl Parse for Prefix {
     fn parse(_input: IndexStr) -> Result<(Prefix, IndexStr)> {
-        unimplemented!()
+        Err("Not yet implemented".into())
     }
 }
 
 /// The second half of the <prefix> production with left-recursion factored out.
-#[derive(Clone, Debug, Hash, PartialEq, Eq)]
-pub enum PrefixTail {
+#[derive(Clone, Debug, PartialEq)]
+pub enum PrefixRest {
     /// An unqualified name and optionally more prefix.
-    Unqualified(UnqualifiedName, Option<Box<PrefixTail>>),
+    Unqualified(UnqualifiedName, Option<Box<PrefixRest>>),
+
+    /// An a template, its arguments, and optionally more prefix.
+    Template(UnqualifiedName, TemplateArgs, Option<Box<PrefixRest>>),
+
     /// A data member and optionally more prefix.
-    DataMember(DataMemberPrefix, Option<Box<PrefixTail>>),
+    DataMember(DataMemberPrefix, Option<Box<PrefixRest>>),
 }
 
-impl Parse for PrefixTail {
-    fn parse(_input: IndexStr) -> Result<(PrefixTail, IndexStr)> {
-        unimplemented!()
+impl Parse for PrefixRest {
+    fn parse(input: IndexStr) -> Result<(PrefixRest, IndexStr)> {
+        fn parse_prefix_tail(input: IndexStr) -> (Option<Box<PrefixRest>>, IndexStr) {
+            if let Ok((prefix_tail, tail)) = PrefixRest::parse(input) {
+                (Some(Box::new(prefix_tail)), tail)
+            } else {
+                (None, input)
+            }
+        }
+
+        if let Ok((name, tail)) = UnqualifiedName::parse(input) {
+            let (prefix_tail, tail) = parse_prefix_tail(tail);
+            return Ok((PrefixRest::Unqualified(name, prefix_tail), tail));
+        }
+
+        let (data, tail) = try!(DataMemberPrefix::parse(input));
+        let (prefix_tail, tail) = parse_prefix_tail(tail);
+        Ok((PrefixRest::DataMember(data, prefix_tail), tail))
     }
 }
 
@@ -277,7 +410,7 @@ pub struct TemplatePrefix;
 
 impl Parse for TemplatePrefix {
     fn parse(_input: IndexStr) -> Result<(TemplatePrefix, IndexStr)> {
-        unimplemented!()
+        Err("Not yet implemented".into())
     }
 }
 
@@ -369,7 +502,7 @@ pub struct Identifier {
 
 impl Parse for Identifier {
     fn parse(input: IndexStr) -> Result<(Identifier, IndexStr)> {
-        if input.len() == 0 {
+        if input.is_empty() {
             return Err(ErrorKind::UnexpectedEnd.into());
         }
 
@@ -497,7 +630,7 @@ pub enum CallOffset {
 
 impl Parse for CallOffset {
     fn parse(input: IndexStr) -> Result<(CallOffset, IndexStr)> {
-        if input.len() == 0 {
+        if input.is_empty() {
             return Err(ErrorKind::UnexpectedEnd.into());
         }
 
@@ -597,7 +730,7 @@ pub struct Type;
 
 impl Parse for Type {
     fn parse(_input: IndexStr) -> Result<(Type, IndexStr)> {
-        unimplemented!()
+        Err("Not yet implemented".into())
     }
 }
 
@@ -606,7 +739,7 @@ impl Parse for Type {
 /// ```text
 /// <CV-qualifiers> ::= [r] [V] [K]   # restrict (C99), volatile, const
 /// ```
-#[derive(Clone, Debug, Hash, PartialEq, Eq)]
+#[derive(Clone, Debug, Default, Hash, PartialEq, Eq)]
 pub struct CvQualifiers {
     /// Is this `restrict` qualified?
     pub restrict: bool,
@@ -762,11 +895,56 @@ impl Parse for BuiltinType {
 /// <function-type> ::= [<CV-qualifiers>] [Dx] F [Y] <bare-function-type> [<ref-qualifier>] E
 /// ```
 #[derive(Clone, Debug, Hash, PartialEq, Eq)]
-pub struct FunctionType;
+pub struct FunctionType {
+    cv_qualifiers: CvQualifiers,
+    transaction_safe: bool,
+    extern_c: bool,
+    bare: BareFunctionType,
+    ref_qualifier: Option<RefQualifier>,
+}
 
 impl Parse for FunctionType {
-    fn parse(_input: IndexStr) -> Result<(FunctionType, IndexStr)> {
-        unimplemented!()
+    fn parse(input: IndexStr) -> Result<(FunctionType, IndexStr)> {
+        let (cv_qualifiers, tail) = if let Ok((cv_qualifiers, tail)) =
+                                           CvQualifiers::parse(input) {
+            (cv_qualifiers, tail)
+        } else {
+            (Default::default(), input)
+        };
+
+        let (transaction_safe, tail) = if let Ok(tail) = consume(b"Dx", tail) {
+            (true, tail)
+        } else {
+            (false, tail)
+        };
+
+        let tail = try!(consume(b"F", tail));
+
+        let (extern_c, tail) = if let Ok(tail) = consume(b"Y", tail) {
+            (true, tail)
+        } else {
+            (false, tail)
+        };
+
+        let (bare, tail) = try!(BareFunctionType::parse(tail));
+
+        let (ref_qualifier, tail) = if let Ok((ref_qualifier, tail)) =
+                                           RefQualifier::parse(tail) {
+            (Some(ref_qualifier), tail)
+        } else {
+            (None, tail)
+        };
+
+        let tail = try!(consume(b"E", tail));
+
+        let func_ty = FunctionType {
+            cv_qualifiers: cv_qualifiers,
+            transaction_safe: transaction_safe,
+            extern_c: extern_c,
+            bare: bare,
+            ref_qualifier: ref_qualifier,
+        };
+        Ok((func_ty, tail))
     }
 }
 
@@ -780,42 +958,98 @@ impl Parse for FunctionType {
 pub struct BareFunctionType(Vec<Type>);
 
 impl Parse for BareFunctionType {
-    fn parse(_input: IndexStr) -> Result<(BareFunctionType, IndexStr)> {
-        unimplemented!()
+    fn parse(input: IndexStr) -> Result<(BareFunctionType, IndexStr)> {
+        let (ty, mut tail) = try!(Type::parse(input));
+        let mut types = vec![ty];
+
+        loop {
+            if let Ok((ty, tail_tail)) = Type::parse(tail) {
+                types.push(ty);
+                tail = tail_tail;
+            } else {
+                return Ok((BareFunctionType(types), tail));
+            }
+        }
     }
 }
 
 /// The `<decltype>` production.
 ///
 /// ```text
-/// <decltype> ::= Dt <expression> E  # decltype of an id-expression or class member access (C++0x)
-///            ::= DT <expression> E  # decltype of an expression (C++0x)
+/// <decltype> ::= Dt <expression> E
+///            ::= DT <expression> E
 /// ```
 #[derive(Clone, Debug, Hash, PartialEq, Eq)]
-pub struct Decltype;
+pub enum Decltype {
+    /// A `decltype` of an id-expression or class member access (C++0x).
+    IdExpression(Expression),
+
+    /// A `decltype` of an expression (C++0x).
+    Expression(Expression),
+}
 
 impl Parse for Decltype {
-    fn parse(_input: IndexStr) -> Result<(Decltype, IndexStr)> {
-        unimplemented!()
+    fn parse(input: IndexStr) -> Result<(Decltype, IndexStr)> {
+        let tail = try!(consume(b"D", input));
+
+        if let Ok(tail) = consume(b"t", tail) {
+            let (expr, tail) = try!(Expression::parse(tail));
+            let tail = try!(consume(b"E", tail));
+            return Ok((Decltype::IdExpression(expr), tail));
+        }
+
+        let tail = try!(consume(b"T", tail));
+        let (expr, tail) = try!(Expression::parse(tail));
+        let tail = try!(consume(b"E", tail));
+        Ok((Decltype::Expression(expr), tail))
     }
 }
 
 /// The `<class-enum-type>` production.
 ///
 /// ```text
-/// <class-enum-type> ::= <name>     # non-dependent type name, dependent type name, or
-///                                  # dependent typename-specifier
-///                   ::= Ts <name>  # dependent elaborated type specifier using 'struct'
-///                                  # or 'class'
-///                   ::= Tu <name>  # dependent elaborated type specifier using 'union'
-///                   ::= Te <name>  # dependent elaborated type specifier using 'enum'
+/// <class-enum-type> ::= <name>
+///                   ::= Ts <name>
+///                   ::= Tu <name>
+///                   ::= Te <name>
 /// ```
-#[derive(Clone, Debug, Hash, PartialEq, Eq)]
-pub struct ClassEnumType;
+#[derive(Clone, Debug, PartialEq)]
+pub enum ClassEnumType {
+    /// A non-dependent type name, dependent type name, or dependent
+    /// typename-specifier.
+    Named(Name),
+
+    /// A dependent elaborated type specifier using 'struct' or 'class'.
+    ElaboratedStruct(Name),
+
+    /// A dependent elaborated type specifier using 'union'.
+    ElaboratedUnion(Name),
+
+    /// A dependent elaborated type specifier using 'enum'.
+    ElaboratedEnum(Name),
+}
 
 impl Parse for ClassEnumType {
-    fn parse(_input: IndexStr) -> Result<(ClassEnumType, IndexStr)> {
-        unimplemented!()
+    fn parse(input: IndexStr) -> Result<(ClassEnumType, IndexStr)> {
+        if let Ok((name, tail)) = Name::parse(input) {
+            return Ok((ClassEnumType::Named(name), tail));
+        }
+
+        let tail = try!(consume(b"T", input));
+
+        if let Ok(tail) = consume(b"s", tail) {
+            let (name, tail) = try!(Name::parse(tail));
+            return Ok((ClassEnumType::ElaboratedStruct(name), tail));
+        }
+
+        if let Ok(tail) = consume(b"u", tail) {
+            let (name, tail) = try!(Name::parse(tail));
+            return Ok((ClassEnumType::ElaboratedEnum(name), tail));
+        }
+
+        let tail = try!(consume(b"e", tail));
+        let (name, tail) = try!(Name::parse(tail));
+        Ok((ClassEnumType::ElaboratedEnum(name), tail))
     }
 }
 
@@ -849,11 +1083,29 @@ impl Parse for UnnamedTypeName {
 ///              ::= A [<dimension expression>] _ <element type>
 /// ```
 #[derive(Clone, Debug, Hash, PartialEq, Eq)]
-pub struct ArrayType;
+pub enum ArrayType {
+    /// An array with a number-literal dimension.
+    DimensionNumber(usize, Type),
+
+    /// An array with an expression for its dimension.
+    DimensionExpression(Expression, Type),
+}
 
 impl Parse for ArrayType {
-    fn parse(_input: IndexStr) -> Result<(ArrayType, IndexStr)> {
-        unimplemented!()
+    fn parse(input: IndexStr) -> Result<(ArrayType, IndexStr)> {
+        let tail = try!(consume(b"A", input));
+
+        if let Ok((num, tail)) = parse_number(10, false, tail) {
+            debug_assert!(num >= 0);
+            let tail = try!(consume(b"_", tail));
+            let (ty, tail) = try!(Type::parse(tail));
+            return Ok((ArrayType::DimensionNumber(num as _, ty), tail));
+        }
+
+        let (expr, tail) = try!(Expression::parse(tail));
+        let tail = try!(consume(b"_", tail));
+        let (ty, tail) = try!(Type::parse(tail));
+        Ok((ArrayType::DimensionExpression(expr, ty), tail))
     }
 }
 
@@ -863,11 +1115,14 @@ impl Parse for ArrayType {
 /// <pointer-to-member-type> ::= M <class type> <member type>
 /// ```
 #[derive(Clone, Debug, Hash, PartialEq, Eq)]
-pub struct PointerToMemberType;
+pub struct PointerToMemberType(Type, Type);
 
 impl Parse for PointerToMemberType {
-    fn parse(_input: IndexStr) -> Result<(PointerToMemberType, IndexStr)> {
-        unimplemented!()
+    fn parse(input: IndexStr) -> Result<(PointerToMemberType, IndexStr)> {
+        let tail = try!(consume(b"M", input));
+        let (ty1, tail) = try!(Type::parse(tail));
+        let (ty2, tail) = try!(Type::parse(tail));
+        Ok((PointerToMemberType(ty1, ty2), tail))
     }
 }
 
@@ -903,7 +1158,7 @@ pub struct TemplateTemplateParam;
 
 impl Parse for TemplateTemplateParam {
     fn parse(_input: IndexStr) -> Result<(TemplateTemplateParam, IndexStr)> {
-        unimplemented!()
+        Err("Not yet implemented".into())
     }
 }
 
@@ -925,7 +1180,7 @@ pub struct FunctionParam(usize, CvQualifiers, Option<usize>);
 impl Parse for FunctionParam {
     fn parse(input: IndexStr) -> Result<(FunctionParam, IndexStr)> {
         let tail = try!(consume(b"f", input));
-        if tail.len() == 0 {
+        if tail.is_empty() {
             return Err(ErrorKind::UnexpectedEnd.into());
         }
 
@@ -955,12 +1210,25 @@ impl Parse for FunctionParam {
 /// ```text
 /// <template-args> ::= I <template-arg>+ E
 /// ```
-#[derive(Clone, Debug, Hash, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct TemplateArgs(Vec<TemplateArg>);
 
 impl Parse for TemplateArgs {
-    fn parse(_input: IndexStr) -> Result<(TemplateArgs, IndexStr)> {
-        unimplemented!()
+    fn parse(input: IndexStr) -> Result<(TemplateArgs, IndexStr)> {
+        let tail = try!(consume(b"I", input));
+
+        let (arg, mut tail) = try!(TemplateArg::parse(tail));
+        let mut args = vec![arg];
+
+        loop {
+            if let Ok((arg, tail_tail)) = TemplateArg::parse(tail) {
+                args.push(arg);
+                tail = tail_tail;
+            } else {
+                let tail = try!(consume(b"E", tail));
+                return Ok((TemplateArgs(args), tail));
+            }
+        }
     }
 }
 
@@ -972,12 +1240,48 @@ impl Parse for TemplateArgs {
 ///                ::= <expr-primary>        # simple expressions
 ///                ::= J <template-arg>* E   # argument pack
 /// ```
-#[derive(Clone, Debug, Hash, PartialEq, Eq)]
-pub struct TemplateArg;
+#[derive(Clone, Debug, PartialEq)]
+pub enum TemplateArg {
+    /// A type or template.
+    Type(Type),
+
+    /// An expression.
+    Expression(Expression),
+
+    /// A simple expression.
+    SimpleExpression(ExprPrimary),
+
+    /// An argument pack.
+    ArgPack(Vec<TemplateArg>),
+}
 
 impl Parse for TemplateArg {
-    fn parse(_input: IndexStr) -> Result<(TemplateArg, IndexStr)> {
-        unimplemented!()
+    fn parse(input: IndexStr) -> Result<(TemplateArg, IndexStr)> {
+        if let Ok((ty, tail)) = Type::parse(input) {
+            return Ok((TemplateArg::Type(ty), tail));
+        }
+
+        if let Ok(tail) = consume(b"X", input) {
+            let (expr, tail) = try!(Expression::parse(tail));
+            let tail = try!(consume(b"E", tail));
+            return Ok((TemplateArg::Expression(expr), tail));
+        }
+
+        if let Ok((expr, tail)) = ExprPrimary::parse(input) {
+            return Ok((TemplateArg::SimpleExpression(expr), tail));
+        }
+
+        let mut tail = try!(consume(b"J", input));
+        let mut args = vec![];
+        loop {
+            if let Ok((arg, tail_tail)) = TemplateArg::parse(tail) {
+                args.push(arg);
+                tail = tail_tail;
+            } else {
+                let tail = try!(consume(b"E", tail));
+                return Ok((TemplateArg::ArgPack(args), tail));
+            }
+        }
     }
 }
 
@@ -1032,7 +1336,7 @@ pub struct Expression;
 
 impl Parse for Expression {
     fn parse(_input: IndexStr) -> Result<(Expression, IndexStr)> {
-        unimplemented!()
+        Err("Not yet implemented".into())
     }
 }
 
@@ -1041,11 +1345,11 @@ impl Parse for Expression {
 /// ```text
 /// <unresolved-name> ::= [gs] <base-unresolved-name>
 ///                          # x or (with "gs") ::x
-///                  ::= sr <unresolved-type> <base-unresolved-name>
+///                   ::= sr <unresolved-type> <base-unresolved-name>
 ///                          # T::x / decltype(p)::x
-///                  ::= srN <unresolved-type> <unresolved-qualifier-level>+ E <base-unresolved-name>
+///                   ::= srN <unresolved-type> <unresolved-qualifier-level>+ E <base-unresolved-name>
 ///                          # T::N::x /decltype(p)::N::x
-///                  ::= [gs] sr <unresolved-qualifier-level>+ E <base-unresolved-name>
+///                   ::= [gs] sr <unresolved-qualifier-level>+ E <base-unresolved-name>
 ///                          # A::x, N::y, A<T>::z; "gs" means leading "::"
 /// ```
 #[derive(Clone, Debug, Hash, PartialEq, Eq)]
@@ -1053,7 +1357,7 @@ pub struct UnresolvedName;
 
 impl Parse for UnresolvedName {
     fn parse(_input: IndexStr) -> Result<(UnresolvedName, IndexStr)> {
-        unimplemented!()
+        Err("Not yet implemented".into())
     }
 }
 
@@ -1061,15 +1365,36 @@ impl Parse for UnresolvedName {
 ///
 /// ```text
 /// <unresolved-type> ::= <template-param> [ <template-args> ]  # T:: or T<X,Y>::
-///                  ::= <decltype>                            # decltype(p)::
-///                  ::= <substitution>
+///                   ::= <decltype>                            # decltype(p)::
+///                   ::= <substitution>
 /// ```
-#[derive(Clone, Debug, Hash, PartialEq, Eq)]
-pub struct UnresolvedType;
+#[derive(Clone, Debug, PartialEq)]
+pub enum UnresolvedType {
+    /// An unresolved template type.
+    Template(TemplateParam, Option<TemplateArgs>),
+
+    /// An unresolved `decltype`.
+    Decltype(Decltype),
+}
 
 impl Parse for UnresolvedType {
-    fn parse(_input: IndexStr) -> Result<(UnresolvedType, IndexStr)> {
-        unimplemented!()
+    fn parse(input: IndexStr) -> Result<(UnresolvedType, IndexStr)> {
+        if let Ok((param, tail)) = TemplateParam::parse(input) {
+            let (args, tail) = if let Ok((args, tail)) = TemplateArgs::parse(tail) {
+                (Some(args), tail)
+            } else {
+                (None, tail)
+            };
+            return Ok((UnresolvedType::Template(param, args), tail));
+        }
+
+        if let Ok((decltype, tail)) = Decltype::parse(input) {
+            return Ok((UnresolvedType::Decltype(decltype), tail));
+        }
+
+        // TODO: substitution variant
+
+        Err("Not yet implemented".into())
     }
 }
 
@@ -1078,12 +1403,13 @@ impl Parse for UnresolvedType {
 /// ```text
 /// <unresolved-qualifier-level> ::= <simple-id>
 /// ```
-#[derive(Clone, Debug, Hash, PartialEq, Eq)]
-pub struct UnresolvedQualifierLevel;
+#[derive(Clone, Debug, PartialEq)]
+pub struct UnresolvedQualifierLevel(SimpleId);
 
 impl Parse for UnresolvedQualifierLevel {
-    fn parse(_input: IndexStr) -> Result<(UnresolvedQualifierLevel, IndexStr)> {
-        unimplemented!()
+    fn parse(input: IndexStr) -> Result<(UnresolvedQualifierLevel, IndexStr)> {
+        let (id, tail) = try!(SimpleId::parse(input));
+        Ok((UnresolvedQualifierLevel(id), tail))
     }
 }
 
@@ -1092,12 +1418,18 @@ impl Parse for UnresolvedQualifierLevel {
 /// ```text
 /// <simple-id> ::= <source-name> [ <template-args> ]
 /// ```
-#[derive(Clone, Debug, Hash, PartialEq, Eq)]
-pub struct SimpleId;
+#[derive(Clone, Debug, PartialEq)]
+pub struct SimpleId(SourceName, Option<TemplateArgs>);
 
 impl Parse for SimpleId {
-    fn parse(_input: IndexStr) -> Result<(SimpleId, IndexStr)> {
-        unimplemented!()
+    fn parse(input: IndexStr) -> Result<(SimpleId, IndexStr)> {
+        let (name, tail) = try!(SourceName::parse(input));
+        let (args, tail) = if let Ok((args, tail)) = TemplateArgs::parse(tail) {
+            (Some(args), tail)
+        } else {
+            (None, tail)
+        };
+        Ok((SimpleId(name, args), tail))
     }
 }
 
@@ -1110,12 +1442,37 @@ impl Parse for SimpleId {
 ///                        ::= dn <destructor-name>               # destructor or pseudo-destructor;
 ///                                                               # e.g. ~X or ~X<N-1>
 /// ```
-#[derive(Clone, Debug, Hash, PartialEq, Eq)]
-pub struct BaseUnresolvedName;
+#[derive(Clone, Debug, PartialEq)]
+pub enum BaseUnresolvedName {
+    /// An unresolved name.
+    Name(SimpleId),
+
+    /// An unresolved function or template function name.
+    Operator(OperatorName, Option<TemplateArgs>),
+
+    /// An unresolved destructor name.
+    Destructor(DestructorName),
+}
 
 impl Parse for BaseUnresolvedName {
-    fn parse(_input: IndexStr) -> Result<(BaseUnresolvedName, IndexStr)> {
-        unimplemented!()
+    fn parse(input: IndexStr) -> Result<(BaseUnresolvedName, IndexStr)> {
+        if let Ok((name, tail)) = SimpleId::parse(input) {
+            return Ok((BaseUnresolvedName::Name(name), tail));
+        }
+
+        if let Ok(tail) = consume(b"on", input) {
+            let (opname, tail) = try!(OperatorName::parse(tail));
+            let (args, tail) = if let Ok((args, tail)) = TemplateArgs::parse(tail) {
+                (Some(args), tail)
+            } else {
+                (None, tail)
+            };
+            return Ok((BaseUnresolvedName::Operator(opname, args), tail));
+        }
+
+        let tail = try!(consume(b"dn", input));
+        let (name, tail) = try!(DestructorName::parse(tail));
+        Ok((BaseUnresolvedName::Destructor(name), tail))
     }
 }
 
@@ -1125,12 +1482,23 @@ impl Parse for BaseUnresolvedName {
 /// <destructor-name> ::= <unresolved-type> # e.g., ~T or ~decltype(f())
 ///                   ::= <simple-id>       # e.g., ~A<2*N>
 /// ```
-#[derive(Clone, Debug, Hash, PartialEq, Eq)]
-pub struct DestructorName;
+#[derive(Clone, Debug, PartialEq)]
+pub enum DestructorName {
+    /// A destructor for an unresolved type.
+    Unresolved(UnresolvedType),
+
+    /// A destructor for a resolved type name.
+    Name(SimpleId),
+}
 
 impl Parse for DestructorName {
-    fn parse(_input: IndexStr) -> Result<(DestructorName, IndexStr)> {
-        unimplemented!()
+    fn parse(input: IndexStr) -> Result<(DestructorName, IndexStr)> {
+        if let Ok((ty, tail)) = UnresolvedType::parse(input) {
+            return Ok((DestructorName::Unresolved(ty), tail));
+        }
+
+        let (name, tail) = try!(SimpleId::parse(input));
+        Ok((DestructorName::Name(name), tail))
     }
 }
 
@@ -1145,12 +1513,34 @@ impl Parse for DestructorName {
 ///                ::= L <type> <real-part float> _ <imag-part float> E # complex floating point literal (C 2000)
 ///                ::= L <mangled-name> E                               # external name
 /// ```
-#[derive(Clone, Debug, Hash, PartialEq, Eq)]
-pub struct ExprPrimary;
+#[derive(Clone, Debug, PartialEq)]
+pub enum ExprPrimary {
+    /// An integer literal.
+    Integer(Type, isize),
+
+    /// A float literal.
+    Float(Type, f64),
+
+    /// A string literal.
+    String(Type),
+
+    /// A nullptr literal.
+    Nullptr(Type),
+
+    /// A nullptr template argument.
+    TemplateNullptr(Type),
+
+    /// A complex floating point literal.
+    Complex(Type, f64, f64),
+
+    /// An external name.
+    External(MangledName),
+}
 
 impl Parse for ExprPrimary {
-    fn parse(_input: IndexStr) -> Result<(ExprPrimary, IndexStr)> {
-        unimplemented!()
+    fn parse(input: IndexStr) -> Result<(ExprPrimary, IndexStr)> {
+        let _tail = try!(consume(b"L", input));
+        Err("Not yet implemented".into())
     }
 }
 
@@ -1160,11 +1550,21 @@ impl Parse for ExprPrimary {
 /// <initializer> ::= pi <expression>* E # parenthesized initialization
 /// ```
 #[derive(Clone, Debug, Hash, PartialEq, Eq)]
-pub struct Initializer;
+pub struct Initializer(Vec<Expression>);
 
 impl Parse for Initializer {
-    fn parse(_input: IndexStr) -> Result<(Initializer, IndexStr)> {
-        unimplemented!()
+    fn parse(input: IndexStr) -> Result<(Initializer, IndexStr)> {
+        let mut tail = try!(consume(b"pi", input));
+        let mut exprs = vec![];
+        loop {
+            if let Ok((expr, tail_tail)) = Expression::parse(tail) {
+                exprs.push(expr);
+                tail = tail_tail;
+            } else {
+                let tail = try!(consume(b"E", tail));
+                return Ok((Initializer(exprs), tail));
+            }
+        }
     }
 }
 
@@ -1175,12 +1575,46 @@ impl Parse for Initializer {
 ///              := Z <function encoding> E s [<discriminator>]
 ///              := Z <function encoding> Ed [ <parameter number> ] _ <entity name>
 /// ```
-#[derive(Clone, Debug, Hash, PartialEq, Eq)]
-pub struct LocalName;
+#[derive(Clone, Debug, PartialEq)]
+pub enum LocalName {
+    /// The mangling of the enclosing function, the mangling of the entity
+    /// relative to the function, and an optional discriminator.
+    Relative(Box<Encoding>, Option<Box<Name>>, Option<Discriminator>),
+
+    /// A default argument in a class definition.
+    Default(Box<Encoding>, Option<usize>, Box<Name>),
+}
 
 impl Parse for LocalName {
-    fn parse(_input: IndexStr) -> Result<(LocalName, IndexStr)> {
-        unimplemented!()
+    fn parse(input: IndexStr) -> Result<(LocalName, IndexStr)> {
+        let tail = try!(consume(b"Z", input));
+        let (encoding, tail) = try!(Encoding::parse(tail));
+
+        if let Ok(tail) = consume(b"s", tail) {
+            let (disc, tail) = try!(Discriminator::parse(tail));
+            return Ok((LocalName::Relative(Box::new(encoding), None, Some(disc)), tail));
+        }
+
+        if let Ok(tail) = consume(b"d", tail) {
+            let (param, tail) = if let Ok((num, tail)) = Number::parse(tail) {
+                (Some(num as _), tail)
+            } else {
+                (None, tail)
+            };
+            let tail = try!(consume(b"_", tail));
+            let (name, tail) = try!(Name::parse(tail));
+            return Ok((LocalName::Default(Box::new(encoding), param, Box::new(name)),
+                       tail));
+        }
+
+        let (name, tail) = try!(Name::parse(tail));
+        let (disc, tail) = if let Ok((disc, tail)) = Discriminator::parse(tail) {
+            (Some(disc), tail)
+        } else {
+            (None, tail)
+        };
+
+        Ok((LocalName::Relative(Box::new(encoding), Some(Box::new(name)), disc), tail))
     }
 }
 
@@ -1234,11 +1668,20 @@ impl Parse for Discriminator {
 /// <closure-type-name> ::= Ul <lambda-sig> E [ <nonnegative number> ] _
 /// ```
 #[derive(Clone, Debug, Hash, PartialEq, Eq)]
-pub struct ClosureTypeName;
+pub struct ClosureTypeName(LambdaSig, Option<usize>);
 
 impl Parse for ClosureTypeName {
-    fn parse(_input: IndexStr) -> Result<(ClosureTypeName, IndexStr)> {
-        unimplemented!()
+    fn parse(input: IndexStr) -> Result<(ClosureTypeName, IndexStr)> {
+        let tail = try!(consume(b"Ul", input));
+        let (sig, tail) = try!(LambdaSig::parse(tail));
+        let tail = try!(consume(b"E", tail));
+        let (num, tail) = if let Ok((num, tail)) = parse_number(10, false, tail) {
+            (Some(num as _), tail)
+        } else {
+            (None, tail)
+        };
+        let tail = try!(consume(b"_", tail));
+        Ok((ClosureTypeName(sig, num), tail))
     }
 }
 
@@ -1248,11 +1691,20 @@ impl Parse for ClosureTypeName {
 /// <lambda-sig> ::= <parameter type>+  # Parameter types or "v" if the lambda has no parameters
 /// ```
 #[derive(Clone, Debug, Hash, PartialEq, Eq)]
-pub struct LambdaSig;
+pub struct LambdaSig(Vec<Type>);
 
 impl Parse for LambdaSig {
-    fn parse(_input: IndexStr) -> Result<(LambdaSig, IndexStr)> {
-        unimplemented!()
+    fn parse(input: IndexStr) -> Result<(LambdaSig, IndexStr)> {
+        let (ty, mut tail) = try!(Type::parse(input));
+        let mut types = vec![ty];
+        loop {
+            if let Ok((ty, tail_tail)) = Type::parse(tail) {
+                types.push(ty);
+                tail = tail_tail;
+            } else {
+                return Ok((LambdaSig(types), tail));
+            }
+        }
     }
 }
 
@@ -1299,7 +1751,7 @@ pub struct SpecialName;
 
 impl Parse for SpecialName {
     fn parse(_input: IndexStr) -> Result<(SpecialName, IndexStr)> {
-        unimplemented!()
+        Err("Not yet implemented".into())
     }
 }
 
