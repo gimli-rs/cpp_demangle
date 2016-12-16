@@ -10,6 +10,9 @@ use std::fmt;
 pub enum Substitutable {
     /// An `<unscoped-template-name>` production.
     UnscopedTemplateName(UnscopedTemplateName),
+
+    /// A `<template-prefix>` production.
+    TemplatePrefix(TemplatePrefix),
 }
 
 /// The table of substitutable components that we have parsed thus far, and for
@@ -388,10 +391,10 @@ impl Parse for NestedName {
 /// <prefix> ::= <unqualified-name>
 ///          ::= <prefix> <unqualified-name>
 ///          # ... inlining begins ...
-///          ::= <unqualified-name> <template-args>
+///          ::= <unqualified-name>          <template-args>
 ///          ::= <prefix> <unqualified-name> <template-args>
-///          ::= <template-param> <template-args>
-///          ::= <substitution> <template-args>
+///          ::= <template-param>            <template-args>
+///          ::= <substitution>              <template-args>
 ///          # ... inlining ends ...
 ///          ::= <template-param>
 ///          ::= <decltype>
@@ -486,13 +489,64 @@ impl Parse for PrefixRest {
 ///                   ::= <substitution>
 /// ```
 #[derive(Clone, Debug, Hash, PartialEq, Eq)]
-pub struct TemplatePrefix;
+pub enum TemplatePrefix {
+    /// A template name.
+    UnqualifiedName(UnqualifiedName),
 
-impl Parse for TemplatePrefix {
-    fn parse<'a, 'b>(_subs: &'a mut SubstitutionTable,
-                     _input: IndexStr<'b>)
-                     -> Result<(TemplatePrefix, IndexStr<'b>)> {
-        Err("Not yet implemented".into())
+    /// A nested template name.
+    Nested(Prefix, UnqualifiedName),
+
+    /// A template template parameter.
+    TemplateTemplate(TemplateParam),
+}
+
+pub enum TemplatePrefixHandle {
+    /// A reference to a "well-known" component.
+    WellKnown(WellKnownComponent),
+
+    /// A reference to a previously parsed `TemplatePrefix` in the substitution
+    /// table.
+    BackReference(usize),
+}
+
+impl Parse for TemplatePrefixHandle {
+    fn parse<'a, 'b>(subs: &'a mut SubstitutionTable,
+                     input: IndexStr<'b>)
+                     -> Result<(TemplatePrefixHandle, IndexStr<'b>)> {
+        if let Ok((name, tail)) = UnqualifiedName::parse(subs, input) {
+            let prefix = TemplatePrefix::UnqualifiedName(name);
+            let prefix = Substitutable::TemplatePrefix(prefix);
+            let idx = subs.insert(prefix);
+            let handle = TemplatePrefixHandle::BackReference(idx);
+            return Ok((handle, tail));
+        }
+
+        if let Ok((prefix, tail)) = Prefix::parse(subs, input) {
+            let (name, tail) = try!(UnqualifiedName::parse(subs, tail));
+            let nested = TemplatePrefix::Nested(prefix, name);
+            let prefix = Substitutable::TemplatePrefix(nested);
+            let idx = subs.insert(prefix);
+            let handle = TemplatePrefixHandle::BackReference(idx);
+            return Ok((handle, tail));
+        }
+
+        if let Ok((param, tail)) = TemplateParam::parse(subs, input) {
+            let prefix = TemplatePrefix::TemplateTemplate(param);
+            let prefix = Substitutable::TemplatePrefix(prefix);
+            let idx = subs.insert(prefix);
+            let handle = TemplatePrefixHandle::BackReference(idx);
+            return Ok((handle, tail));
+        }
+
+        let (sub, tail) = try!(Substitution::parse(input));
+        match sub {
+            Substitution::WellKnown(component) => {
+                Ok((TemplatePrefixHandle::WellKnown(component), tail))
+            }
+            Substitution::BackReference(idx) => {
+                Ok((TemplatePrefixHandle::BackReference(idx), tail))
+            }
+        }
     }
 }
 
