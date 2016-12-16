@@ -19,6 +19,9 @@ pub enum Substitutable {
 
     /// A `<template-template-param>` production.
     TemplateTemplateParam(TemplateTemplateParam),
+
+    /// An `<unresolved-type>` production.
+    UnresolvedType(UnresolvedType),
 }
 
 /// The table of substitutable components that we have parsed thus far, and for
@@ -1778,10 +1781,15 @@ pub enum UnresolvedType {
     Decltype(Decltype),
 }
 
-impl Parse for UnresolvedType {
+define_handle! {
+    /// A reference to a parsed `<unresolved-type>` production.
+    pub enum UnresolvedTypeHandle
+}
+
+impl Parse for UnresolvedTypeHandle {
     fn parse<'a, 'b>(subs: &'a mut SubstitutionTable,
                      input: IndexStr<'b>)
-                     -> Result<(UnresolvedType, IndexStr<'b>)> {
+                     -> Result<(UnresolvedTypeHandle, IndexStr<'b>)> {
         if let Ok((param, tail)) = TemplateParam::parse(subs, input) {
             let (args, tail) = if let Ok((args, tail)) = TemplateArgs::parse(subs,
                                                                              tail) {
@@ -1789,16 +1797,32 @@ impl Parse for UnresolvedType {
             } else {
                 (None, tail)
             };
-            return Ok((UnresolvedType::Template(param, args), tail));
+            let ty = UnresolvedType::Template(param, args);
+            let ty = Substitutable::UnresolvedType(ty);
+            let idx = subs.insert(ty);
+            let handle = UnresolvedTypeHandle::BackReference(idx);
+            return Ok((handle, tail));
         }
 
         if let Ok((decltype, tail)) = Decltype::parse(subs, input) {
-            return Ok((UnresolvedType::Decltype(decltype), tail));
+            let ty = UnresolvedType::Decltype(decltype);
+            let ty = Substitutable::UnresolvedType(ty);
+            let idx = subs.insert(ty);
+            let handle = UnresolvedTypeHandle::BackReference(idx);
+            return Ok((handle, tail));
         }
 
-        // TODO: substitution variant
-
-        Err("Not yet implemented".into())
+        let (sub, tail) = try!(Substitution::parse(subs, input));
+        match sub {
+            Substitution::WellKnown(component) => {
+                Ok((UnresolvedTypeHandle::WellKnown(component), tail))
+            }
+            Substitution::BackReference(idx) => {
+                // TODO: should this check that the back reference actually
+                // points to an `<unresolved-type>`?
+                Ok((UnresolvedTypeHandle::BackReference(idx), tail))
+            }
+        }
     }
 }
 
@@ -1896,7 +1920,7 @@ impl Parse for BaseUnresolvedName {
 #[derive(Clone, Debug, PartialEq)]
 pub enum DestructorName {
     /// A destructor for an unresolved type.
-    Unresolved(UnresolvedType),
+    Unresolved(UnresolvedTypeHandle),
 
     /// A destructor for a resolved type name.
     Name(SimpleId),
@@ -1906,7 +1930,7 @@ impl Parse for DestructorName {
     fn parse<'a, 'b>(subs: &'a mut SubstitutionTable,
                      input: IndexStr<'b>)
                      -> Result<(DestructorName, IndexStr<'b>)> {
-        if let Ok((ty, tail)) = UnresolvedType::parse(subs, input) {
+        if let Ok((ty, tail)) = UnresolvedTypeHandle::parse(subs, input) {
             return Ok((DestructorName::Unresolved(ty), tail));
         }
 
