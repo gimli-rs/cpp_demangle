@@ -79,11 +79,11 @@ impl<T> Symbol<T>
     /// // The demangled symbol is 'space::foo(int, int)'
     /// ```
     pub fn new(raw: T) -> Result<Symbol<T>> {
-        let substitutions = ast::SubstitutionTable::new();
+        let mut substitutions = ast::SubstitutionTable::new();
 
         let parsed = {
             let input = IndexStr::new(raw.as_ref());
-            let (parsed, tail) = try!(ast::MangledName::parse(input));
+            let (parsed, tail) = try!(ast::MangledName::parse(&mut substitutions, input));
             if tail.is_empty() {
                 parsed
             } else {
