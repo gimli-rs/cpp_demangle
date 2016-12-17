@@ -22,6 +22,9 @@ pub enum Substitutable {
 
     /// An `<unresolved-type>` production.
     UnresolvedType(UnresolvedType),
+
+    /// A `<prefix>` production.
+    Prefix(Prefix),
 }
 
 /// The table of substitutable components that we have parsed thus far, and for
@@ -334,7 +337,7 @@ impl Parse for UnscopedTemplateNameHandle {
 #[derive(Clone, Debug, PartialEq)]
 pub enum NestedName {
     /// An unqualified name.
-    Unqualified(CvQualifiers, Option<RefQualifier>, Prefix, UnqualifiedName),
+    Unqualified(CvQualifiers, Option<RefQualifier>, PrefixHandle, UnqualifiedName),
 
     /// A template name.
     Template(CvQualifiers, Option<RefQualifier>, TemplatePrefixHandle, TemplateArgs),
@@ -360,7 +363,7 @@ impl Parse for NestedName {
             (None, tail)
         };
 
-        if let Ok((prefix, tail)) = Prefix::parse(subs, tail) {
+        if let Ok((prefix, tail)) = PrefixHandle::parse(subs, tail) {
             let (name, tail) = try!(UnqualifiedName::parse(subs, tail));
             let tail = try!(consume(b"E", tail));
             return Ok((NestedName::Unqualified(cv_qualifiers,
@@ -379,17 +382,6 @@ impl Parse for NestedName {
 
 /// The `<prefix>` production.
 ///
-/// Note that there is left-recursion directly within `<prefix>` itself, as well
-/// as indirectly via `<template-prefix>`. Our parser is a naive recursive
-/// descent parser, and this left-recursion will cause us to go into an infinite
-/// loop and blow the stack. So, we've refactored the grammar a little to remove
-/// the left-recursion. First, we inlined `<template-prefix>` into `<prefix>` to
-/// make all of the left-recursion direct rather than indirect. Second, we split
-/// `<prefix>` into `<prefix>` and `<prefix-rest>` using the usual algorithm for
-/// removing direct left-recursion.
-///
-/// Here are the original `<prefix>` and `<template-prefix>` productions.
-///
 /// ```text
 /// <prefix> ::= <unqualified-name>
 ///          ::= <prefix> <unqualified-name>
@@ -404,100 +396,114 @@ impl Parse for NestedName {
 ///                   ::= <template-param>
 ///                   ::= <substitution>
 /// ```
-///
-/// Here is the `<prefix>` production after we inline `<template-prefix>` into
-/// it.
-///
-/// ```text
-/// <prefix> ::= <unqualified-name>
-///          ::= <prefix> <unqualified-name>
-///          # ... inlining begins ...
-///          ::= <unqualified-name>          <template-args>
-///          ::= <prefix> <unqualified-name> <template-args>
-///          ::= <template-param>            <template-args>
-///          ::= <substitution>              <template-args>
-///          # ... inlining ends ...
-///          ::= <template-param>
-///          ::= <decltype>
-///          ::= <prefix> <data-member-prefix>
-///          ::= <substitution>
-/// ```
-///
-/// And here are the final `<prefix>` and `<prefix-rest>` productions once the
-/// left-recursion has been eliminated.
-///
-/// ```text
-/// <prefix> ::= <unqualified-name>                 <prefix-rest>
-///          ::= <unqualified-name> <template-args> <prefix-rest>
-///          ::= <template-param>   <template-args> <prefix-rest>
-///          ::= <substitution>     <template-args> <prefix-rest>
-///          ::= <template-param>                   <prefix-rest>
-///          ::= <decltype>                         <prefix-rest>
-///          ::= <substitution>                     <prefix-rest>
-///
-/// <prefix-rest> ::= <unqualified-name>                 <prefix-rest>
-///               ::= <unqualified-name> <template-args> <prefix-rest>
-///               ::= <data-member-prefix>               <prefix-rest>
-///               ::= nil
-/// ```
 #[derive(Clone, Debug, PartialEq)]
 pub enum Prefix {
-    /// An unqualified name and optionally more prefix.
-    Unqualified(UnqualifiedName, Option<Box<PrefixRest>>),
+    /// TODO FITZGEN
+    Unqualified(UnqualifiedName),
 
-    /// A template and optionally more prefix.
-    Template(UnqualifiedName, TemplateArgs, Option<Box<PrefixRest>>),
+    /// TODO FITZGEN
+    Nested(PrefixHandle, UnqualifiedName),
 
-    /// A template parameter and optionally more prefix.
-    TemplateParam(TemplateParam, Option<TemplateArgs>, Option<Box<PrefixRest>>),
+    /// TODO FITZGEN
+    Template(PrefixHandle, TemplateArgs),
 
-    /// A `decltype` and optionally more prefix.
-    Decltype(Decltype, Option<Box<PrefixRest>>), // TODO: substitution variant
+    /// TODO FITZGEN
+    TemplateParam(TemplateParam),
+
+    /// TODO FITZGEN
+    Decltype(Decltype),
+
+    /// TODO FITZGEN
+    DataMember(PrefixHandle, DataMemberPrefix),
 }
 
-impl Parse for Prefix {
-    fn parse<'a, 'b>(_subs: &'a mut SubstitutionTable,
-                     _input: IndexStr<'b>)
-                     -> Result<(Prefix, IndexStr<'b>)> {
-        Err("Not yet implemented".into())
-    }
+define_handle! {
+    /// A reference to a parsed `<prefix>` production.
+    pub enum PrefixHandle
 }
 
-/// The second half of the <prefix> production with left-recursion factored out.
-#[derive(Clone, Debug, PartialEq)]
-pub enum PrefixRest {
-    /// An unqualified name and optionally more prefix.
-    Unqualified(UnqualifiedName, Option<Box<PrefixRest>>),
-
-    /// An a template, its arguments, and optionally more prefix.
-    Template(UnqualifiedName, TemplateArgs, Option<Box<PrefixRest>>),
-
-    /// A data member and optionally more prefix.
-    DataMember(DataMemberPrefix, Option<Box<PrefixRest>>),
-}
-
-impl Parse for PrefixRest {
+impl Parse for PrefixHandle {
     fn parse<'a, 'b>(subs: &'a mut SubstitutionTable,
                      input: IndexStr<'b>)
-                     -> Result<(PrefixRest, IndexStr<'b>)> {
-        fn parse_prefix_tail<'a, 'b>(subs: &'a mut SubstitutionTable,
-                                     input: IndexStr<'b>)
-                                     -> (Option<Box<PrefixRest>>, IndexStr<'b>) {
-            if let Ok((prefix_tail, tail)) = PrefixRest::parse(subs, input) {
-                (Some(Box::new(prefix_tail)), tail)
+                     -> Result<(PrefixHandle, IndexStr<'b>)> {
+        let mut tail = input;
+        let mut current = None;
+
+        loop {
+            if let Ok((name, tail_tail)) = UnqualifiedName::parse(subs, tail) {
+                if let Some(handle) = current {
+                    match tail_tail.peek() {
+                        Some(b'I') => {
+                            // This is a <template-prefix>.
+                            let (args, tail_tail) = try!(TemplateArgs::parse(subs,
+                                                                             tail_tail));
+                            let prefix = Prefix::Template(handle, args);
+                            let idx = subs.insert(Substitutable::Prefix(prefix));
+                            current = Some(PrefixHandle::BackReference(idx));
+                            tail = tail_tail;
+                        }
+                        // TODO: ...
+                        // Some(b'M') => {
+                        //     // This is a <data-member-prefix>.
+                        //     tail = consume(b"M", tail_tail).unwrap();
+                        //     let prefix = Prefix::DataMember(handle)
+                        // }
+                        _ => {
+                            // This is a nested prefix.
+                            let prefix = Prefix::Nested(handle, name);
+                            let idx = subs.insert(Substitutable::Prefix(prefix));
+                            current = Some(PrefixHandle::BackReference(idx));
+                            tail = tail_tail;
+                        }
+                    }
+                } else {
+                    let prefix = Prefix::Unqualified(name);
+                    let idx = subs.insert(Substitutable::Prefix(prefix));
+                    current = Some(PrefixHandle::BackReference(idx));
+                    tail = tail_tail;
+                }
+
+                continue;
+            }
+
+            if let Ok((param, tail_tail)) = TemplateParam::parse(subs, tail) {
+                let prefix = Prefix::TemplateParam(param);
+                let idx = subs.insert(Substitutable::Prefix(prefix));
+                current = Some(PrefixHandle::BackReference(idx));
+                tail = tail_tail;
+                continue;
+            }
+
+            if let Ok((decltype, tail_tail)) = Decltype::parse(subs, tail) {
+                let prefix = Prefix::Decltype(decltype);
+                let idx = subs.insert(Substitutable::Prefix(prefix));
+                current = Some(PrefixHandle::BackReference(idx));
+                tail = tail_tail;
+                continue;
+            }
+
+            if let Ok((sub, tail_tail)) = Substitution::parse(subs, tail) {
+                current = Some(match sub {
+                    Substitution::WellKnown(component) => {
+                        PrefixHandle::WellKnown(component)
+                    }
+                    Substitution::BackReference(idx) => {
+                        // TODO: do we need to check that the idx actually points to
+                        // a Prefix or TemplatePrefix?
+                        PrefixHandle::BackReference(idx)
+                    }
+                });
+                tail = tail_tail;
+                continue;
+            }
+
+            if let Some(handle) = current {
+                return Ok((handle, tail));
             } else {
-                (None, input)
+                // TODO: or UnexpectedEnd if EOF...
+                return Err(ErrorKind::UnexpectedText.into());
             }
         }
-
-        if let Ok((name, tail)) = UnqualifiedName::parse(subs, input) {
-            let (prefix_tail, tail) = parse_prefix_tail(subs, tail);
-            return Ok((PrefixRest::Unqualified(name, prefix_tail), tail));
-        }
-
-        let (data, tail) = try!(DataMemberPrefix::parse(subs, input));
-        let (prefix_tail, tail) = parse_prefix_tail(subs, tail);
-        Ok((PrefixRest::DataMember(data, prefix_tail), tail))
     }
 }
 
@@ -515,7 +521,7 @@ pub enum TemplatePrefix {
     UnqualifiedName(UnqualifiedName),
 
     /// A nested template name.
-    Nested(Prefix, UnqualifiedName),
+    Nested(PrefixHandle, UnqualifiedName),
 
     /// A template template parameter.
     TemplateTemplate(TemplateParam),
@@ -538,7 +544,7 @@ impl Parse for TemplatePrefixHandle {
             return Ok((handle, tail));
         }
 
-        if let Ok((prefix, tail)) = Prefix::parse(subs, input) {
+        if let Ok((prefix, tail)) = PrefixHandle::parse(subs, input) {
             let (name, tail) = try!(UnqualifiedName::parse(subs, tail));
             let nested = TemplatePrefix::Nested(prefix, name);
             let prefix = Substitutable::TemplatePrefix(nested);
