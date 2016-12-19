@@ -4,7 +4,8 @@ use error::{ErrorKind, Result};
 use index_str::IndexStr;
 use std::fmt;
 
-/// TODO FITZGEN: enum of all types that can be substituted.
+/// An enumeration of all of the types that can end up in the substitution
+/// table.
 #[doc(hidden)]
 #[derive(Clone, Debug, PartialEq)]
 pub enum Substitutable {
@@ -398,22 +399,22 @@ impl Parse for NestedName {
 /// ```
 #[derive(Clone, Debug, PartialEq)]
 pub enum Prefix {
-    /// TODO FITZGEN
+    /// An unqualified name.
     Unqualified(UnqualifiedName),
 
-    /// TODO FITZGEN
+    /// Some nested name.
     Nested(PrefixHandle, UnqualifiedName),
 
-    /// TODO FITZGEN
+    /// A prefix and template arguments.
     Template(PrefixHandle, TemplateArgs),
 
-    /// TODO FITZGEN
+    /// A template parameter.
     TemplateParam(TemplateParam),
 
-    /// TODO FITZGEN
+    /// A decltype.
     Decltype(Decltype),
 
-    /// TODO FITZGEN
+    /// A prefix and data member.
     DataMember(PrefixHandle, DataMemberPrefix),
 }
 
@@ -1752,22 +1753,85 @@ impl Parse for Expression {
 ///
 /// ```text
 /// <unresolved-name> ::= [gs] <base-unresolved-name>
-///                          # x or (with "gs") ::x
+///                          #
 ///                   ::= sr <unresolved-type> <base-unresolved-name>
-///                          # T::x / decltype(p)::x
+///                          #
 ///                   ::= srN <unresolved-type> <unresolved-qualifier-level>+ E <base-unresolved-name>
-///                          # T::N::x /decltype(p)::N::x
+///                          #
 ///                   ::= [gs] sr <unresolved-qualifier-level>+ E <base-unresolved-name>
 ///                          # A::x, N::y, A<T>::z; "gs" means leading "::"
 /// ```
-#[derive(Clone, Debug, Hash, PartialEq, Eq)]
-pub struct UnresolvedName;
+#[derive(Clone, Debug, PartialEq)]
+pub enum UnresolvedName {
+    /// `x`
+    Name(BaseUnresolvedName),
+
+    /// `::x`
+    Global(BaseUnresolvedName),
+
+    /// `T::x`  or `decltype(p)::x` or `T::N::x` or `decltype(p)::N::x`
+    Nested1(UnresolvedTypeHandle, Vec<UnresolvedQualifierLevel>, BaseUnresolvedName),
+
+    /// `A::x` or `N::y` or `A<T>::z`
+    Nested2(Vec<UnresolvedQualifierLevel>, BaseUnresolvedName),
+
+    /// `::A::x` or `::N::y` or `::A<T>::z`
+    GlobalNested2(Vec<UnresolvedQualifierLevel>, BaseUnresolvedName),
+}
+
+// TODO: fn one_or_more<P: Parse>(...) -> Vec<P> { ... }
 
 impl Parse for UnresolvedName {
-    fn parse<'a, 'b>(_subs: &'a mut SubstitutionTable,
-                     _input: IndexStr<'b>)
+    fn parse<'a, 'b>(subs: &'a mut SubstitutionTable,
+                     input: IndexStr<'b>)
                      -> Result<(UnresolvedName, IndexStr<'b>)> {
-        Err("Not yet implemented".into())
+        if let Ok(tail) = consume(b"gs", input) {
+            if let Ok((name, tail)) = BaseUnresolvedName::parse(subs, tail) {
+                return Ok((UnresolvedName::Global(name), tail));
+            }
+
+            let tail = try!(consume(b"sr", tail));
+            let (lvl, mut tail) = try!(UnresolvedQualifierLevel::parse(subs, tail));
+            let mut levels = vec![lvl];
+            loop {
+                if let Ok((lvl, tail_tail)) = UnresolvedQualifierLevel::parse(subs,
+                                                                              tail) {
+                    levels.push(lvl);
+                    tail = tail_tail;
+                } else {
+                    let tail = try!(consume(b"E", tail));
+                    let (name, tail) = try!(BaseUnresolvedName::parse(subs, tail));
+                    return Ok((UnresolvedName::GlobalNested2(levels, name), tail));
+                }
+            }
+        }
+
+        if let Ok((name, tail)) = BaseUnresolvedName::parse(subs, input) {
+            return Ok((UnresolvedName::Name(name), tail));
+        }
+
+        let tail = try!(consume(b"sr", input));
+
+        if tail.peek() == Some(b'N') {
+            let (ty, tail) = try!(UnresolvedTypeHandle::parse(subs, input));
+            let (lvl, mut tail) = try!(UnresolvedQualifierLevel::parse(subs, tail));
+            let mut levels = vec![lvl];
+            loop {
+                if let Ok((lvl, tail_tail)) = UnresolvedQualifierLevel::parse(subs,
+                                                                              tail) {
+                    levels.push(lvl);
+                    tail = tail_tail;
+                } else {
+                    let tail = try!(consume(b"E", tail));
+                    let (name, tail) = try!(BaseUnresolvedName::parse(subs, tail));
+                    return Ok((UnresolvedName::Nested1(ty, levels, name), tail));
+                }
+            }
+        }
+
+        let (ty, tail) = try!(UnresolvedTypeHandle::parse(subs, tail));
+        let (name, tail) = try!(BaseUnresolvedName::parse(subs, tail));
+        Ok((UnresolvedName::Nested1(ty, vec![], name), tail))
     }
 }
 
