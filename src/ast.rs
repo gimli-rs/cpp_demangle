@@ -4,28 +4,55 @@ use error::{ErrorKind, Result};
 use index_str::IndexStr;
 use std::fmt;
 
-/// TODO FITZGEN: enum of all types that can be substituted.
+/// An enumeration of all of the types that can end up in the substitution
+/// table.
 #[doc(hidden)]
-#[derive(Clone, Debug, Hash, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum Substitutable {
-    // ...
+    /// An `<unscoped-template-name>` production.
+    UnscopedTemplateName(UnscopedTemplateName),
+
+    /// A `<template-prefix>` production.
+    TemplatePrefix(TemplatePrefix),
+
+    /// A `<type>` production.
+    Type(Type),
+
+    /// A `<template-template-param>` production.
+    TemplateTemplateParam(TemplateTemplateParam),
+
+    /// An `<unresolved-type>` production.
+    UnresolvedType(UnresolvedType),
+
+    /// A `<prefix>` production.
+    Prefix(Prefix),
 }
 
-/// TODO FITZGEN: is this what we want?
+/// The table of substitutable components that we have parsed thus far, and for
+/// which there are potential back-references.
 #[doc(hidden)]
-#[derive(Clone, Debug, Hash, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct SubstitutionTable(Vec<Substitutable>);
 
 impl SubstitutionTable {
-    /// TODO FITZGEN
+    /// Construct a new `SubstitutionTable`.
     pub fn new() -> SubstitutionTable {
         SubstitutionTable(Vec::new())
     }
-}
 
-// TODO FITZGEN: anything that is substitutable will return a handle (aka index)
-// into the vec in its Parse method? and anything that has sub-AST nodes that
-// are substitutable will have that too?
+    /// Insert a freshly-parsed substitutable component into the table and
+    /// return the index at which it now lives.
+    pub fn insert(&mut self, entity: Substitutable) -> usize {
+        let idx = self.0.len();
+        self.0.push(entity);
+        idx
+    }
+
+    /// Does this substitution table contain a component at the given index?
+    pub fn contains(&self, idx: usize) -> bool {
+        idx < self.0.len()
+    }
+}
 
 /// A trait for anything that can be parsed from an `IndexStr` and return a
 /// `Result` of the parsed `Self` value and the rest of the `IndexStr` input
@@ -33,7 +60,7 @@ impl SubstitutionTable {
 ///
 /// For AST types representing productions which have `<substitution>` as a
 /// possible right hand side, do not implement this trait directly. Instead,
-/// make a newtype over `SeqId`, parse either the `<substitution>` back
+/// make a newtype over `usize`, parse either the `<substitution>` back
 /// reference or "real" value, insert the "real" value into the substitution
 /// table if needed, and *always* return the newtype index into the substitution
 /// table.
@@ -44,6 +71,24 @@ pub trait Parse: Sized {
     fn parse<'a, 'b>(subs: &'a mut SubstitutionTable,
                      input: IndexStr<'b>)
                      -> Result<(Self, IndexStr<'b>)>;
+}
+
+/// Define a handle to a AST type that lives inside the substitution table. A
+/// handle is always either an index into the substitution table, or it is a
+/// reference to a "well-known" component.
+macro_rules! define_handle {
+    ( $(#[$attr:meta])* pub enum $typename:ident ) => {
+        $(#[$attr])*
+            #[derive(Clone, Debug, Hash, PartialEq, Eq)]
+        pub enum $typename {
+            /// A reference to a "well-known" component.
+            WellKnown(WellKnownComponent),
+
+            /// A back-reference into the substitution table to a component we
+            /// have already parsed.
+            BackReference(usize),
+        }
+    }
 }
 
 /// Define a "vocabulary" nonterminal, something like `OperatorName` or
@@ -183,7 +228,7 @@ pub enum Name {
     Unscoped(UnscopedName),
 
     /// An unscoped template.
-    UnscopedTemplate(UnscopedTemplateName, TemplateArgs),
+    UnscopedTemplate(UnscopedTemplateNameHandle, TemplateArgs),
 
     /// A local name.
     Local(LocalName),
@@ -201,7 +246,7 @@ impl Parse for Name {
             return Ok((Name::Unscoped(name), tail));
         }
 
-        if let Ok((name, tail)) = UnscopedTemplateName::parse(subs, input) {
+        if let Ok((name, tail)) = UnscopedTemplateNameHandle::parse(subs, input) {
             let (args, tail) = try!(TemplateArgs::parse(subs, tail));
             return Ok((Name::UnscopedTemplate(name, args), tail));
         }
@@ -253,11 +298,34 @@ impl Parse for UnscopedName {
 #[derive(Clone, Debug, Hash, PartialEq, Eq)]
 pub struct UnscopedTemplateName(UnscopedName);
 
-impl Parse for UnscopedTemplateName {
-    fn parse<'a, 'b>(_subs: &'a mut SubstitutionTable,
-                     _input: IndexStr<'b>)
-                     -> Result<(UnscopedTemplateName, IndexStr<'b>)> {
-        Err("Not yet implemented".into())
+define_handle! {
+    /// A handle to an `UnscopedTemplateName`.
+    pub enum UnscopedTemplateNameHandle
+}
+
+impl Parse for UnscopedTemplateNameHandle {
+    fn parse<'a, 'b>(subs: &'a mut SubstitutionTable,
+                     input: IndexStr<'b>)
+                     -> Result<(UnscopedTemplateNameHandle, IndexStr<'b>)> {
+        if let Ok((name, tail)) = UnscopedName::parse(subs, input) {
+            let name = UnscopedTemplateName(name);
+            let idx = subs.insert(Substitutable::UnscopedTemplateName(name));
+            let handle = UnscopedTemplateNameHandle::BackReference(idx);
+            return Ok((handle, tail));
+        }
+
+        let (sub, tail) = try!(Substitution::parse(subs, input));
+
+        match sub {
+            Substitution::WellKnown(component) => {
+                Ok((UnscopedTemplateNameHandle::WellKnown(component), tail))
+            }
+            Substitution::BackReference(idx) => {
+                // TODO: should this check/assert that subs[idx] is an
+                // UnscopedTemplateName?
+                Ok((UnscopedTemplateNameHandle::BackReference(idx), tail))
+            }
+        }
     }
 }
 
@@ -270,10 +338,10 @@ impl Parse for UnscopedTemplateName {
 #[derive(Clone, Debug, PartialEq)]
 pub enum NestedName {
     /// An unqualified name.
-    Unqualified(CvQualifiers, Option<RefQualifier>, Prefix, UnqualifiedName),
+    Unqualified(CvQualifiers, Option<RefQualifier>, PrefixHandle, UnqualifiedName),
 
     /// A template name.
-    Template(CvQualifiers, Option<RefQualifier>, TemplatePrefix, TemplateArgs),
+    Template(CvQualifiers, Option<RefQualifier>, TemplatePrefixHandle, TemplateArgs),
 }
 
 impl Parse for NestedName {
@@ -296,7 +364,7 @@ impl Parse for NestedName {
             (None, tail)
         };
 
-        if let Ok((prefix, tail)) = Prefix::parse(subs, tail) {
+        if let Ok((prefix, tail)) = PrefixHandle::parse(subs, tail) {
             let (name, tail) = try!(UnqualifiedName::parse(subs, tail));
             let tail = try!(consume(b"E", tail));
             return Ok((NestedName::Unqualified(cv_qualifiers,
@@ -306,7 +374,7 @@ impl Parse for NestedName {
                        tail));
         }
 
-        let (prefix, tail) = try!(TemplatePrefix::parse(subs, tail));
+        let (prefix, tail) = try!(TemplatePrefixHandle::parse(subs, tail));
         let (args, tail) = try!(TemplateArgs::parse(subs, tail));
         let tail = try!(consume(b"E", tail));
         Ok((NestedName::Template(cv_qualifiers, ref_qualifier, prefix, args), tail))
@@ -314,17 +382,6 @@ impl Parse for NestedName {
 }
 
 /// The `<prefix>` production.
-///
-/// Note that there is left-recursion directly within `<prefix>` itself, as well
-/// as indirectly via `<template-prefix>`. Our parser is a naive recursive
-/// descent parser, and this left-recursion will cause us to go into an infinite
-/// loop and blow the stack. So, we've refactored the grammar a little to remove
-/// the left-recursion. First, we inlined `<template-prefix>` into `<prefix>` to
-/// make all of the left-recursion direct rather than indirect. Second, we split
-/// `<prefix>` into `<prefix>` and `<prefix-rest>` using the usual algorithm for
-/// removing direct left-recursion.
-///
-/// Here are the original `<prefix>` and `<template-prefix>` productions.
 ///
 /// ```text
 /// <prefix> ::= <unqualified-name>
@@ -340,100 +397,114 @@ impl Parse for NestedName {
 ///                   ::= <template-param>
 ///                   ::= <substitution>
 /// ```
-///
-/// Here is the `<prefix>` production after we inline `<template-prefix>` into
-/// it.
-///
-/// ```text
-/// <prefix> ::= <unqualified-name>
-///          ::= <prefix> <unqualified-name>
-///          # ... inlining begins ...
-///          ::= <unqualified-name> <template-args>
-///          ::= <prefix> <unqualified-name> <template-args>
-///          ::= <template-param> <template-args>
-///          ::= <substitution> <template-args>
-///          # ... inlining ends ...
-///          ::= <template-param>
-///          ::= <decltype>
-///          ::= <prefix> <data-member-prefix>
-///          ::= <substitution>
-/// ```
-///
-/// And here are the final `<prefix>` and `<prefix-rest>` productions once the
-/// left-recursion has been eliminated.
-///
-/// ```text
-/// <prefix> ::= <unqualified-name>                 <prefix-rest>
-///          ::= <unqualified-name> <template-args> <prefix-rest>
-///          ::= <template-param>   <template-args> <prefix-rest>
-///          ::= <substitution>     <template-args> <prefix-rest>
-///          ::= <template-param>                   <prefix-rest>
-///          ::= <decltype>                         <prefix-rest>
-///          ::= <substitution>                     <prefix-rest>
-///
-/// <prefix-rest> ::= <unqualified-name>                 <prefix-rest>
-///               ::= <unqualified-name> <template-args> <prefix-rest>
-///               ::= <data-member-prefix>               <prefix-rest>
-///               ::= nil
-/// ```
 #[derive(Clone, Debug, PartialEq)]
 pub enum Prefix {
-    /// An unqualified name and optionally more prefix.
-    Unqualified(UnqualifiedName, Option<Box<PrefixRest>>),
+    /// An unqualified name.
+    Unqualified(UnqualifiedName),
 
-    /// A template and optionally more prefix.
-    Template(UnqualifiedName, TemplateArgs, Option<Box<PrefixRest>>),
+    /// Some nested name.
+    Nested(PrefixHandle, UnqualifiedName),
 
-    /// A template parameter and optionally more prefix.
-    TemplateParam(TemplateParam, Option<TemplateArgs>, Option<Box<PrefixRest>>),
+    /// A prefix and template arguments.
+    Template(PrefixHandle, TemplateArgs),
 
-    /// A `decltype` and optionally more prefix.
-    Decltype(Decltype, Option<Box<PrefixRest>>), // TODO: substitution variant
+    /// A template parameter.
+    TemplateParam(TemplateParam),
+
+    /// A decltype.
+    Decltype(Decltype),
+
+    /// A prefix and data member.
+    DataMember(PrefixHandle, DataMemberPrefix),
 }
 
-impl Parse for Prefix {
-    fn parse<'a, 'b>(_subs: &'a mut SubstitutionTable,
-                     _input: IndexStr<'b>)
-                     -> Result<(Prefix, IndexStr<'b>)> {
-        Err("Not yet implemented".into())
-    }
+define_handle! {
+    /// A reference to a parsed `<prefix>` production.
+    pub enum PrefixHandle
 }
 
-/// The second half of the <prefix> production with left-recursion factored out.
-#[derive(Clone, Debug, PartialEq)]
-pub enum PrefixRest {
-    /// An unqualified name and optionally more prefix.
-    Unqualified(UnqualifiedName, Option<Box<PrefixRest>>),
-
-    /// An a template, its arguments, and optionally more prefix.
-    Template(UnqualifiedName, TemplateArgs, Option<Box<PrefixRest>>),
-
-    /// A data member and optionally more prefix.
-    DataMember(DataMemberPrefix, Option<Box<PrefixRest>>),
-}
-
-impl Parse for PrefixRest {
+impl Parse for PrefixHandle {
     fn parse<'a, 'b>(subs: &'a mut SubstitutionTable,
                      input: IndexStr<'b>)
-                     -> Result<(PrefixRest, IndexStr<'b>)> {
-        fn parse_prefix_tail<'a, 'b>(subs: &'a mut SubstitutionTable,
-                                     input: IndexStr<'b>)
-                                     -> (Option<Box<PrefixRest>>, IndexStr<'b>) {
-            if let Ok((prefix_tail, tail)) = PrefixRest::parse(subs, input) {
-                (Some(Box::new(prefix_tail)), tail)
+                     -> Result<(PrefixHandle, IndexStr<'b>)> {
+        let mut tail = input;
+        let mut current = None;
+
+        loop {
+            if let Ok((name, tail_tail)) = UnqualifiedName::parse(subs, tail) {
+                if let Some(handle) = current {
+                    match tail_tail.peek() {
+                        Some(b'I') => {
+                            // This is a <template-prefix>.
+                            let (args, tail_tail) = try!(TemplateArgs::parse(subs,
+                                                                             tail_tail));
+                            let prefix = Prefix::Template(handle, args);
+                            let idx = subs.insert(Substitutable::Prefix(prefix));
+                            current = Some(PrefixHandle::BackReference(idx));
+                            tail = tail_tail;
+                        }
+                        // TODO: ...
+                        // Some(b'M') => {
+                        //     // This is a <data-member-prefix>.
+                        //     tail = consume(b"M", tail_tail).unwrap();
+                        //     let prefix = Prefix::DataMember(handle)
+                        // }
+                        _ => {
+                            // This is a nested prefix.
+                            let prefix = Prefix::Nested(handle, name);
+                            let idx = subs.insert(Substitutable::Prefix(prefix));
+                            current = Some(PrefixHandle::BackReference(idx));
+                            tail = tail_tail;
+                        }
+                    }
+                } else {
+                    let prefix = Prefix::Unqualified(name);
+                    let idx = subs.insert(Substitutable::Prefix(prefix));
+                    current = Some(PrefixHandle::BackReference(idx));
+                    tail = tail_tail;
+                }
+
+                continue;
+            }
+
+            if let Ok((param, tail_tail)) = TemplateParam::parse(subs, tail) {
+                let prefix = Prefix::TemplateParam(param);
+                let idx = subs.insert(Substitutable::Prefix(prefix));
+                current = Some(PrefixHandle::BackReference(idx));
+                tail = tail_tail;
+                continue;
+            }
+
+            if let Ok((decltype, tail_tail)) = Decltype::parse(subs, tail) {
+                let prefix = Prefix::Decltype(decltype);
+                let idx = subs.insert(Substitutable::Prefix(prefix));
+                current = Some(PrefixHandle::BackReference(idx));
+                tail = tail_tail;
+                continue;
+            }
+
+            if let Ok((sub, tail_tail)) = Substitution::parse(subs, tail) {
+                current = Some(match sub {
+                    Substitution::WellKnown(component) => {
+                        PrefixHandle::WellKnown(component)
+                    }
+                    Substitution::BackReference(idx) => {
+                        // TODO: do we need to check that the idx actually points to
+                        // a Prefix or TemplatePrefix?
+                        PrefixHandle::BackReference(idx)
+                    }
+                });
+                tail = tail_tail;
+                continue;
+            }
+
+            if let Some(handle) = current {
+                return Ok((handle, tail));
             } else {
-                (None, input)
+                // TODO: or UnexpectedEnd if EOF...
+                return Err(ErrorKind::UnexpectedText.into());
             }
         }
-
-        if let Ok((name, tail)) = UnqualifiedName::parse(subs, input) {
-            let (prefix_tail, tail) = parse_prefix_tail(subs, tail);
-            return Ok((PrefixRest::Unqualified(name, prefix_tail), tail));
-        }
-
-        let (data, tail) = try!(DataMemberPrefix::parse(subs, input));
-        let (prefix_tail, tail) = parse_prefix_tail(subs, tail);
-        Ok((PrefixRest::DataMember(data, prefix_tail), tail))
     }
 }
 
@@ -445,14 +516,63 @@ impl Parse for PrefixRest {
 ///                   ::= <template-param>                       # template template parameter
 ///                   ::= <substitution>
 /// ```
-#[derive(Clone, Debug, Hash, PartialEq, Eq)]
-pub struct TemplatePrefix;
+#[derive(Clone, Debug, PartialEq)]
+pub enum TemplatePrefix {
+    /// A template name.
+    UnqualifiedName(UnqualifiedName),
 
-impl Parse for TemplatePrefix {
-    fn parse<'a, 'b>(_subs: &'a mut SubstitutionTable,
-                     _input: IndexStr<'b>)
-                     -> Result<(TemplatePrefix, IndexStr<'b>)> {
-        Err("Not yet implemented".into())
+    /// A nested template name.
+    Nested(PrefixHandle, UnqualifiedName),
+
+    /// A template template parameter.
+    TemplateTemplate(TemplateParam),
+}
+
+define_handle! {
+    /// A reference to a parsed `TemplatePrefix`.
+    pub enum TemplatePrefixHandle
+}
+
+impl Parse for TemplatePrefixHandle {
+    fn parse<'a, 'b>(subs: &'a mut SubstitutionTable,
+                     input: IndexStr<'b>)
+                     -> Result<(TemplatePrefixHandle, IndexStr<'b>)> {
+        if let Ok((name, tail)) = UnqualifiedName::parse(subs, input) {
+            let prefix = TemplatePrefix::UnqualifiedName(name);
+            let prefix = Substitutable::TemplatePrefix(prefix);
+            let idx = subs.insert(prefix);
+            let handle = TemplatePrefixHandle::BackReference(idx);
+            return Ok((handle, tail));
+        }
+
+        if let Ok((prefix, tail)) = PrefixHandle::parse(subs, input) {
+            let (name, tail) = try!(UnqualifiedName::parse(subs, tail));
+            let nested = TemplatePrefix::Nested(prefix, name);
+            let prefix = Substitutable::TemplatePrefix(nested);
+            let idx = subs.insert(prefix);
+            let handle = TemplatePrefixHandle::BackReference(idx);
+            return Ok((handle, tail));
+        }
+
+        if let Ok((param, tail)) = TemplateParam::parse(subs, input) {
+            let prefix = TemplatePrefix::TemplateTemplate(param);
+            let prefix = Substitutable::TemplatePrefix(prefix);
+            let idx = subs.insert(prefix);
+            let handle = TemplatePrefixHandle::BackReference(idx);
+            return Ok((handle, tail));
+        }
+
+        let (sub, tail) = try!(Substitution::parse(subs, input));
+        match sub {
+            Substitution::WellKnown(component) => {
+                Ok((TemplatePrefixHandle::WellKnown(component), tail))
+            }
+            Substitution::BackReference(idx) => {
+                // TODO: should this check if the back reference actually points
+                // to a <template-prefix> ?
+                Ok((TemplatePrefixHandle::BackReference(idx), tail))
+            }
+        }
     }
 }
 
@@ -764,7 +884,6 @@ define_vocabulary! {
 /// The `<type>` production.
 ///
 /// ```text
-///
 /// <type> ::= <builtin-type>
 ///        ::= <function-type>
 ///        ::= <class-enum-type>
@@ -783,14 +902,190 @@ define_vocabulary! {
 ///        ::= Dp <type>                                # pack expansion (C++0x)
 ///        ::= <substitution>
 /// ```
-#[derive(Clone, Debug, Hash, PartialEq, Eq)]
-pub struct Type;
+#[derive(Clone, Debug, PartialEq)]
+pub enum Type {
+    /// A builtin type.
+    Builtin(BuiltinType),
 
-impl Parse for Type {
-    fn parse<'a, 'b>(_subs: &'a mut SubstitutionTable,
-                     _input: IndexStr<'b>)
-                     -> Result<(Type, IndexStr<'b>)> {
-        Err("Not yet implemented".into())
+    /// A function type.
+    Function(FunctionType),
+
+    /// A class, union, or enum type.
+    ClassEnum(ClassEnumType),
+
+    /// An array type.
+    Array(ArrayType),
+
+    /// A pointer-to-member type.
+    PointerToMember(PointerToMemberType),
+
+    /// A named template parameter type.
+    TemplateParam(TemplateParam),
+
+    /// A template template type.
+    TemplateTemplate(TemplateTemplateParamHandle, TemplateArgs),
+
+    /// A decltype.
+    Decltype(Decltype),
+
+    /// A const-, restrict-, and/or volatile-qualified type.
+    Qualified(CvQualifiers, TypeHandle),
+
+    /// A pointer to a type.
+    PointerTo(TypeHandle),
+
+    /// An lvalue reference to a type.
+    LvalueRef(TypeHandle),
+
+    /// An rvalue reference to a type.
+    RvalueRef(TypeHandle),
+
+    /// A complex pair of the given type.
+    Complex(TypeHandle),
+
+    /// An imaginary of the given type.
+    Imaginary(TypeHandle),
+
+    /// A vendor extended type qualifier.
+    VendorExtension(SourceName, Option<TemplateArgs>, TypeHandle),
+
+    /// A pack expansion.
+    PackExpansion(TypeHandle),
+}
+
+define_handle! {
+    /// A reference to a parsed `Type` production.
+    pub enum TypeHandle
+}
+
+impl Parse for TypeHandle {
+    fn parse<'a, 'b>(subs: &'a mut SubstitutionTable,
+                     input: IndexStr<'b>)
+                     -> Result<(TypeHandle, IndexStr<'b>)> {
+        /// Insert the given type into the substitution table, and return a
+        /// handle referencing the index in the table where it ended up.
+        fn insert_and_return_handle<'a, 'b>(ty: Type,
+                                            subs: &'a mut SubstitutionTable,
+                                            tail: IndexStr<'b>)
+                                            -> Result<(TypeHandle, IndexStr<'b>)> {
+            let ty = Substitutable::Type(ty);
+            let idx = subs.insert(ty);
+            let handle = TypeHandle::BackReference(idx);
+            Ok((handle, tail))
+        }
+
+        if let Ok((builtin, tail)) = BuiltinType::parse(subs, input) {
+            let ty = Type::Builtin(builtin);
+            return insert_and_return_handle(ty, subs, tail);
+        }
+
+        if let Ok((funty, tail)) = FunctionType::parse(subs, input) {
+            let ty = Type::Function(funty);
+            return insert_and_return_handle(ty, subs, tail);
+        }
+
+        if let Ok((ty, tail)) = ClassEnumType::parse(subs, input) {
+            let ty = Type::ClassEnum(ty);
+            return insert_and_return_handle(ty, subs, tail);
+        }
+
+        if let Ok((ty, tail)) = ArrayType::parse(subs, input) {
+            let ty = Type::Array(ty);
+            return insert_and_return_handle(ty, subs, tail);
+        }
+
+        if let Ok((ty, tail)) = PointerToMemberType::parse(subs, input) {
+            let ty = Type::PointerToMember(ty);
+            return insert_and_return_handle(ty, subs, tail);
+        }
+
+        if let Ok((param, tail)) = TemplateParam::parse(subs, input) {
+            let ty = Type::TemplateParam(param);
+            return insert_and_return_handle(ty, subs, tail);
+        }
+
+        if let Ok((ttp, tail)) = TemplateTemplateParamHandle::parse(subs, input) {
+            let (args, tail) = try!(TemplateArgs::parse(subs, tail));
+            let ty = Type::TemplateTemplate(ttp, args);
+            return insert_and_return_handle(ty, subs, tail);
+        }
+
+        if let Ok((param, tail)) = Decltype::parse(subs, input) {
+            let ty = Type::Decltype(param);
+            return insert_and_return_handle(ty, subs, tail);
+        }
+
+        if let Ok((qualifiers, tail)) = CvQualifiers::parse(subs, input) {
+            // CvQualifiers can parse successfully without consuming any input,
+            // but we don't want to recurse unless we know we did consume some
+            // input, lest we go into an infinite loop and blow the stack.
+            if tail.len() < input.len() {
+                let (ty, tail) = try!(TypeHandle::parse(subs, tail));
+                let ty = Type::Qualified(qualifiers, ty);
+                return insert_and_return_handle(ty, subs, tail);
+            }
+        }
+
+        if let Ok(tail) = consume(b"P", input) {
+            let (ty, tail) = try!(TypeHandle::parse(subs, tail));
+            let ty = Type::PointerTo(ty);
+            return insert_and_return_handle(ty, subs, tail);
+        }
+
+        if let Ok(tail) = consume(b"R", input) {
+            let (ty, tail) = try!(TypeHandle::parse(subs, tail));
+            let ty = Type::LvalueRef(ty);
+            return insert_and_return_handle(ty, subs, tail);
+        }
+
+        if let Ok(tail) = consume(b"O", input) {
+            let (ty, tail) = try!(TypeHandle::parse(subs, tail));
+            let ty = Type::RvalueRef(ty);
+            return insert_and_return_handle(ty, subs, tail);
+        }
+
+        if let Ok(tail) = consume(b"C", input) {
+            let (ty, tail) = try!(TypeHandle::parse(subs, tail));
+            let ty = Type::Complex(ty);
+            return insert_and_return_handle(ty, subs, tail);
+        }
+
+        if let Ok(tail) = consume(b"G", input) {
+            let (ty, tail) = try!(TypeHandle::parse(subs, tail));
+            let ty = Type::Imaginary(ty);
+            return insert_and_return_handle(ty, subs, tail);
+        }
+
+        if let Ok(tail) = consume(b"U", input) {
+            let (name, tail) = try!(SourceName::parse(subs, tail));
+            let (args, tail) = if let Ok((args, tail)) = TemplateArgs::parse(subs,
+                                                                             tail) {
+                (Some(args), tail)
+            } else {
+                (None, tail)
+            };
+            let (ty, tail) = try!(TypeHandle::parse(subs, tail));
+            let ty = Type::VendorExtension(name, args, ty);
+            return insert_and_return_handle(ty, subs, tail);
+        }
+
+        if let Ok(tail) = consume(b"Dp", input) {
+            let (ty, tail) = try!(TypeHandle::parse(subs, tail));
+            let ty = Type::PackExpansion(ty);
+            return insert_and_return_handle(ty, subs, tail);
+        }
+
+        let (sub, tail) = try!(Substitution::parse(subs, input));
+        match sub {
+            Substitution::WellKnown(component) => {
+                Ok((TypeHandle::WellKnown(component), tail))
+            }
+            Substitution::BackReference(idx) => {
+                // TODO: should this check if the back reference actually points
+                // to a <type>?
+                Ok((TypeHandle::BackReference(idx), tail))
+            }
+        }
     }
 }
 
@@ -1021,17 +1316,17 @@ impl Parse for FunctionType {
 ///      # types are possible return type, then parameter types
 /// ```
 #[derive(Clone, Debug, Hash, PartialEq, Eq)]
-pub struct BareFunctionType(Vec<Type>);
+pub struct BareFunctionType(Vec<TypeHandle>);
 
 impl Parse for BareFunctionType {
     fn parse<'a, 'b>(subs: &'a mut SubstitutionTable,
                      input: IndexStr<'b>)
                      -> Result<(BareFunctionType, IndexStr<'b>)> {
-        let (ty, mut tail) = try!(Type::parse(subs, input));
+        let (ty, mut tail) = try!(TypeHandle::parse(subs, input));
         let mut types = vec![ty];
 
         loop {
-            if let Ok((ty, tail_tail)) = Type::parse(subs, tail) {
+            if let Ok((ty, tail_tail)) = TypeHandle::parse(subs, tail) {
                 types.push(ty);
                 tail = tail_tail;
             } else {
@@ -1159,10 +1454,10 @@ impl Parse for UnnamedTypeName {
 #[derive(Clone, Debug, Hash, PartialEq, Eq)]
 pub enum ArrayType {
     /// An array with a number-literal dimension.
-    DimensionNumber(usize, Type),
+    DimensionNumber(usize, TypeHandle),
 
     /// An array with an expression for its dimension.
-    DimensionExpression(Expression, Type),
+    DimensionExpression(Expression, TypeHandle),
 }
 
 impl Parse for ArrayType {
@@ -1174,13 +1469,13 @@ impl Parse for ArrayType {
         if let Ok((num, tail)) = parse_number(10, false, tail) {
             debug_assert!(num >= 0);
             let tail = try!(consume(b"_", tail));
-            let (ty, tail) = try!(Type::parse(subs, tail));
+            let (ty, tail) = try!(TypeHandle::parse(subs, tail));
             return Ok((ArrayType::DimensionNumber(num as _, ty), tail));
         }
 
         let (expr, tail) = try!(Expression::parse(subs, tail));
         let tail = try!(consume(b"_", tail));
-        let (ty, tail) = try!(Type::parse(subs, tail));
+        let (ty, tail) = try!(TypeHandle::parse(subs, tail));
         Ok((ArrayType::DimensionExpression(expr, ty), tail))
     }
 }
@@ -1191,15 +1486,15 @@ impl Parse for ArrayType {
 /// <pointer-to-member-type> ::= M <class type> <member type>
 /// ```
 #[derive(Clone, Debug, Hash, PartialEq, Eq)]
-pub struct PointerToMemberType(Type, Type);
+pub struct PointerToMemberType(TypeHandle, TypeHandle);
 
 impl Parse for PointerToMemberType {
     fn parse<'a, 'b>(subs: &'a mut SubstitutionTable,
                      input: IndexStr<'b>)
                      -> Result<(PointerToMemberType, IndexStr<'b>)> {
         let tail = try!(consume(b"M", input));
-        let (ty1, tail) = try!(Type::parse(subs, tail));
-        let (ty2, tail) = try!(Type::parse(subs, tail));
+        let (ty1, tail) = try!(TypeHandle::parse(subs, tail));
+        let (ty2, tail) = try!(TypeHandle::parse(subs, tail));
         Ok((PointerToMemberType(ty1, ty2), tail))
     }
 }
@@ -1234,13 +1529,37 @@ impl Parse for TemplateParam {
 ///                           ::= <substitution>
 /// ```
 #[derive(Clone, Debug, Hash, PartialEq, Eq)]
-pub struct TemplateTemplateParam;
+pub struct TemplateTemplateParam(TemplateParam);
 
-impl Parse for TemplateTemplateParam {
-    fn parse<'a, 'b>(_subs: &'a mut SubstitutionTable,
-                     _input: IndexStr<'b>)
-                     -> Result<(TemplateTemplateParam, IndexStr<'b>)> {
-        Err("Not yet implemented".into())
+define_handle! {
+    /// A reference to a parsed `TemplateTemplateParam`.
+    pub enum TemplateTemplateParamHandle
+}
+
+impl Parse for TemplateTemplateParamHandle {
+    fn parse<'a, 'b>(subs: &'a mut SubstitutionTable,
+                     input: IndexStr<'b>)
+                     -> Result<(TemplateTemplateParamHandle, IndexStr<'b>)> {
+        if let Ok((param, tail)) = TemplateParam::parse(subs, input) {
+            let ttp = TemplateTemplateParam(param);
+            let ttp = Substitutable::TemplateTemplateParam(ttp);
+            let idx = subs.insert(ttp);
+            let handle = TemplateTemplateParamHandle::BackReference(idx);
+            return Ok((handle, tail));
+        }
+
+        let (sub, tail) = try!(Substitution::parse(subs, input));
+        match sub {
+            Substitution::WellKnown(component) => {
+                Ok((TemplateTemplateParamHandle::WellKnown(component), tail))
+            }
+            Substitution::BackReference(idx) => {
+                // TODO: should this check if the thing at idx is a
+                // template-template-param? There could otherwise be ambiguity
+                // with <type>'s <substitution> form...
+                Ok((TemplateTemplateParamHandle::BackReference(idx), tail))
+            }
+        }
     }
 }
 
@@ -1329,7 +1648,7 @@ impl Parse for TemplateArgs {
 #[derive(Clone, Debug, PartialEq)]
 pub enum TemplateArg {
     /// A type or template.
-    Type(Type),
+    Type(TypeHandle),
 
     /// An expression.
     Expression(Expression),
@@ -1345,7 +1664,7 @@ impl Parse for TemplateArg {
     fn parse<'a, 'b>(subs: &'a mut SubstitutionTable,
                      input: IndexStr<'b>)
                      -> Result<(TemplateArg, IndexStr<'b>)> {
-        if let Ok((ty, tail)) = Type::parse(subs, input) {
+        if let Ok((ty, tail)) = TypeHandle::parse(subs, input) {
             return Ok((TemplateArg::Type(ty), tail));
         }
 
@@ -1434,22 +1753,85 @@ impl Parse for Expression {
 ///
 /// ```text
 /// <unresolved-name> ::= [gs] <base-unresolved-name>
-///                          # x or (with "gs") ::x
+///                          #
 ///                   ::= sr <unresolved-type> <base-unresolved-name>
-///                          # T::x / decltype(p)::x
+///                          #
 ///                   ::= srN <unresolved-type> <unresolved-qualifier-level>+ E <base-unresolved-name>
-///                          # T::N::x /decltype(p)::N::x
+///                          #
 ///                   ::= [gs] sr <unresolved-qualifier-level>+ E <base-unresolved-name>
 ///                          # A::x, N::y, A<T>::z; "gs" means leading "::"
 /// ```
-#[derive(Clone, Debug, Hash, PartialEq, Eq)]
-pub struct UnresolvedName;
+#[derive(Clone, Debug, PartialEq)]
+pub enum UnresolvedName {
+    /// `x`
+    Name(BaseUnresolvedName),
+
+    /// `::x`
+    Global(BaseUnresolvedName),
+
+    /// `T::x`  or `decltype(p)::x` or `T::N::x` or `decltype(p)::N::x`
+    Nested1(UnresolvedTypeHandle, Vec<UnresolvedQualifierLevel>, BaseUnresolvedName),
+
+    /// `A::x` or `N::y` or `A<T>::z`
+    Nested2(Vec<UnresolvedQualifierLevel>, BaseUnresolvedName),
+
+    /// `::A::x` or `::N::y` or `::A<T>::z`
+    GlobalNested2(Vec<UnresolvedQualifierLevel>, BaseUnresolvedName),
+}
+
+// TODO: fn one_or_more<P: Parse>(...) -> Vec<P> { ... }
 
 impl Parse for UnresolvedName {
-    fn parse<'a, 'b>(_subs: &'a mut SubstitutionTable,
-                     _input: IndexStr<'b>)
+    fn parse<'a, 'b>(subs: &'a mut SubstitutionTable,
+                     input: IndexStr<'b>)
                      -> Result<(UnresolvedName, IndexStr<'b>)> {
-        Err("Not yet implemented".into())
+        if let Ok(tail) = consume(b"gs", input) {
+            if let Ok((name, tail)) = BaseUnresolvedName::parse(subs, tail) {
+                return Ok((UnresolvedName::Global(name), tail));
+            }
+
+            let tail = try!(consume(b"sr", tail));
+            let (lvl, mut tail) = try!(UnresolvedQualifierLevel::parse(subs, tail));
+            let mut levels = vec![lvl];
+            loop {
+                if let Ok((lvl, tail_tail)) = UnresolvedQualifierLevel::parse(subs,
+                                                                              tail) {
+                    levels.push(lvl);
+                    tail = tail_tail;
+                } else {
+                    let tail = try!(consume(b"E", tail));
+                    let (name, tail) = try!(BaseUnresolvedName::parse(subs, tail));
+                    return Ok((UnresolvedName::GlobalNested2(levels, name), tail));
+                }
+            }
+        }
+
+        if let Ok((name, tail)) = BaseUnresolvedName::parse(subs, input) {
+            return Ok((UnresolvedName::Name(name), tail));
+        }
+
+        let tail = try!(consume(b"sr", input));
+
+        if tail.peek() == Some(b'N') {
+            let (ty, tail) = try!(UnresolvedTypeHandle::parse(subs, input));
+            let (lvl, mut tail) = try!(UnresolvedQualifierLevel::parse(subs, tail));
+            let mut levels = vec![lvl];
+            loop {
+                if let Ok((lvl, tail_tail)) = UnresolvedQualifierLevel::parse(subs,
+                                                                              tail) {
+                    levels.push(lvl);
+                    tail = tail_tail;
+                } else {
+                    let tail = try!(consume(b"E", tail));
+                    let (name, tail) = try!(BaseUnresolvedName::parse(subs, tail));
+                    return Ok((UnresolvedName::Nested1(ty, levels, name), tail));
+                }
+            }
+        }
+
+        let (ty, tail) = try!(UnresolvedTypeHandle::parse(subs, tail));
+        let (name, tail) = try!(BaseUnresolvedName::parse(subs, tail));
+        Ok((UnresolvedName::Nested1(ty, vec![], name), tail))
     }
 }
 
@@ -1469,10 +1851,15 @@ pub enum UnresolvedType {
     Decltype(Decltype),
 }
 
-impl Parse for UnresolvedType {
+define_handle! {
+    /// A reference to a parsed `<unresolved-type>` production.
+    pub enum UnresolvedTypeHandle
+}
+
+impl Parse for UnresolvedTypeHandle {
     fn parse<'a, 'b>(subs: &'a mut SubstitutionTable,
                      input: IndexStr<'b>)
-                     -> Result<(UnresolvedType, IndexStr<'b>)> {
+                     -> Result<(UnresolvedTypeHandle, IndexStr<'b>)> {
         if let Ok((param, tail)) = TemplateParam::parse(subs, input) {
             let (args, tail) = if let Ok((args, tail)) = TemplateArgs::parse(subs,
                                                                              tail) {
@@ -1480,16 +1867,32 @@ impl Parse for UnresolvedType {
             } else {
                 (None, tail)
             };
-            return Ok((UnresolvedType::Template(param, args), tail));
+            let ty = UnresolvedType::Template(param, args);
+            let ty = Substitutable::UnresolvedType(ty);
+            let idx = subs.insert(ty);
+            let handle = UnresolvedTypeHandle::BackReference(idx);
+            return Ok((handle, tail));
         }
 
         if let Ok((decltype, tail)) = Decltype::parse(subs, input) {
-            return Ok((UnresolvedType::Decltype(decltype), tail));
+            let ty = UnresolvedType::Decltype(decltype);
+            let ty = Substitutable::UnresolvedType(ty);
+            let idx = subs.insert(ty);
+            let handle = UnresolvedTypeHandle::BackReference(idx);
+            return Ok((handle, tail));
         }
 
-        // TODO: substitution variant
-
-        Err("Not yet implemented".into())
+        let (sub, tail) = try!(Substitution::parse(subs, input));
+        match sub {
+            Substitution::WellKnown(component) => {
+                Ok((UnresolvedTypeHandle::WellKnown(component), tail))
+            }
+            Substitution::BackReference(idx) => {
+                // TODO: should this check that the back reference actually
+                // points to an `<unresolved-type>`?
+                Ok((UnresolvedTypeHandle::BackReference(idx), tail))
+            }
+        }
     }
 }
 
@@ -1587,7 +1990,7 @@ impl Parse for BaseUnresolvedName {
 #[derive(Clone, Debug, PartialEq)]
 pub enum DestructorName {
     /// A destructor for an unresolved type.
-    Unresolved(UnresolvedType),
+    Unresolved(UnresolvedTypeHandle),
 
     /// A destructor for a resolved type name.
     Name(SimpleId),
@@ -1597,7 +2000,7 @@ impl Parse for DestructorName {
     fn parse<'a, 'b>(subs: &'a mut SubstitutionTable,
                      input: IndexStr<'b>)
                      -> Result<(DestructorName, IndexStr<'b>)> {
-        if let Ok((ty, tail)) = UnresolvedType::parse(subs, input) {
+        if let Ok((ty, tail)) = UnresolvedTypeHandle::parse(subs, input) {
             return Ok((DestructorName::Unresolved(ty), tail));
         }
 
@@ -1619,34 +2022,37 @@ impl Parse for DestructorName {
 /// ```
 #[derive(Clone, Debug, PartialEq)]
 pub enum ExprPrimary {
-    /// An integer literal.
-    Integer(Type, isize),
-
-    /// A float literal.
-    Float(Type, f64),
-
-    /// A string literal.
-    String(Type),
-
-    /// A nullptr literal.
-    Nullptr(Type),
-
-    /// A nullptr template argument.
-    TemplateNullptr(Type),
-
-    /// A complex floating point literal.
-    Complex(Type, f64, f64),
+    /// A type literal.
+    Literal(TypeHandle, usize, usize),
 
     /// An external name.
     External(MangledName),
 }
 
 impl Parse for ExprPrimary {
-    fn parse<'a, 'b>(_subs: &'a mut SubstitutionTable,
+    fn parse<'a, 'b>(subs: &'a mut SubstitutionTable,
                      input: IndexStr<'b>)
                      -> Result<(ExprPrimary, IndexStr<'b>)> {
-        let _tail = try!(consume(b"L", input));
-        Err("Not yet implemented".into())
+        let tail = try!(consume(b"L", input));
+
+        if let Ok((ty, tail)) = TypeHandle::parse(subs, input) {
+            let start = tail.index();
+            let num_bytes_in_literal = tail.as_ref()
+                .iter()
+                .take_while(|&&c| c != b'E')
+                .count();
+            let tail = tail.range_from(num_bytes_in_literal..);
+            let end = tail.index();
+            let expr = ExprPrimary::Literal(ty, start, end);
+            return Ok((expr, tail));
+        }
+
+        // TODO: apparently g++ omitted the '_' in the <mangled-name> here until
+        // -fabi-version=3, so we should detect and work around that...
+
+        let (name, tail) = try!(MangledName::parse(subs, tail));
+        let expr = ExprPrimary::External(name);
+        Ok((expr, tail))
     }
 }
 
@@ -1805,16 +2211,16 @@ impl Parse for ClosureTypeName {
 /// <lambda-sig> ::= <parameter type>+  # Parameter types or "v" if the lambda has no parameters
 /// ```
 #[derive(Clone, Debug, Hash, PartialEq, Eq)]
-pub struct LambdaSig(Vec<Type>);
+pub struct LambdaSig(Vec<TypeHandle>);
 
 impl Parse for LambdaSig {
     fn parse<'a, 'b>(subs: &'a mut SubstitutionTable,
                      input: IndexStr<'b>)
                      -> Result<(LambdaSig, IndexStr<'b>)> {
-        let (ty, mut tail) = try!(Type::parse(subs, input));
+        let (ty, mut tail) = try!(TypeHandle::parse(subs, input));
         let mut types = vec![ty];
         loop {
-            if let Ok((ty, tail_tail)) = Type::parse(subs, tail) {
+            if let Ok((ty, tail_tail)) = TypeHandle::parse(subs, tail) {
                 types.push(ty);
                 tail = tail_tail;
             } else {
@@ -1858,10 +2264,57 @@ impl Parse for DataMemberPrefix {
 ///                ::= So # ::std::basic_ostream<char,  std::char_traits<char> >
 ///                ::= Sd # ::std::basic_iostream<char, std::char_traits<char> >
 /// ```
-///
-/// TODO: support the other substitution forms
 #[derive(Clone, Debug, Hash, PartialEq, Eq)]
-pub struct Substitution(Option<SeqId>);
+pub enum Substitution {
+    /// A reference to an entity that already occurred, ie the `S_` and `S
+    /// <seq-id> _` forms.
+    BackReference(usize),
+
+    /// A well-known substitution component. These are the components that do
+    /// not appear in the substitution table, but have abbreviations specified
+    /// directly in the grammar.
+    WellKnown(WellKnownComponent),
+}
+
+impl Parse for Substitution {
+    fn parse<'a, 'b>(subs: &'a mut SubstitutionTable,
+                     input: IndexStr<'b>)
+                     -> Result<(Substitution, IndexStr<'b>)> {
+        if let Ok((well_known, tail)) = WellKnownComponent::parse(subs, input) {
+            return Ok((Substitution::WellKnown(well_known), tail));
+        }
+
+        let tail = try!(consume(b"S", input));
+        let (idx, tail) = if let Ok((idx, tail)) = SeqId::parse(subs, tail) {
+            (idx.0 + 1, tail)
+        } else {
+            (0, tail)
+        };
+
+        if !subs.contains(idx) {
+            return Err(ErrorKind::BadBackReference.into());
+        }
+
+        let tail = try!(consume(b"_", tail));
+        Ok((Substitution::BackReference(idx), tail))
+    }
+}
+
+define_vocabulary! {
+/// The `<substitution>` variants that are encoded directly in the grammar,
+/// rather than as back references to other components in the substitution
+/// table.
+    #[derive(Clone, Debug, Hash, PartialEq, Eq)]
+    pub enum WellKnownComponent {
+        Std          (b"St", "::std::"),
+        StdAllocator (b"Sa", "::std::allocator"),
+        StdString1   (b"Sb", "::std::basic_string"),
+        StdString2   (b"Ss", "::std::basic_string < char, ::std::char_traits<char>, ::std::allocator<char> >"),
+        StdIstream   (b"Si", "::std::basic_istream<char, std::char_traits<char> >"),
+        StdOstream   (b"So", "::std::basic_ostream<char, std::char_traits<char> >"),
+        StdIostream  (b"Sd", "::std::basic_iostream<char, std::char_traits<char> >")
+    }
+}
 
 /// The `<special-name>` production.
 #[derive(Clone, Debug, Hash, PartialEq, Eq)]
