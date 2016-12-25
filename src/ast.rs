@@ -1267,7 +1267,7 @@ impl Parse for FunctionType {
                      input: IndexStr<'b>)
                      -> Result<(FunctionType, IndexStr<'b>)> {
         let (cv_qualifiers, tail) = if let Ok((cv_qualifiers, tail)) =
-                                           CvQualifiers::parse(subs, input) {
+            CvQualifiers::parse(subs, input) {
             (cv_qualifiers, tail)
         } else {
             (Default::default(), input)
@@ -1290,7 +1290,7 @@ impl Parse for FunctionType {
         let (bare, tail) = try!(BareFunctionType::parse(subs, tail));
 
         let (ref_qualifier, tail) = if let Ok((ref_qualifier, tail)) =
-                                           RefQualifier::parse(subs, tail) {
+            RefQualifier::parse(subs, tail) {
             (Some(ref_qualifier), tail)
         } else {
             (None, tail)
@@ -1713,13 +1713,426 @@ impl Parse for TemplateArg {
 ///               ::= <expr-primary>
 /// ```
 #[derive(Clone, Debug, Hash, PartialEq, Eq)]
-pub struct Expression;
+pub enum Expression {
+    /// A unary operator expression.
+    Unary(OperatorName, Box<Expression>),
+
+    /// A binary operator expression.
+    Binary(OperatorName, Box<Expression>, Box<Expression>),
+
+    /// A ternary operator expression.
+    Ternary(OperatorName, Box<Expression>, Box<Expression>, Box<Expression>),
+
+    /// A prefix `++`.
+    PrefixInc(Box<Expression>),
+
+    /// A prefix `--`.
+    PrefixDec(Box<Expression>),
+
+    /// A call with functor and arguments.
+    Call(Box<Expression>, Vec<Expression>),
+
+    /// A type conversion with one argument.
+    ConversionOne(TypeHandle, Box<Expression>),
+
+    /// A type conversion with many arguments.
+    ConversionMany(TypeHandle, Vec<Expression>),
+
+    /// A type conversion with many arguments.
+    ConversionBraced(TypeHandle, Vec<Expression>),
+
+    /// A braced init list expression.
+    BracedInitList(Box<Expression>),
+
+    /// The `new` operator.
+    New(Vec<Expression>, TypeHandle, Option<Initializer>),
+
+    /// The global `::new` operator.
+    GlobalNew(Vec<Expression>, TypeHandle, Option<Initializer>),
+
+    /// The `new[]` operator.
+    NewArray(Vec<Expression>, TypeHandle, Option<Initializer>),
+
+    /// The global `::new[]` operator.
+    GlobalNewArray(Vec<Expression>, TypeHandle, Option<Initializer>),
+
+    /// The `delete` operator.
+    Delete(Box<Expression>),
+
+    /// The global `::delete` operator.
+    GlobalDelete(Box<Expression>),
+
+    /// The `delete[]` operator.
+    DeleteArray(Box<Expression>),
+
+    /// The global `::delete[]` operator.
+    GlobalDeleteArray(Box<Expression>),
+
+    /// `dynamic_cast<type> (expression)`
+    DynamicCast(TypeHandle, Box<Expression>),
+
+    /// `static_cast<type> (expression)`
+    StaticCast(TypeHandle, Box<Expression>),
+
+    /// `const_cast<type> (expression)`
+    ConstCast(TypeHandle, Box<Expression>),
+
+    /// `reinterpret_cast<type> (expression)`
+    ReinterpretCast(TypeHandle, Box<Expression>),
+
+    /// `typeid (type)`
+    TypeidType(TypeHandle),
+
+    /// `typeid (expression)`
+    TypeidExpr(Box<Expression>),
+
+    /// `sizeof (type)`
+    SizeofType(TypeHandle),
+
+    /// `sizeof (expression)`
+    SizeofExpr(Box<Expression>),
+
+    /// `alignof (type)`
+    AlignofType(TypeHandle),
+
+    /// `alignof (expression)`
+    AlignofExpr(Box<Expression>),
+
+    /// `noexcept (expression)`
+    Noexcept(Box<Expression>),
+
+    /// A named template parameter.
+    TemplateParam(TemplateParam),
+
+    /// A function parameter.
+    FunctionParam(FunctionParam),
+
+    /// `expr.name`
+    Member(Box<Expression>, UnresolvedName),
+
+    /// `expr->name`
+    DerefMember(Box<Expression>, UnresolvedName),
+
+    /// `expr.*expr`
+    PointerToMember(Box<Expression>, Box<Expression>),
+
+    /// `sizeof...(T)`, size of a template parameter pack.
+    SizeofTemplatePack(TemplateParam),
+
+    /// `sizeof...(parameter)`, size of a function parameter pack.
+    SizeofFunctionPack(FunctionParam),
+
+    /// `sizeof...(T)`, size of a captured template parameter pack from an alias
+    /// template.
+    SizeofCapturedTemplatePack(Vec<TemplateArg>),
+
+    /// `expression...`, pack expansion.
+    PackExpansion(Box<Expression>),
+
+    /// `throw expression`
+    Throw(Box<Expression>),
+
+    /// `throw` with no operand
+    Rethrow,
+
+    /// `f(p)`, `N::f(p)`, `::f(p)`, freestanding dependent name (e.g., `T::x`),
+    /// objectless nonstatic member reference.
+    UnresolvedName(UnresolvedName),
+
+    /// An `<expr-primary>` production.
+    Primary(ExprPrimary),
+}
 
 impl Parse for Expression {
-    fn parse<'a, 'b>(_subs: &'a mut SubstitutionTable,
-                     _input: IndexStr<'b>)
+    fn parse<'a, 'b>(subs: &'a mut SubstitutionTable,
+                     input: IndexStr<'b>)
                      -> Result<(Expression, IndexStr<'b>)> {
-        Err("Not yet implemented".into())
+        if let Ok(tail) = consume(b"pp_", input) {
+            let (expr, tail) = try!(Expression::parse(subs, tail));
+            let expr = Expression::PrefixInc(Box::new(expr));
+            return Ok((expr, tail));
+        }
+
+        if let Ok(tail) = consume(b"mm_", input) {
+            let (expr, tail) = try!(Expression::parse(subs, tail));
+            let expr = Expression::PrefixDec(Box::new(expr));
+            return Ok((expr, tail));
+        }
+
+        if let Some((head, tail)) = input.try_split_at(2) {
+            match head.as_ref() {
+                b"cl" => {
+                    let (func, tail) = try!(Expression::parse(subs, tail));
+                    let (args, tail) = try!(zero_or_more::<Expression>(subs, tail));
+                    let expr = Expression::Call(Box::new(func), args);
+                    return Ok((expr, tail));
+                }
+                b"cv" => {
+                    let (ty, tail) = try!(TypeHandle::parse(subs, tail));
+                    if let Ok(tail) = consume(b"_", tail) {
+                        let (exprs, tail) = try!(zero_or_more::<Expression>(subs, tail));
+                        let tail = try!(consume(b"E", tail));
+                        let expr = Expression::ConversionMany(ty, exprs);
+                        return Ok((expr, tail));
+                    } else {
+                        let (expr, tail) = try!(Expression::parse(subs, tail));
+                        let expr = Expression::ConversionOne(ty, Box::new(expr));
+                        return Ok((expr, tail));
+                    }
+                }
+                b"tl" => {
+                    let (ty, tail) = try!(TypeHandle::parse(subs, tail));
+                    let (exprs, tail) = try!(zero_or_more::<Expression>(subs, tail));
+                    let expr = Expression::ConversionBraced(ty, exprs);
+                    return Ok((expr, tail));
+                }
+                b"il" => {
+                    let (expr, tail) = try!(Expression::parse(subs, tail));
+                    let tail = try!(consume(b"E", tail));
+                    let expr = Expression::BracedInitList(Box::new(expr));
+                    return Ok((expr, tail));
+                }
+                b"dc" => {
+                    let (ty, tail) = try!(TypeHandle::parse(subs, tail));
+                    let (expr, tail) = try!(Expression::parse(subs, tail));
+                    let expr = Expression::DynamicCast(ty, Box::new(expr));
+                    return Ok((expr, tail));
+                }
+                b"sc" => {
+                    let (ty, tail) = try!(TypeHandle::parse(subs, tail));
+                    let (expr, tail) = try!(Expression::parse(subs, tail));
+                    let expr = Expression::StaticCast(ty, Box::new(expr));
+                    return Ok((expr, tail));
+                }
+                b"cc" => {
+                    let (ty, tail) = try!(TypeHandle::parse(subs, tail));
+                    let (expr, tail) = try!(Expression::parse(subs, tail));
+                    let expr = Expression::ConstCast(ty, Box::new(expr));
+                    return Ok((expr, tail));
+                }
+                b"rc" => {
+                    let (ty, tail) = try!(TypeHandle::parse(subs, tail));
+                    let (expr, tail) = try!(Expression::parse(subs, tail));
+                    let expr = Expression::ReinterpretCast(ty, Box::new(expr));
+                    return Ok((expr, tail));
+                }
+                b"ti" => {
+                    let (ty, tail) = try!(TypeHandle::parse(subs, tail));
+                    let expr = Expression::TypeidType(ty);
+                    return Ok((expr, tail));
+                }
+                b"te" => {
+                    let (expr, tail) = try!(Expression::parse(subs, tail));
+                    let expr = Expression::TypeidExpr(Box::new(expr));
+                    return Ok((expr, tail));
+                }
+                b"st" => {
+                    let (ty, tail) = try!(TypeHandle::parse(subs, tail));
+                    let expr = Expression::SizeofType(ty);
+                    return Ok((expr, tail));
+                }
+                b"sz" => {
+                    let (expr, tail) = try!(Expression::parse(subs, tail));
+                    let expr = Expression::SizeofExpr(Box::new(expr));
+                    return Ok((expr, tail));
+                }
+                b"at" => {
+                    let (ty, tail) = try!(TypeHandle::parse(subs, tail));
+                    let expr = Expression::AlignofType(ty);
+                    return Ok((expr, tail));
+                }
+                b"az" => {
+                    let (expr, tail) = try!(Expression::parse(subs, tail));
+                    let expr = Expression::AlignofExpr(Box::new(expr));
+                    return Ok((expr, tail));
+                }
+                b"nx" => {
+                    let (expr, tail) = try!(Expression::parse(subs, tail));
+                    let expr = Expression::Noexcept(Box::new(expr));
+                    return Ok((expr, tail));
+                }
+                b"dt" => {
+                    let (expr, tail) = try!(Expression::parse(subs, tail));
+                    let (name, tail) = try!(UnresolvedName::parse(subs, tail));
+                    let expr = Expression::Member(Box::new(expr), name);
+                    return Ok((expr, tail));
+                }
+                b"pt" => {
+                    let (expr, tail) = try!(Expression::parse(subs, tail));
+                    let (name, tail) = try!(UnresolvedName::parse(subs, tail));
+                    let expr = Expression::DerefMember(Box::new(expr), name);
+                    return Ok((expr, tail));
+                }
+                b"ds" => {
+                    let (first, tail) = try!(Expression::parse(subs, tail));
+                    let (second, tail) = try!(Expression::parse(subs, tail));
+                    let expr = Expression::PointerToMember(Box::new(first),
+                                                           Box::new(second));
+                    return Ok((expr, tail));
+                }
+                b"sZ" => {
+                    if let Ok((param, tail)) = TemplateParam::parse(subs, tail) {
+                        let expr = Expression::SizeofTemplatePack(param);
+                        return Ok((expr, tail));
+                    }
+
+                    let (param, tail) = try!(FunctionParam::parse(subs, tail));
+                    let expr = Expression::SizeofFunctionPack(param);
+                    return Ok((expr, tail));
+                }
+                b"sP" => {
+                    let (args, tail) = try!(zero_or_more::<TemplateArg>(subs, tail));
+                    let expr = Expression::SizeofCapturedTemplatePack(args);
+                    return Ok((expr, tail));
+                }
+                b"sp" => {
+                    let (expr, tail) = try!(Expression::parse(subs, tail));
+                    let expr = Expression::PackExpansion(Box::new(expr));
+                    return Ok((expr, tail));
+                }
+                b"tw" => {
+                    let (expr, tail) = try!(Expression::parse(subs, tail));
+                    let expr = Expression::Throw(Box::new(expr));
+                    return Ok((expr, tail));
+                }
+                b"tr" => {
+                    let expr = Expression::Rethrow;
+                    return Ok((expr, tail));
+                }
+                b"gs" => {
+                    return can_be_global(true, subs, tail);
+                }
+                _ => {}
+            }
+        }
+
+        if let Ok((expr, tail)) = can_be_global(false, subs, input) {
+            return Ok((expr, tail));
+        }
+
+        if let Ok((param, tail)) = TemplateParam::parse(subs, input) {
+            let expr = Expression::TemplateParam(param);
+            return Ok((expr, tail));
+        }
+
+        if let Ok((param, tail)) = FunctionParam::parse(subs, input) {
+            let expr = Expression::FunctionParam(param);
+            return Ok((expr, tail));
+        }
+
+        if let Ok((name, tail)) = UnresolvedName::parse(subs, input) {
+            let expr = Expression::UnresolvedName(name);
+            return Ok((expr, tail));
+        }
+
+        if let Ok((prim, tail)) = ExprPrimary::parse(subs, input) {
+            let expr = Expression::Primary(prim);
+            return Ok((expr, tail));
+        }
+
+        // "A production for <expression> that directly specifies an operation
+        // code (e.g., for the -> operator) takes precedence over one that is
+        // expressed in terms of (unary/binary/ternary) <operator-name>." So try
+        // and parse unary/binary/ternary expressions last.
+        //
+        // TODO: Should we check if the operator matches the arity here?
+        let (opname, tail) = try!(OperatorName::parse(subs, input));
+        let (first, tail) = try!(Expression::parse(subs, tail));
+        return if let Ok((second, tail)) = Expression::parse(subs, tail) {
+            if let Ok((third, tail)) = Expression::parse(subs, tail) {
+                let expr = Expression::Ternary(opname,
+                                               Box::new(first),
+                                               Box::new(second),
+                                               Box::new(third));
+                Ok((expr, tail))
+            } else {
+                let expr = Expression::Binary(opname, Box::new(first), Box::new(second));
+                Ok((expr, tail))
+            }
+        } else {
+            let expr = Expression::Unary(opname, Box::new(first));
+            Ok((expr, tail))
+        };
+
+        // Parse the various expressions that can optionally have a leading "gs"
+        // to indicate that they are in the global namespace. The input is after
+        // we have already detected consumed the optional "gs" and if we did
+        // find it, then `is_global` should be true.
+        fn can_be_global<'a, 'b>(is_global: bool,
+                                 subs: &'a mut SubstitutionTable,
+                                 input: IndexStr<'b>)
+                                 -> Result<(Expression, IndexStr<'b>)> {
+            match input.try_split_at(2) {
+                None => Err(ErrorKind::UnexpectedEnd.into()),
+                Some((head, tail)) => {
+                    match head.as_ref() {
+                        b"nw" => {
+                            let (exprs, tail) = try!(zero_or_more::<Expression>(subs,
+                                                                                tail));
+                            let tail = try!(consume(b"_", tail));
+                            let (ty, tail) = try!(TypeHandle::parse(subs, tail));
+                            if let Ok(tail) = consume(b"E", tail) {
+                                let expr = if is_global {
+                                    Expression::GlobalNew(exprs, ty, None)
+                                } else {
+                                    Expression::New(exprs, ty, None)
+                                };
+                                Ok((expr, tail))
+                            } else {
+                                let (init, tail) = try!(Initializer::parse(subs, tail));
+                                let expr = if is_global {
+                                    Expression::GlobalNew(exprs, ty, Some(init))
+                                } else {
+                                    Expression::New(exprs, ty, Some(init))
+                                };
+                                Ok((expr, tail))
+                            }
+                        }
+                        b"na" => {
+                            let (exprs, tail) = try!(zero_or_more::<Expression>(subs,
+                                                                                tail));
+                            let tail = try!(consume(b"_", tail));
+                            let (ty, tail) = try!(TypeHandle::parse(subs, tail));
+                            if let Ok(tail) = consume(b"E", tail) {
+                                let expr = if is_global {
+                                    Expression::GlobalNewArray(exprs, ty, None)
+                                } else {
+                                    Expression::NewArray(exprs, ty, None)
+                                };
+                                Ok((expr, tail))
+                            } else {
+                                let (init, tail) = try!(Initializer::parse(subs, tail));
+                                let expr = if is_global {
+                                    Expression::GlobalNewArray(exprs, ty, Some(init))
+                                } else {
+                                    Expression::NewArray(exprs, ty, Some(init))
+                                };
+                                Ok((expr, tail))
+                            }
+                        }
+                        b"dl" => {
+                            let (expr, tail) = try!(Expression::parse(subs, tail));
+                            let expr = if is_global {
+                                Expression::GlobalDelete(Box::new(expr))
+                            } else {
+                                Expression::Delete(Box::new(expr))
+                            };
+                            Ok((expr, tail))
+                        }
+                        b"da" => {
+                            let (expr, tail) = try!(Expression::parse(subs, tail));
+                            let expr = if is_global {
+                                Expression::GlobalDeleteArray(Box::new(expr))
+                            } else {
+                                Expression::DeleteArray(Box::new(expr))
+                            };
+                            Ok((expr, tail))
+                        }
+                        _ => Err(ErrorKind::UnexpectedText.into()),
+                    }
+                }
+            }
+        }
     }
 }
 
