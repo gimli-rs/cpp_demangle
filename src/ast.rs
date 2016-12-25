@@ -1322,17 +1322,8 @@ impl Parse for BareFunctionType {
     fn parse<'a, 'b>(subs: &'a mut SubstitutionTable,
                      input: IndexStr<'b>)
                      -> Result<(BareFunctionType, IndexStr<'b>)> {
-        let (ty, mut tail) = try!(TypeHandle::parse(subs, input));
-        let mut types = vec![ty];
-
-        loop {
-            if let Ok((ty, tail_tail)) = TypeHandle::parse(subs, tail) {
-                types.push(ty);
-                tail = tail_tail;
-            } else {
-                return Ok((BareFunctionType(types), tail));
-            }
-        }
+        let (types, tail) = try!(one_or_more::<TypeHandle>(subs, input));
+        Ok((BareFunctionType(types), tail))
     }
 }
 
@@ -1622,18 +1613,9 @@ impl Parse for TemplateArgs {
                      -> Result<(TemplateArgs, IndexStr<'b>)> {
         let tail = try!(consume(b"I", input));
 
-        let (arg, mut tail) = try!(TemplateArg::parse(subs, tail));
-        let mut args = vec![arg];
-
-        loop {
-            if let Ok((arg, tail_tail)) = TemplateArg::parse(subs, tail) {
-                args.push(arg);
-                tail = tail_tail;
-            } else {
-                let tail = try!(consume(b"E", tail));
-                return Ok((TemplateArgs(args), tail));
-            }
-        }
+        let (args, tail) = try!(one_or_more::<TemplateArg>(subs, tail));
+        let tail = try!(consume(b"E", tail));
+        Ok((TemplateArgs(args), tail))
     }
 }
 
@@ -1678,17 +1660,9 @@ impl Parse for TemplateArg {
             return Ok((TemplateArg::SimpleExpression(expr), tail));
         }
 
-        let mut tail = try!(consume(b"J", input));
-        let mut args = vec![];
-        loop {
-            if let Ok((arg, tail_tail)) = TemplateArg::parse(subs, tail) {
-                args.push(arg);
-                tail = tail_tail;
-            } else {
-                let tail = try!(consume(b"E", tail));
-                return Ok((TemplateArg::ArgPack(args), tail));
-            }
-        }
+        let (args, tail) = try!(zero_or_more::<TemplateArg>(subs, input));
+        let tail = try!(consume(b"E", tail));
+        Ok((TemplateArg::ArgPack(args), tail))
     }
 }
 
@@ -1779,8 +1753,6 @@ pub enum UnresolvedName {
     GlobalNested2(Vec<UnresolvedQualifierLevel>, BaseUnresolvedName),
 }
 
-// TODO: fn one_or_more<P: Parse>(...) -> Vec<P> { ... }
-
 impl Parse for UnresolvedName {
     fn parse<'a, 'b>(subs: &'a mut SubstitutionTable,
                      input: IndexStr<'b>)
@@ -1791,19 +1763,11 @@ impl Parse for UnresolvedName {
             }
 
             let tail = try!(consume(b"sr", tail));
-            let (lvl, mut tail) = try!(UnresolvedQualifierLevel::parse(subs, tail));
-            let mut levels = vec![lvl];
-            loop {
-                if let Ok((lvl, tail_tail)) = UnresolvedQualifierLevel::parse(subs,
-                                                                              tail) {
-                    levels.push(lvl);
-                    tail = tail_tail;
-                } else {
-                    let tail = try!(consume(b"E", tail));
-                    let (name, tail) = try!(BaseUnresolvedName::parse(subs, tail));
-                    return Ok((UnresolvedName::GlobalNested2(levels, name), tail));
-                }
-            }
+            let (levels, tail) = try!(one_or_more::<UnresolvedQualifierLevel>(subs,
+                                                                              tail));
+            let tail = try!(consume(b"E", tail));
+            let (name, tail) = try!(BaseUnresolvedName::parse(subs, tail));
+            return Ok((UnresolvedName::GlobalNested2(levels, name), tail));
         }
 
         if let Ok((name, tail)) = BaseUnresolvedName::parse(subs, input) {
@@ -1814,19 +1778,11 @@ impl Parse for UnresolvedName {
 
         if tail.peek() == Some(b'N') {
             let (ty, tail) = try!(UnresolvedTypeHandle::parse(subs, input));
-            let (lvl, mut tail) = try!(UnresolvedQualifierLevel::parse(subs, tail));
-            let mut levels = vec![lvl];
-            loop {
-                if let Ok((lvl, tail_tail)) = UnresolvedQualifierLevel::parse(subs,
-                                                                              tail) {
-                    levels.push(lvl);
-                    tail = tail_tail;
-                } else {
-                    let tail = try!(consume(b"E", tail));
-                    let (name, tail) = try!(BaseUnresolvedName::parse(subs, tail));
-                    return Ok((UnresolvedName::Nested1(ty, levels, name), tail));
-                }
-            }
+            let (levels, tail) = try!(one_or_more::<UnresolvedQualifierLevel>(subs,
+                                                                              tail));
+            let tail = try!(consume(b"E", tail));
+            let (name, tail) = try!(BaseUnresolvedName::parse(subs, tail));
+            return Ok((UnresolvedName::Nested1(ty, levels, name), tail));
         }
 
         let (ty, tail) = try!(UnresolvedTypeHandle::parse(subs, tail));
@@ -2068,17 +2024,9 @@ impl Parse for Initializer {
     fn parse<'a, 'b>(subs: &'a mut SubstitutionTable,
                      input: IndexStr<'b>)
                      -> Result<(Initializer, IndexStr<'b>)> {
-        let mut tail = try!(consume(b"pi", input));
-        let mut exprs = vec![];
-        loop {
-            if let Ok((expr, tail_tail)) = Expression::parse(subs, tail) {
-                exprs.push(expr);
-                tail = tail_tail;
-            } else {
-                let tail = try!(consume(b"E", tail));
-                return Ok((Initializer(exprs), tail));
-            }
-        }
+        let (exprs, tail) = try!(zero_or_more::<Expression>(subs, input));
+        let tail = try!(consume(b"E", tail));
+        Ok((Initializer(exprs), tail))
     }
 }
 
@@ -2217,16 +2165,8 @@ impl Parse for LambdaSig {
     fn parse<'a, 'b>(subs: &'a mut SubstitutionTable,
                      input: IndexStr<'b>)
                      -> Result<(LambdaSig, IndexStr<'b>)> {
-        let (ty, mut tail) = try!(TypeHandle::parse(subs, input));
-        let mut types = vec![ty];
-        loop {
-            if let Ok((ty, tail_tail)) = TypeHandle::parse(subs, tail) {
-                types.push(ty);
-                tail = tail_tail;
-            } else {
-                return Ok((LambdaSig(types), tail));
-            }
-        }
+        let (types, tail) = try!(one_or_more::<TypeHandle>(subs, input));
+        Ok((LambdaSig(types), tail))
     }
 }
 
@@ -2338,6 +2278,40 @@ fn consume<'a>(expected: &[u8], input: IndexStr<'a>) -> Result<IndexStr<'a>> {
         Some((head, tail)) if head == expected => Ok(tail),
         Some(_) => Err(ErrorKind::UnexpectedText.into()),
         None => Err(ErrorKind::UnexpectedEnd.into()),
+    }
+}
+
+fn one_or_more<'a, 'b, P>(subs: &'a mut SubstitutionTable,
+                          input: IndexStr<'b>)
+                          -> Result<(Vec<P>, IndexStr<'b>)>
+    where P: Parse
+{
+    let (first, mut tail) = try!(P::parse(subs, input));
+    let mut results = vec![first];
+    loop {
+        if let Ok((parsed, tail_tail)) = P::parse(subs, tail) {
+            results.push(parsed);
+            tail = tail_tail;
+        } else {
+            return Ok((results, tail));
+        }
+    }
+}
+
+fn zero_or_more<'a, 'b, P>(subs: &'a mut SubstitutionTable,
+                           input: IndexStr<'b>)
+                           -> Result<(Vec<P>, IndexStr<'b>)>
+    where P: Parse
+{
+    let mut tail = input;
+    let mut results = vec![];
+    loop {
+        if let Ok((parsed, tail_tail)) = P::parse(subs, tail) {
+            results.push(parsed);
+            tail = tail_tail;
+        } else {
+            return Ok((results, tail));
+        }
     }
 }
 
