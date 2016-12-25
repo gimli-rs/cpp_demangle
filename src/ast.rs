@@ -7,7 +7,7 @@ use std::fmt;
 /// An enumeration of all of the types that can end up in the substitution
 /// table.
 #[doc(hidden)]
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, Hash, PartialEq, Eq)]
 pub enum Substitutable {
     /// An `<unscoped-template-name>` production.
     UnscopedTemplateName(UnscopedTemplateName),
@@ -31,7 +31,7 @@ pub enum Substitutable {
 /// The table of substitutable components that we have parsed thus far, and for
 /// which there are potential back-references.
 #[doc(hidden)]
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, Hash, PartialEq, Eq)]
 pub struct SubstitutionTable(Vec<Substitutable>);
 
 impl SubstitutionTable {
@@ -154,7 +154,7 @@ macro_rules! define_vocabulary {
 /// ```text
 /// <mangled-name> ::= _Z <encoding>
 /// ```
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, Hash, PartialEq, Eq)]
 pub struct MangledName(Encoding);
 
 impl Parse for MangledName {
@@ -174,7 +174,7 @@ impl Parse for MangledName {
 ///            ::= <data name>
 ///            ::= <special-name>
 /// ```
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, Hash, PartialEq, Eq)]
 pub enum Encoding {
     /// An encoded function.
     Function(Name, BareFunctionType),
@@ -219,7 +219,7 @@ impl Parse for Encoding {
 ///        ::= <local-name>
 ///        ::= St <unqualified-name> # ::std::
 /// ```
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, Hash, PartialEq, Eq)]
 pub enum Name {
     /// A nested name
     Nested(NestedName),
@@ -335,7 +335,7 @@ impl Parse for UnscopedTemplateNameHandle {
 /// <nested-name> ::= N [<CV-qualifiers>] [<ref-qualifier>] <prefix> <unqualified-name> E
 ///               ::= N [<CV-qualifiers>] [<ref-qualifier>] <template-prefix> <template-args> E
 /// ```
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, Hash, PartialEq, Eq)]
 pub enum NestedName {
     /// An unqualified name.
     Unqualified(CvQualifiers, Option<RefQualifier>, PrefixHandle, UnqualifiedName),
@@ -397,7 +397,7 @@ impl Parse for NestedName {
 ///                   ::= <template-param>
 ///                   ::= <substitution>
 /// ```
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, Hash, PartialEq, Eq)]
 pub enum Prefix {
     /// An unqualified name.
     Unqualified(UnqualifiedName),
@@ -516,7 +516,7 @@ impl Parse for PrefixHandle {
 ///                   ::= <template-param>                       # template template parameter
 ///                   ::= <substitution>
 /// ```
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, Hash, PartialEq, Eq)]
 pub enum TemplatePrefix {
     /// A template name.
     UnqualifiedName(UnqualifiedName),
@@ -902,7 +902,7 @@ define_vocabulary! {
 ///        ::= Dp <type>                                # pack expansion (C++0x)
 ///        ::= <substitution>
 /// ```
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, Hash, PartialEq, Eq)]
 pub enum Type {
     /// A builtin type.
     Builtin(BuiltinType),
@@ -1378,7 +1378,7 @@ impl Parse for Decltype {
 ///                   ::= Tu <name>
 ///                   ::= Te <name>
 /// ```
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, Hash, PartialEq, Eq)]
 pub enum ClassEnumType {
     /// A non-dependent type name, dependent type name, or dependent
     /// typename-specifier.
@@ -1613,7 +1613,7 @@ impl Parse for FunctionParam {
 /// ```text
 /// <template-args> ::= I <template-arg>+ E
 /// ```
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, Hash, PartialEq, Eq)]
 pub struct TemplateArgs(Vec<TemplateArg>);
 
 impl Parse for TemplateArgs {
@@ -1645,7 +1645,7 @@ impl Parse for TemplateArgs {
 ///                ::= <expr-primary>        # simple expressions
 ///                ::= J <template-arg>* E   # argument pack
 /// ```
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, Hash, PartialEq, Eq)]
 pub enum TemplateArg {
     /// A type or template.
     Type(TypeHandle),
@@ -1761,7 +1761,7 @@ impl Parse for Expression {
 ///                   ::= [gs] sr <unresolved-qualifier-level>+ E <base-unresolved-name>
 ///                          # A::x, N::y, A<T>::z; "gs" means leading "::"
 /// ```
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, Hash, PartialEq, Eq)]
 pub enum UnresolvedName {
     /// `x`
     Name(BaseUnresolvedName),
@@ -1842,7 +1842,7 @@ impl Parse for UnresolvedName {
 ///                   ::= <decltype>                            # decltype(p)::
 ///                   ::= <substitution>
 /// ```
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, Hash, PartialEq, Eq)]
 pub enum UnresolvedType {
     /// An unresolved template type.
     Template(TemplateParam, Option<TemplateArgs>),
@@ -1901,7 +1901,7 @@ impl Parse for UnresolvedTypeHandle {
 /// ```text
 /// <unresolved-qualifier-level> ::= <simple-id>
 /// ```
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, Hash, PartialEq, Eq)]
 pub struct UnresolvedQualifierLevel(SimpleId);
 
 impl Parse for UnresolvedQualifierLevel {
@@ -1918,7 +1918,7 @@ impl Parse for UnresolvedQualifierLevel {
 /// ```text
 /// <simple-id> ::= <source-name> [ <template-args> ]
 /// ```
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, Hash, PartialEq, Eq)]
 pub struct SimpleId(SourceName, Option<TemplateArgs>);
 
 impl Parse for SimpleId {
@@ -1944,7 +1944,7 @@ impl Parse for SimpleId {
 ///                        ::= dn <destructor-name>               # destructor or pseudo-destructor;
 ///                                                               # e.g. ~X or ~X<N-1>
 /// ```
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, Hash, PartialEq, Eq)]
 pub enum BaseUnresolvedName {
     /// An unresolved name.
     Name(SimpleId),
@@ -1987,7 +1987,7 @@ impl Parse for BaseUnresolvedName {
 /// <destructor-name> ::= <unresolved-type> # e.g., ~T or ~decltype(f())
 ///                   ::= <simple-id>       # e.g., ~A<2*N>
 /// ```
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, Hash, PartialEq, Eq)]
 pub enum DestructorName {
     /// A destructor for an unresolved type.
     Unresolved(UnresolvedTypeHandle),
@@ -2020,7 +2020,7 @@ impl Parse for DestructorName {
 ///                ::= L <type> <real-part float> _ <imag-part float> E # complex floating point literal (C 2000)
 ///                ::= L <mangled-name> E                               # external name
 /// ```
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, Hash, PartialEq, Eq)]
 pub enum ExprPrimary {
     /// A type literal.
     Literal(TypeHandle, usize, usize),
@@ -2089,7 +2089,7 @@ impl Parse for Initializer {
 ///              := Z <function encoding> E s [<discriminator>]
 ///              := Z <function encoding> Ed [ <parameter number> ] _ <entity name>
 /// ```
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, Hash, PartialEq, Eq)]
 pub enum LocalName {
     /// The mangling of the enclosing function, the mangling of the entity
     /// relative to the function, and an optional discriminator.
