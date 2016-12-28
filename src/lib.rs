@@ -36,9 +36,13 @@
 #[macro_use]
 extern crate error_chain;
 
+#[macro_use]
+mod logging;
+
 pub mod ast;
 pub mod error;
 mod index_str;
+mod subs;
 
 use ast::Parse;
 use error::{ErrorKind, Result};
@@ -58,7 +62,7 @@ pub type BorrowedSymbol<'a> = Symbol<&'a [u8]>;
 #[derive(Clone, Debug, PartialEq)]
 pub struct Symbol<T> {
     raw: T,
-    substitutions: ast::SubstitutionTable,
+    substitutions: subs::SubstitutionTable,
     parsed: ast::MangledName,
 }
 
@@ -79,7 +83,7 @@ impl<T> Symbol<T>
     /// // The demangled symbol is 'space::foo(int, int)'
     /// ```
     pub fn new(raw: T) -> Result<Symbol<T>> {
-        let mut substitutions = ast::SubstitutionTable::new();
+        let mut substitutions = subs::SubstitutionTable::new();
 
         let parsed = {
             let input = IndexStr::new(raw.as_ref());
