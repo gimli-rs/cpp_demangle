@@ -2758,14 +2758,133 @@ define_vocabulary! {
 }
 
 /// The `<special-name>` production.
+///
+/// The `<special-name>` production is spread in pieces through out the ABI
+/// spec.
+///
+/// ### 5.1.4.1 Virtual Tables and RTTI
+///
+/// ```text
+/// <special-name> ::= TV <type>    # virtual table
+///                ::= TT <type>    # VTT structure (construction vtable index)
+///                ::= TI <type>    # typeinfo structure
+///                ::= TS <type>    # typeinfo name (null-terminated byte string)
+/// ```
+///
+/// ### 5.1.4.2 Virtual Override Thunks
+///
+/// ```text
+/// <special-name> ::= T <call-offset> <base encoding>
+///     # base is the nominal target function of thunk
+///
+/// <special-name> ::= Tc <call-offset> <call-offset> <base encoding>
+///     # base is the nominal target function of thunk
+///     # first call-offset is 'this' adjustment
+///     # second call-offset is result adjustment
+/// ```
+///
+/// ### 5.1.4.4 Guard Variables
+///
+/// ```text
+/// <special-name> ::= GV <object name> # Guard variable for one-time initialization
+///     # No <type>
+/// ```
+///
+/// ### 5.1.4.5 Lifetime-Extended Temporaries
+///
+/// ```text
+/// <special-name> ::= GR <object name> _             # First temporary
+/// <special-name> ::= GR <object name> <seq-id> _    # Subsequent temporaries
+/// ```
 #[derive(Clone, Debug, Hash, PartialEq, Eq)]
-pub struct SpecialName;
+pub enum SpecialName {
+    /// A virtual table.
+    VirtualTable(TypeHandle),
+
+    /// A VTT structure (construction vtable index).
+    Vtt(TypeHandle),
+
+    /// A typeinfo structure.
+    Typeinfo(TypeHandle),
+
+    /// A typeinfo name (null-terminated byte string).
+    TypeinfoName(TypeHandle),
+
+    /// A virtual override thunk.
+    VirtualOverrideThunk(CallOffset, Box<Encoding>),
+
+    /// A virtual override thunk with a covariant return type.
+    VirtualOverrideThunkCovariant(CallOffset, CallOffset, Box<Encoding>),
+
+    /// An initialization guard for some static storage.
+    Guard(Name),
+
+    /// A temporary used in the initialization of a static storage and promoted
+    /// to a static lifetime.
+    GuardTemporary(Name, usize),
+}
 
 impl Parse for SpecialName {
-    fn parse<'a, 'b>(_subs: &'a mut SubstitutionTable,
-                     _input: IndexStr<'b>)
+    fn parse<'a, 'b>(subs: &'a mut SubstitutionTable,
+                     input: IndexStr<'b>)
                      -> Result<(SpecialName, IndexStr<'b>)> {
-        Err("Not yet implemented".into())
+        log_parse!("SpecialName", input);
+
+        let (head, tail) = match input.try_split_at(2) {
+            None => return Err(ErrorKind::UnexpectedEnd.into()),
+            Some((head, tail)) => (head, tail),
+        };
+
+        match head.as_ref() {
+            b"TV" => {
+                let (ty, tail) = try!(TypeHandle::parse(subs, tail));
+                Ok((SpecialName::VirtualTable(ty), tail))
+            }
+            b"TT" => {
+                let (ty, tail) = try!(TypeHandle::parse(subs, tail));
+                Ok((SpecialName::Vtt(ty), tail))
+            }
+            b"TI" => {
+                let (ty, tail) = try!(TypeHandle::parse(subs, tail));
+                Ok((SpecialName::Typeinfo(ty), tail))
+            }
+            b"TS" => {
+                let (ty, tail) = try!(TypeHandle::parse(subs, tail));
+                Ok((SpecialName::TypeinfoName(ty), tail))
+            }
+            b"Tc" => {
+                let (first, tail) = try!(CallOffset::parse(subs, tail));
+                let (second, tail) = try!(CallOffset::parse(subs, tail));
+                let (base, tail) = try!(Encoding::parse(subs, tail));
+                Ok((SpecialName::VirtualOverrideThunkCovariant(first,
+                                                               second,
+                                                               Box::new(base)),
+                    tail))
+            }
+            b"GV" => {
+                let (name, tail) = try!(Name::parse(subs, tail));
+                Ok((SpecialName::Guard(name), tail))
+            }
+            b"GR" => {
+                let (name, tail) = try!(Name::parse(subs, tail));
+                let (idx, tail) = if let Ok(tail) = consume(b"_", tail) {
+                    (0, tail)
+                } else {
+                    let (idx, tail) = try!(SeqId::parse(subs, tail));
+                    (idx.0 + 1, tail)
+                };
+                Ok((SpecialName::GuardTemporary(name, idx), tail))
+            }
+            _ => {
+                if let Ok(tail) = consume(b"T", input) {
+                    let (offset, tail) = try!(CallOffset::parse(subs, tail));
+                    let (base, tail) = try!(Encoding::parse(subs, tail));
+                    Ok((SpecialName::VirtualOverrideThunk(offset, Box::new(base)), tail))
+                } else {
+                    Err(ErrorKind::UnexpectedText.into())
+                }
+            }
+        }
     }
 }
 
