@@ -2,55 +2,49 @@
 
 use error::{ErrorKind, Result};
 use index_str::IndexStr;
+#[cfg(feature = "logging")]
+use std::cell::RefCell;
 use std::fmt;
+use subs::{Substitutable, SubstitutionTable};
 
-/// An enumeration of all of the types that can end up in the substitution
-/// table.
-#[doc(hidden)]
-#[derive(Clone, Debug, Hash, PartialEq, Eq)]
-pub enum Substitutable {
-    /// An `<unscoped-template-name>` production.
-    UnscopedTemplateName(UnscopedTemplateName),
+struct AutoLogParse;
 
-    /// A `<template-prefix>` production.
-    TemplatePrefix(TemplatePrefix),
-
-    /// A `<type>` production.
-    Type(Type),
-
-    /// A `<template-template-param>` production.
-    TemplateTemplateParam(TemplateTemplateParam),
-
-    /// An `<unresolved-type>` production.
-    UnresolvedType(UnresolvedType),
-
-    /// A `<prefix>` production.
-    Prefix(Prefix),
+thread_local! {
+    #[cfg(feature = "logging")]
+    static PARSE_DEPTH: RefCell<usize> = RefCell::new(0);
 }
 
-/// The table of substitutable components that we have parsed thus far, and for
-/// which there are potential back-references.
-#[doc(hidden)]
-#[derive(Clone, Debug, Hash, PartialEq, Eq)]
-pub struct SubstitutionTable(Vec<Substitutable>);
-
-impl SubstitutionTable {
-    /// Construct a new `SubstitutionTable`.
-    pub fn new() -> SubstitutionTable {
-        SubstitutionTable(Vec::new())
+impl AutoLogParse {
+    #[cfg(feature = "logging")]
+    fn new<'a>(production: &'static str, input: IndexStr<'a>) -> AutoLogParse {
+        PARSE_DEPTH.with(|depth| {
+            let indent: String = (0..*depth.borrow() * 4).map(|_| ' ').collect();
+            log!("{}({}::parse: {:?}", indent, production, input);
+            *depth.borrow_mut() += 1;
+        });
+        AutoLogParse
     }
 
-    /// Insert a freshly-parsed substitutable component into the table and
-    /// return the index at which it now lives.
-    pub fn insert(&mut self, entity: Substitutable) -> usize {
-        let idx = self.0.len();
-        self.0.push(entity);
-        idx
+    #[cfg(not(feature = "logging"))]
+    fn new<'a>(_: &'static str, _: IndexStr<'a>) -> AutoLogParse {
+        AutoLogParse
     }
+}
 
-    /// Does this substitution table contain a component at the given index?
-    pub fn contains(&self, idx: usize) -> bool {
-        idx < self.0.len()
+#[cfg(feature = "logging")]
+impl Drop for AutoLogParse {
+    fn drop(&mut self) {
+        PARSE_DEPTH.with(|depth| {
+            *depth.borrow_mut() -= 1;
+            let indent: String = (0..*depth.borrow() * 4).map(|_| ' ').collect();
+            log!("{})", indent);
+        });
+    }
+}
+
+macro_rules! log_parse {
+    ( $production:expr , $input:expr ) => {
+        let _log = AutoLogParse::new($production, $input);
     }
 }
 
@@ -161,8 +155,11 @@ impl Parse for MangledName {
     fn parse<'a, 'b>(subs: &'a mut SubstitutionTable,
                      input: IndexStr<'b>)
                      -> Result<(MangledName, IndexStr<'b>)> {
+        log_parse!("MangledName", input);
+
         let tail = try!(consume(b"_Z", input));
         let (encoding, tail) = try!(Encoding::parse(subs, tail));
+
         Ok((MangledName(encoding), tail))
     }
 }
@@ -190,6 +187,8 @@ impl Parse for Encoding {
     fn parse<'a, 'b>(subs: &'a mut SubstitutionTable,
                      input: IndexStr<'b>)
                      -> Result<(Encoding, IndexStr<'b>)> {
+        log_parse!("Encoding", input);
+
         if input.is_empty() {
             return Err(ErrorKind::UnexpectedEnd.into());
         }
@@ -238,6 +237,8 @@ impl Parse for Name {
     fn parse<'a, 'b>(subs: &'a mut SubstitutionTable,
                      input: IndexStr<'b>)
                      -> Result<(Name, IndexStr<'b>)> {
+        log_parse!("Name", input);
+
         if let Ok((name, tail)) = NestedName::parse(subs, input) {
             return Ok((Name::Nested(name), tail));
         }
@@ -279,6 +280,8 @@ impl Parse for UnscopedName {
     fn parse<'a, 'b>(subs: &'a mut SubstitutionTable,
                      input: IndexStr<'b>)
                      -> Result<(UnscopedName, IndexStr<'b>)> {
+        log_parse!("UnscopedName", input);
+
         if let Ok(tail) = consume(b"St", input) {
             let (name, tail) = try!(UnqualifiedName::parse(subs, tail));
             return Ok((UnscopedName::Std(name), tail));
@@ -307,6 +310,8 @@ impl Parse for UnscopedTemplateNameHandle {
     fn parse<'a, 'b>(subs: &'a mut SubstitutionTable,
                      input: IndexStr<'b>)
                      -> Result<(UnscopedTemplateNameHandle, IndexStr<'b>)> {
+        log_parse!("UnscopedTemplateNameHandle", input);
+
         if let Ok((name, tail)) = UnscopedName::parse(subs, input) {
             let name = UnscopedTemplateName(name);
             let idx = subs.insert(Substitutable::UnscopedTemplateName(name));
@@ -348,6 +353,8 @@ impl Parse for NestedName {
     fn parse<'a, 'b>(subs: &'a mut SubstitutionTable,
                      input: IndexStr<'b>)
                      -> Result<(NestedName, IndexStr<'b>)> {
+        log_parse!("NestedName", input);
+
         let tail = try!(consume(b"N", input));
 
         let (cv_qualifiers, tail) = if let Ok((q, tail)) = CvQualifiers::parse(subs,
@@ -431,6 +438,8 @@ impl Parse for PrefixHandle {
         let mut current = None;
 
         loop {
+            log_parse!("PrefixHandle", tail);
+
             if let Ok((name, tail_tail)) = UnqualifiedName::parse(subs, tail) {
                 if let Some(handle) = current {
                     match tail_tail.peek() {
@@ -537,6 +546,8 @@ impl Parse for TemplatePrefixHandle {
     fn parse<'a, 'b>(subs: &'a mut SubstitutionTable,
                      input: IndexStr<'b>)
                      -> Result<(TemplatePrefixHandle, IndexStr<'b>)> {
+        log_parse!("TemplatePrefixHandle", input);
+
         if let Ok((name, tail)) = UnqualifiedName::parse(subs, input) {
             let prefix = TemplatePrefix::UnqualifiedName(name);
             let prefix = Substitutable::TemplatePrefix(prefix);
@@ -600,6 +611,8 @@ impl Parse for UnqualifiedName {
     fn parse<'a, 'b>(subs: &'a mut SubstitutionTable,
                      input: IndexStr<'b>)
                      -> Result<(UnqualifiedName, IndexStr<'b>)> {
+        log_parse!("UnqualifiedName", input);
+
         if let Ok((op, tail)) = OperatorName::parse(subs, input) {
             return Ok((UnqualifiedName::Operator(op), tail));
         }
@@ -629,6 +642,8 @@ impl Parse for SourceName {
     fn parse<'a, 'b>(subs: &'a mut SubstitutionTable,
                      input: IndexStr<'b>)
                      -> Result<(SourceName, IndexStr<'b>)> {
+        log_parse!("SourceName", input);
+
         let (source_name_len, input) = try!(parse_number(10, false, input));
         debug_assert!(source_name_len >= 0);
         if source_name_len == 0 {
@@ -670,6 +685,8 @@ impl Parse for Identifier {
     fn parse<'a, 'b>(_subs: &'a mut SubstitutionTable,
                      input: IndexStr<'b>)
                      -> Result<(Identifier, IndexStr<'b>)> {
+        log_parse!("Identifier", input);
+
         if input.is_empty() {
             return Err(ErrorKind::UnexpectedEnd.into());
         }
@@ -706,6 +723,8 @@ impl Parse for Number {
     fn parse<'a, 'b>(_subs: &'a mut SubstitutionTable,
                      input: IndexStr<'b>)
                      -> Result<(isize, IndexStr<'b>)> {
+        log_parse!("Number", input);
+
         parse_number(10, true, input)
     }
 }
@@ -722,6 +741,8 @@ impl Parse for SeqId {
     fn parse<'a, 'b>(_subs: &'a mut SubstitutionTable,
                      input: IndexStr<'b>)
                      -> Result<(SeqId, IndexStr<'b>)> {
+        log_parse!("SeqId", input);
+
         parse_number(36, false, input).map(|(num, tail)| (SeqId(num as _), tail))
     }
 }
@@ -804,6 +825,8 @@ impl Parse for CallOffset {
     fn parse<'a, 'b>(subs: &'a mut SubstitutionTable,
                      input: IndexStr<'b>)
                      -> Result<(CallOffset, IndexStr<'b>)> {
+        log_parse!("CallOffset", input);
+
         if input.is_empty() {
             return Err(ErrorKind::UnexpectedEnd.into());
         }
@@ -836,6 +859,8 @@ impl Parse for NvOffset {
     fn parse<'a, 'b>(subs: &'a mut SubstitutionTable,
                      input: IndexStr<'b>)
                      -> Result<(NvOffset, IndexStr<'b>)> {
+        log_parse!("NvOffset", input);
+
         Number::parse(subs, input).map(|(num, tail)| (NvOffset(num), tail))
     }
 }
@@ -852,6 +877,8 @@ impl Parse for VOffset {
     fn parse<'a, 'b>(subs: &'a mut SubstitutionTable,
                      input: IndexStr<'b>)
                      -> Result<(VOffset, IndexStr<'b>)> {
+        log_parse!("VOffset", input);
+
         let (offset, tail) = try!(Number::parse(subs, input));
         let tail = try!(consume(b"_", tail));
         let (virtual_offset, tail) = try!(Number::parse(subs, tail));
@@ -962,6 +989,8 @@ impl Parse for TypeHandle {
     fn parse<'a, 'b>(subs: &'a mut SubstitutionTable,
                      input: IndexStr<'b>)
                      -> Result<(TypeHandle, IndexStr<'b>)> {
+        log_parse!("TypeHandle", input);
+
         /// Insert the given type into the substitution table, and return a
         /// handle referencing the index in the table where it ended up.
         fn insert_and_return_handle<'a, 'b>(ty: Type,
@@ -1108,6 +1137,8 @@ impl Parse for CvQualifiers {
     fn parse<'a, 'b>(_subs: &'a mut SubstitutionTable,
                      input: IndexStr<'b>)
                      -> Result<(CvQualifiers, IndexStr<'b>)> {
+        log_parse!("CvQualifiers", input);
+
         let (restrict, tail) = if let Ok(tail) = consume(b"r", input) {
             (true, tail)
         } else {
@@ -1238,6 +1269,8 @@ impl Parse for BuiltinType {
     fn parse<'a, 'b>(subs: &'a mut SubstitutionTable,
                      input: IndexStr<'b>)
                      -> Result<(BuiltinType, IndexStr<'b>)> {
+        log_parse!("BuiltinType", input);
+
         if let Ok((ty, tail)) = StandardBuiltinType::parse(subs, input) {
             return Ok((BuiltinType::Standard(ty), tail));
         }
@@ -1266,6 +1299,8 @@ impl Parse for FunctionType {
     fn parse<'a, 'b>(subs: &'a mut SubstitutionTable,
                      input: IndexStr<'b>)
                      -> Result<(FunctionType, IndexStr<'b>)> {
+        log_parse!("FunctionType", input);
+
         let (cv_qualifiers, tail) = if let Ok((cv_qualifiers, tail)) =
             CvQualifiers::parse(subs, input) {
             (cv_qualifiers, tail)
@@ -1322,6 +1357,8 @@ impl Parse for BareFunctionType {
     fn parse<'a, 'b>(subs: &'a mut SubstitutionTable,
                      input: IndexStr<'b>)
                      -> Result<(BareFunctionType, IndexStr<'b>)> {
+        log_parse!("BareFunctionType", input);
+
         let (types, tail) = try!(one_or_more::<TypeHandle>(subs, input));
         Ok((BareFunctionType(types), tail))
     }
@@ -1346,6 +1383,8 @@ impl Parse for Decltype {
     fn parse<'a, 'b>(subs: &'a mut SubstitutionTable,
                      input: IndexStr<'b>)
                      -> Result<(Decltype, IndexStr<'b>)> {
+        log_parse!("Decltype", input);
+
         let tail = try!(consume(b"D", input));
 
         if let Ok(tail) = consume(b"t", tail) {
@@ -1389,6 +1428,8 @@ impl Parse for ClassEnumType {
     fn parse<'a, 'b>(subs: &'a mut SubstitutionTable,
                      input: IndexStr<'b>)
                      -> Result<(ClassEnumType, IndexStr<'b>)> {
+        log_parse!("ClassEnumType", input);
+
         if let Ok((name, tail)) = Name::parse(subs, input) {
             return Ok((ClassEnumType::Named(name), tail));
         }
@@ -1426,6 +1467,8 @@ impl Parse for UnnamedTypeName {
     fn parse<'a, 'b>(_subs: &'a mut SubstitutionTable,
                      input: IndexStr<'b>)
                      -> Result<(UnnamedTypeName, IndexStr<'b>)> {
+        log_parse!("UnnamedTypeName", input);
+
         let input = try!(consume(b"Ut", input));
         let (number, input) = match parse_number(10, false, input) {
             Ok((number, input)) => (Some(number as _), input),
@@ -1455,6 +1498,8 @@ impl Parse for ArrayType {
     fn parse<'a, 'b>(subs: &'a mut SubstitutionTable,
                      input: IndexStr<'b>)
                      -> Result<(ArrayType, IndexStr<'b>)> {
+        log_parse!("ArrayType", input);
+
         let tail = try!(consume(b"A", input));
 
         if let Ok((num, tail)) = parse_number(10, false, tail) {
@@ -1483,6 +1528,8 @@ impl Parse for PointerToMemberType {
     fn parse<'a, 'b>(subs: &'a mut SubstitutionTable,
                      input: IndexStr<'b>)
                      -> Result<(PointerToMemberType, IndexStr<'b>)> {
+        log_parse!("PointerToMemberType", input);
+
         let tail = try!(consume(b"M", input));
         let (ty1, tail) = try!(TypeHandle::parse(subs, tail));
         let (ty2, tail) = try!(TypeHandle::parse(subs, tail));
@@ -1503,6 +1550,8 @@ impl Parse for TemplateParam {
     fn parse<'a, 'b>(_subs: &'a mut SubstitutionTable,
                      input: IndexStr<'b>)
                      -> Result<(TemplateParam, IndexStr<'b>)> {
+        log_parse!("TemplateParam", input);
+
         let input = try!(consume(b"T", input));
         let (number, input) = match parse_number(10, false, input) {
             Ok((number, input)) => (Some(number as _), input),
@@ -1531,6 +1580,8 @@ impl Parse for TemplateTemplateParamHandle {
     fn parse<'a, 'b>(subs: &'a mut SubstitutionTable,
                      input: IndexStr<'b>)
                      -> Result<(TemplateTemplateParamHandle, IndexStr<'b>)> {
+        log_parse!("TemplateTemplateParamHandle", input);
+
         if let Ok((param, tail)) = TemplateParam::parse(subs, input) {
             let ttp = TemplateTemplateParam(param);
             let ttp = Substitutable::TemplateTemplateParam(ttp);
@@ -1573,6 +1624,8 @@ impl Parse for FunctionParam {
     fn parse<'a, 'b>(subs: &'a mut SubstitutionTable,
                      input: IndexStr<'b>)
                      -> Result<(FunctionParam, IndexStr<'b>)> {
+        log_parse!("FunctionParam", input);
+
         let tail = try!(consume(b"f", input));
         if tail.is_empty() {
             return Err(ErrorKind::UnexpectedEnd.into());
@@ -1611,6 +1664,8 @@ impl Parse for TemplateArgs {
     fn parse<'a, 'b>(subs: &'a mut SubstitutionTable,
                      input: IndexStr<'b>)
                      -> Result<(TemplateArgs, IndexStr<'b>)> {
+        log_parse!("TemplateArgs", input);
+
         let tail = try!(consume(b"I", input));
 
         let (args, tail) = try!(one_or_more::<TemplateArg>(subs, tail));
@@ -1646,6 +1701,8 @@ impl Parse for TemplateArg {
     fn parse<'a, 'b>(subs: &'a mut SubstitutionTable,
                      input: IndexStr<'b>)
                      -> Result<(TemplateArg, IndexStr<'b>)> {
+        log_parse!("TemplateArg", input);
+
         if let Ok((ty, tail)) = TypeHandle::parse(subs, input) {
             return Ok((TemplateArg::Type(ty), tail));
         }
@@ -1847,6 +1904,8 @@ impl Parse for Expression {
     fn parse<'a, 'b>(subs: &'a mut SubstitutionTable,
                      input: IndexStr<'b>)
                      -> Result<(Expression, IndexStr<'b>)> {
+        log_parse!("Expression", input);
+
         if let Ok(tail) = consume(b"pp_", input) {
             let (expr, tail) = try!(Expression::parse(subs, tail));
             let expr = Expression::PrefixInc(Box::new(expr));
@@ -2170,6 +2229,8 @@ impl Parse for UnresolvedName {
     fn parse<'a, 'b>(subs: &'a mut SubstitutionTable,
                      input: IndexStr<'b>)
                      -> Result<(UnresolvedName, IndexStr<'b>)> {
+        log_parse!("UnresolvedName", input);
+
         if let Ok(tail) = consume(b"gs", input) {
             if let Ok((name, tail)) = BaseUnresolvedName::parse(subs, tail) {
                 return Ok((UnresolvedName::Global(name), tail));
@@ -2229,6 +2290,8 @@ impl Parse for UnresolvedTypeHandle {
     fn parse<'a, 'b>(subs: &'a mut SubstitutionTable,
                      input: IndexStr<'b>)
                      -> Result<(UnresolvedTypeHandle, IndexStr<'b>)> {
+        log_parse!("UnresolvedTypeHandle", input);
+
         if let Ok((param, tail)) = TemplateParam::parse(subs, input) {
             let (args, tail) = if let Ok((args, tail)) = TemplateArgs::parse(subs,
                                                                              tail) {
@@ -2277,6 +2340,8 @@ impl Parse for UnresolvedQualifierLevel {
     fn parse<'a, 'b>(subs: &'a mut SubstitutionTable,
                      input: IndexStr<'b>)
                      -> Result<(UnresolvedQualifierLevel, IndexStr<'b>)> {
+        log_parse!("UnresolvedQualifierLevel", input);
+
         let (id, tail) = try!(SimpleId::parse(subs, input));
         Ok((UnresolvedQualifierLevel(id), tail))
     }
@@ -2294,6 +2359,8 @@ impl Parse for SimpleId {
     fn parse<'a, 'b>(subs: &'a mut SubstitutionTable,
                      input: IndexStr<'b>)
                      -> Result<(SimpleId, IndexStr<'b>)> {
+        log_parse!("SimpleId", input);
+
         let (name, tail) = try!(SourceName::parse(subs, input));
         let (args, tail) = if let Ok((args, tail)) = TemplateArgs::parse(subs, tail) {
             (Some(args), tail)
@@ -2329,6 +2396,8 @@ impl Parse for BaseUnresolvedName {
     fn parse<'a, 'b>(subs: &'a mut SubstitutionTable,
                      input: IndexStr<'b>)
                      -> Result<(BaseUnresolvedName, IndexStr<'b>)> {
+        log_parse!("BaseUnresolvedName", input);
+
         if let Ok((name, tail)) = SimpleId::parse(subs, input) {
             return Ok((BaseUnresolvedName::Name(name), tail));
         }
@@ -2369,6 +2438,8 @@ impl Parse for DestructorName {
     fn parse<'a, 'b>(subs: &'a mut SubstitutionTable,
                      input: IndexStr<'b>)
                      -> Result<(DestructorName, IndexStr<'b>)> {
+        log_parse!("DestructorName", input);
+
         if let Ok((ty, tail)) = UnresolvedTypeHandle::parse(subs, input) {
             return Ok((DestructorName::Unresolved(ty), tail));
         }
@@ -2402,6 +2473,8 @@ impl Parse for ExprPrimary {
     fn parse<'a, 'b>(subs: &'a mut SubstitutionTable,
                      input: IndexStr<'b>)
                      -> Result<(ExprPrimary, IndexStr<'b>)> {
+        log_parse!("ExprPrimary", input);
+
         let tail = try!(consume(b"L", input));
 
         if let Ok((ty, tail)) = TypeHandle::parse(subs, input) {
@@ -2437,6 +2510,8 @@ impl Parse for Initializer {
     fn parse<'a, 'b>(subs: &'a mut SubstitutionTable,
                      input: IndexStr<'b>)
                      -> Result<(Initializer, IndexStr<'b>)> {
+        log_parse!("Initializer", input);
+
         let (exprs, tail) = try!(zero_or_more::<Expression>(subs, input));
         let tail = try!(consume(b"E", tail));
         Ok((Initializer(exprs), tail))
@@ -2464,6 +2539,8 @@ impl Parse for LocalName {
     fn parse<'a, 'b>(subs: &'a mut SubstitutionTable,
                      input: IndexStr<'b>)
                      -> Result<(LocalName, IndexStr<'b>)> {
+        log_parse!("LocalName", input);
+
         let tail = try!(consume(b"Z", input));
         let (encoding, tail) = try!(Encoding::parse(subs, tail));
 
@@ -2508,6 +2585,8 @@ impl Parse for Discriminator {
     fn parse<'a, 'b>(_subs: &'a mut SubstitutionTable,
                      input: IndexStr<'b>)
                      -> Result<(Discriminator, IndexStr<'b>)> {
+        log_parse!("Discriminator", input);
+
         let tail = try!(consume(b"_", input));
 
         if let Ok(tail) = consume(b"_", tail) {
@@ -2553,6 +2632,8 @@ impl Parse for ClosureTypeName {
     fn parse<'a, 'b>(subs: &'a mut SubstitutionTable,
                      input: IndexStr<'b>)
                      -> Result<(ClosureTypeName, IndexStr<'b>)> {
+        log_parse!("ClosureTypeName", input);
+
         let tail = try!(consume(b"Ul", input));
         let (sig, tail) = try!(LambdaSig::parse(subs, tail));
         let tail = try!(consume(b"E", tail));
@@ -2578,6 +2659,8 @@ impl Parse for LambdaSig {
     fn parse<'a, 'b>(subs: &'a mut SubstitutionTable,
                      input: IndexStr<'b>)
                      -> Result<(LambdaSig, IndexStr<'b>)> {
+        log_parse!("LambdaSig", input);
+
         let (types, tail) = try!(one_or_more::<TypeHandle>(subs, input));
         Ok((LambdaSig(types), tail))
     }
@@ -2595,6 +2678,8 @@ impl Parse for DataMemberPrefix {
     fn parse<'a, 'b>(subs: &'a mut SubstitutionTable,
                      input: IndexStr<'b>)
                      -> Result<(DataMemberPrefix, IndexStr<'b>)> {
+        log_parse!("DataMemberPrefix", input);
+
         let (name, tail) = try!(SourceName::parse(subs, input));
         let tail = try!(consume(b"M", tail));
         Ok((DataMemberPrefix(name), tail))
@@ -2633,6 +2718,8 @@ impl Parse for Substitution {
     fn parse<'a, 'b>(subs: &'a mut SubstitutionTable,
                      input: IndexStr<'b>)
                      -> Result<(Substitution, IndexStr<'b>)> {
+        log_parse!("Substitution", input);
+
         if let Ok((well_known, tail)) = WellKnownComponent::parse(subs, input) {
             return Ok((Substitution::WellKnown(well_known), tail));
         }
@@ -2649,6 +2736,7 @@ impl Parse for Substitution {
         }
 
         let tail = try!(consume(b"_", tail));
+        log!("reference to @ {}", idx);
         Ok((Substitution::BackReference(idx), tail))
     }
 }
@@ -2786,11 +2874,12 @@ fn parse_number(base: u32,
 #[cfg(test)]
 mod tests {
     use error::ErrorKind;
+    use subs::SubstitutionTable;
     use super::{BuiltinType, CallOffset, CtorDtorName, CvQualifiers, DataMemberPrefix,
                 Discriminator, FunctionParam, Identifier, Number, NvOffset,
                 OperatorName, Parse, RefQualifier, SeqId, SourceName,
-                StandardBuiltinType, SubstitutionTable, TemplateParam, UnnamedTypeName,
-                UnqualifiedName, UnscopedName, VOffset};
+                StandardBuiltinType, TemplateParam, UnnamedTypeName, UnqualifiedName,
+                UnscopedName, VOffset};
 
     /// Try to parse something, and check the result. For example:
     ///
