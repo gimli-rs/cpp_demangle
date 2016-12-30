@@ -28,7 +28,6 @@
 
 #![deny(missing_docs)]
 #![deny(missing_debug_implementations)]
-#![deny(warnings)]
 
 // The `error_chain!` macro can recurse deeply.
 #![recursion_limit = "1024"]
