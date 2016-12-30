@@ -42,6 +42,8 @@ impl Drop for AutoLogParse {
     }
 }
 
+/// Automatically log start and end parsing in an s-expression format, when the
+/// `logging` feature is enabled.
 macro_rules! log_parse {
     ( $production:expr , $input:expr ) => {
         let _log = AutoLogParse::new($production, $input);
@@ -2993,7 +2995,8 @@ fn parse_number(base: u32,
 #[cfg(test)]
 mod tests {
     use error::ErrorKind;
-    use subs::SubstitutionTable;
+    use std::iter::FromIterator;
+    use subs::{Substitutable, SubstitutionTable};
     use super::{BuiltinType, CallOffset, CtorDtorName, CvQualifiers, DataMemberPrefix,
                 Discriminator, FunctionParam, Identifier, Number, NvOffset,
                 OperatorName, Parse, RefQualifier, SeqId, SourceName,
@@ -3010,10 +3013,15 @@ mod tests {
     /// unparsed text `"okka"`.
     macro_rules! assert_parse {
         ($nonterm:ty : $input:expr => Ok($ex_value:expr, $ex_tail:expr)) => {
+            assert_parse!($nonterm : $input => Ok($ex_value, $ex_tail), [])
+        };
+
+        ($nonterm:ty : $input:expr => Ok($ex_value:expr, $ex_tail:expr), $ex_subs:expr) => {
             let input = $input as &[u8];
             let input_printable = String::from_utf8_lossy(input).into_owned();
             let ex_value = $ex_value;
             let ex_tail = $ex_tail as &[u8];
+            let ex_subs = SubstitutionTable::from_iter($ex_subs.iter().cloned());
             let mut subs = SubstitutionTable::new();
             match <$nonterm>::parse(&mut subs, ::index_str::IndexStr::from(input)) {
                 Err(e) => panic!("Parsing {:?} as {} failed: {}",
@@ -3026,6 +3034,16 @@ mod tests {
                     if tail != ex_tail {
                         panic!("Parsing {:?} as {} left a tail of {:?}, expected {:?}",
                                input_printable, stringify!($nonterm), tail.as_ref(), ex_tail);
+                    }
+                    if subs != ex_subs {
+                        panic!("Parsing {:?} as {} produced a substitutions table of\n\n\
+                                {:#?}\n\n\
+                                but we expected\n\n\
+                                {:#?}",
+                               input_printable,
+                               stringify!($nonterm),
+                               subs,
+                               ex_subs);
                     }
                 }
             }
@@ -3049,6 +3067,192 @@ mod tests {
                 }
             }
         }
+    }
+
+    #[test]
+    #[should_panic]
+    fn parse_mangled_name() {
+        unimplemented!()
+    }
+
+    #[test]
+    #[should_panic]
+    fn parse_encoding() {
+        unimplemented!()
+    }
+
+    #[test]
+    #[should_panic]
+    fn parse_name() {
+        unimplemented!()
+    }
+
+    #[test]
+    #[should_panic]
+    fn parse_unscoped_template_name_handle() {
+        unimplemented!()
+    }
+
+    #[test]
+    #[should_panic]
+    fn parse_nested_name() {
+        unimplemented!()
+    }
+
+    #[test]
+    #[should_panic]
+    fn parse_prefix_handle() {
+        unimplemented!()
+    }
+
+    #[test]
+    #[should_panic]
+    fn parse_template_prefix_handle() {
+        unimplemented!()
+    }
+
+    #[test]
+    #[should_panic]
+    fn parse_type_handle() {
+        unimplemented!()
+    }
+
+    #[test]
+    #[should_panic]
+    fn parse_function_type() {
+        unimplemented!()
+    }
+
+    #[test]
+    #[should_panic]
+    fn parse_bare_function_type() {
+        unimplemented!()
+    }
+
+    #[test]
+    #[should_panic]
+    fn parse_decltype() {
+        unimplemented!()
+    }
+
+    #[test]
+    #[should_panic]
+    fn parse_class_enum_type() {
+        unimplemented!()
+    }
+
+    #[test]
+    #[should_panic]
+    fn parse_array_type() {
+        unimplemented!()
+    }
+
+    #[test]
+    #[should_panic]
+    fn parse_pointer_to_member_type() {
+        unimplemented!()
+    }
+
+    #[test]
+    #[should_panic]
+    fn parse_template_template_param_handle() {
+        unimplemented!()
+    }
+
+    #[test]
+    #[should_panic]
+    fn parse_template_args() {
+        unimplemented!()
+    }
+
+    #[test]
+    #[should_panic]
+    fn parse_template_arg() {
+        unimplemented!()
+    }
+
+    #[test]
+    #[should_panic]
+    fn parse_expression() {
+        unimplemented!()
+    }
+
+    #[test]
+    #[should_panic]
+    fn parse_unresolved_name() {
+        unimplemented!()
+    }
+
+    #[test]
+    #[should_panic]
+    fn parse_unresolved_type_handle() {
+        unimplemented!()
+    }
+
+    #[test]
+    #[should_panic]
+    fn parse_unresolved_qualifier_level() {
+        unimplemented!()
+    }
+
+    #[test]
+    #[should_panic]
+    fn parse_simple_id() {
+        unimplemented!()
+    }
+
+    #[test]
+    #[should_panic]
+    fn parse_base_unresolved_name() {
+        unimplemented!()
+    }
+
+    #[test]
+    #[should_panic]
+    fn parse_destructor_name() {
+        unimplemented!()
+    }
+
+    #[test]
+    #[should_panic]
+    fn parse_expr_primary() {
+        unimplemented!()
+    }
+
+    #[test]
+    #[should_panic]
+    fn parse_initializer() {
+        unimplemented!()
+    }
+
+    #[test]
+    #[should_panic]
+    fn parse_local_name() {
+        unimplemented!()
+    }
+
+    #[test]
+    #[should_panic]
+    fn parse_closure_type_name() {
+        unimplemented!()
+    }
+
+    #[test]
+    #[should_panic]
+    fn parse_lambda_sig() {
+        unimplemented!()
+    }
+
+    #[test]
+    #[should_panic]
+    fn parse_substitution() {
+        unimplemented!()
+    }
+
+    #[test]
+    #[should_panic]
+    fn parse_special_name() {
+        unimplemented!()
     }
 
     #[test]

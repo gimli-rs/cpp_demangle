@@ -1,6 +1,7 @@
 //! TODO FITZGEN
 
 use ast;
+use std::iter::FromIterator;
 
 /// An enumeration of all of the types that can end up in the substitution
 /// table.
@@ -50,5 +51,11 @@ impl SubstitutionTable {
     /// Does this substitution table contain a component at the given index?
     pub fn contains(&self, idx: usize) -> bool {
         idx < self.0.len()
+    }
+}
+
+impl FromIterator<Substitutable> for SubstitutionTable {
+    fn from_iter<I: IntoIterator<Item = Substitutable>>(iter: I) -> Self {
+        SubstitutionTable(Vec::from_iter(iter))
     }
 }
