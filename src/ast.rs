@@ -3070,6 +3070,192 @@ mod tests {
     }
 
     #[test]
+    #[should_panic]
+    fn parse_mangled_name() {
+        unimplemented!()
+    }
+
+    #[test]
+    #[should_panic]
+    fn parse_encoding() {
+        unimplemented!()
+    }
+
+    #[test]
+    #[should_panic]
+    fn parse_name() {
+        unimplemented!()
+    }
+
+    #[test]
+    #[should_panic]
+    fn parse_unscoped_template_name_handle() {
+        unimplemented!()
+    }
+
+    #[test]
+    #[should_panic]
+    fn parse_nested_name() {
+        unimplemented!()
+    }
+
+    #[test]
+    #[should_panic]
+    fn parse_prefix_handle() {
+        unimplemented!()
+    }
+
+    #[test]
+    #[should_panic]
+    fn parse_template_prefix_handle() {
+        unimplemented!()
+    }
+
+    #[test]
+    #[should_panic]
+    fn parse_type_handle() {
+        unimplemented!()
+    }
+
+    #[test]
+    #[should_panic]
+    fn parse_function_type() {
+        unimplemented!()
+    }
+
+    #[test]
+    #[should_panic]
+    fn parse_bare_function_type() {
+        unimplemented!()
+    }
+
+    #[test]
+    #[should_panic]
+    fn parse_decltype() {
+        unimplemented!()
+    }
+
+    #[test]
+    #[should_panic]
+    fn parse_class_enum_type() {
+        unimplemented!()
+    }
+
+    #[test]
+    #[should_panic]
+    fn parse_array_type() {
+        unimplemented!()
+    }
+
+    #[test]
+    #[should_panic]
+    fn parse_pointer_to_member_type() {
+        unimplemented!()
+    }
+
+    #[test]
+    #[should_panic]
+    fn parse_template_template_param_handle() {
+        unimplemented!()
+    }
+
+    #[test]
+    #[should_panic]
+    fn parse_template_args() {
+        unimplemented!()
+    }
+
+    #[test]
+    #[should_panic]
+    fn parse_template_arg() {
+        unimplemented!()
+    }
+
+    #[test]
+    #[should_panic]
+    fn parse_expression() {
+        unimplemented!()
+    }
+
+    #[test]
+    #[should_panic]
+    fn parse_unresolved_name() {
+        unimplemented!()
+    }
+
+    #[test]
+    #[should_panic]
+    fn parse_unresolved_type_handle() {
+        unimplemented!()
+    }
+
+    #[test]
+    #[should_panic]
+    fn parse_unresolved_qualifier_level() {
+        unimplemented!()
+    }
+
+    #[test]
+    #[should_panic]
+    fn parse_simple_id() {
+        unimplemented!()
+    }
+
+    #[test]
+    #[should_panic]
+    fn parse_base_unresolved_name() {
+        unimplemented!()
+    }
+
+    #[test]
+    #[should_panic]
+    fn parse_destructor_name() {
+        unimplemented!()
+    }
+
+    #[test]
+    #[should_panic]
+    fn parse_expr_primary() {
+        unimplemented!()
+    }
+
+    #[test]
+    #[should_panic]
+    fn parse_initializer() {
+        unimplemented!()
+    }
+
+    #[test]
+    #[should_panic]
+    fn parse_local_name() {
+        unimplemented!()
+    }
+
+    #[test]
+    #[should_panic]
+    fn parse_closure_type_name() {
+        unimplemented!()
+    }
+
+    #[test]
+    #[should_panic]
+    fn parse_lambda_sig() {
+        unimplemented!()
+    }
+
+    #[test]
+    #[should_panic]
+    fn parse_substitution() {
+        unimplemented!()
+    }
+
+    #[test]
+    #[should_panic]
+    fn parse_special_name() {
+        unimplemented!()
+    }
+
+    #[test]
     fn parse_function_param() {
         assert_parse!(FunctionParam: b"fpK_..." =>
                       Ok(FunctionParam(0, CvQualifiers {
