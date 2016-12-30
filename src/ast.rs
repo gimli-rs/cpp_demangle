@@ -42,6 +42,8 @@ impl Drop for AutoLogParse {
     }
 }
 
+/// Automatically log start and end parsing in an s-expression format, when the
+/// `logging` feature is enabled.
 macro_rules! log_parse {
     ( $production:expr , $input:expr ) => {
         let _log = AutoLogParse::new($production, $input);
