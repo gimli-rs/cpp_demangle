@@ -2993,7 +2993,8 @@ fn parse_number(base: u32,
 #[cfg(test)]
 mod tests {
     use error::ErrorKind;
-    use subs::SubstitutionTable;
+    use std::iter::FromIterator;
+    use subs::{Substitutable, SubstitutionTable};
     use super::{BuiltinType, CallOffset, CtorDtorName, CvQualifiers, DataMemberPrefix,
                 Discriminator, FunctionParam, Identifier, Number, NvOffset,
                 OperatorName, Parse, RefQualifier, SeqId, SourceName,
@@ -3010,10 +3011,15 @@ mod tests {
     /// unparsed text `"okka"`.
     macro_rules! assert_parse {
         ($nonterm:ty : $input:expr => Ok($ex_value:expr, $ex_tail:expr)) => {
+            assert_parse!($nonterm : $input => Ok($ex_value, $ex_tail), [])
+        };
+
+        ($nonterm:ty : $input:expr => Ok($ex_value:expr, $ex_tail:expr), $ex_subs:expr) => {
             let input = $input as &[u8];
             let input_printable = String::from_utf8_lossy(input).into_owned();
             let ex_value = $ex_value;
             let ex_tail = $ex_tail as &[u8];
+            let ex_subs = SubstitutionTable::from_iter($ex_subs.iter().cloned());
             let mut subs = SubstitutionTable::new();
             match <$nonterm>::parse(&mut subs, ::index_str::IndexStr::from(input)) {
                 Err(e) => panic!("Parsing {:?} as {} failed: {}",
@@ -3026,6 +3032,16 @@ mod tests {
                     if tail != ex_tail {
                         panic!("Parsing {:?} as {} left a tail of {:?}, expected {:?}",
                                input_printable, stringify!($nonterm), tail.as_ref(), ex_tail);
+                    }
+                    if subs != ex_subs {
+                        panic!("Parsing {:?} as {} produced a substitutions table of\n\n\
+                                {:#?}\n\n\
+                                but we expected\n\n\
+                                {:#?}",
+                               input_printable,
+                               stringify!($nonterm),
+                               subs,
+                               ex_subs);
                     }
                 }
             }
