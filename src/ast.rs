@@ -993,6 +993,19 @@ impl Parse for TypeHandle {
                      -> Result<(TypeHandle, IndexStr<'b>)> {
         log_parse!("TypeHandle", input);
 
+        if let Ok((sub, tail)) = Substitution::parse(subs, input) {
+            match sub {
+                Substitution::WellKnown(component) => {
+                    return Ok((TypeHandle::WellKnown(component), tail));
+                }
+                Substitution::BackReference(idx) => {
+                    // TODO: should this check if the back reference actually points
+                    // to a <type>?
+                    return Ok((TypeHandle::BackReference(idx), tail));
+                }
+            }
+        }
+
         /// Insert the given type into the substitution table, and return a
         /// handle referencing the index in the table where it ended up.
         fn insert_and_return_handle<'a, 'b>(ty: Type,
@@ -1100,23 +1113,10 @@ impl Parse for TypeHandle {
             return insert_and_return_handle(ty, subs, tail);
         }
 
-        if let Ok(tail) = consume(b"Dp", input) {
-            let (ty, tail) = try!(TypeHandle::parse(subs, tail));
-            let ty = Type::PackExpansion(ty);
-            return insert_and_return_handle(ty, subs, tail);
-        }
-
-        let (sub, tail) = try!(Substitution::parse(subs, input));
-        match sub {
-            Substitution::WellKnown(component) => {
-                Ok((TypeHandle::WellKnown(component), tail))
-            }
-            Substitution::BackReference(idx) => {
-                // TODO: should this check if the back reference actually points
-                // to a <type>?
-                Ok((TypeHandle::BackReference(idx), tail))
-            }
-        }
+        let tail = try!(consume(b"Dp", input));
+        let (ty, tail) = try!(TypeHandle::parse(subs, tail));
+        let ty = Type::PackExpansion(ty);
+        insert_and_return_handle(ty, subs, tail)
     }
 }
 
@@ -1494,6 +1494,9 @@ pub enum ArrayType {
 
     /// An array with an expression for its dimension.
     DimensionExpression(Expression, TypeHandle),
+
+    /// An array with no dimension.
+    NoDimension(TypeHandle),
 }
 
 impl Parse for ArrayType {
@@ -1511,10 +1514,15 @@ impl Parse for ArrayType {
             return Ok((ArrayType::DimensionNumber(num as _, ty), tail));
         }
 
-        let (expr, tail) = try!(Expression::parse(subs, tail));
+        if let Ok((expr, tail)) = Expression::parse(subs, tail) {
+            let tail = try!(consume(b"_", tail));
+            let (ty, tail) = try!(TypeHandle::parse(subs, tail));
+            return Ok((ArrayType::DimensionExpression(expr, ty), tail));
+        }
+
         let tail = try!(consume(b"_", tail));
         let (ty, tail) = try!(TypeHandle::parse(subs, tail));
-        Ok((ArrayType::DimensionExpression(expr, ty), tail))
+        Ok((ArrayType::NoDimension(ty), tail))
     }
 }
 
@@ -1546,7 +1554,7 @@ impl Parse for PointerToMemberType {
 ///                  ::= T <parameter-2 non-negative number> _
 /// ```
 #[derive(Clone, Debug, Hash, PartialEq, Eq)]
-pub struct TemplateParam(Option<usize>);
+pub struct TemplateParam(usize);
 
 impl Parse for TemplateParam {
     fn parse<'a, 'b>(_subs: &'a mut SubstitutionTable,
@@ -1556,8 +1564,8 @@ impl Parse for TemplateParam {
 
         let input = try!(consume(b"T", input));
         let (number, input) = match parse_number(10, false, input) {
-            Ok((number, input)) => (Some(number as _), input),
-            Err(_) => (None, input),
+            Ok((number, input)) => ((number + 1) as _, input),
+            Err(_) => (0, input),
         };
         let input = try!(consume(b"_", input));
         Ok((TemplateParam(number), input))
@@ -1584,26 +1592,27 @@ impl Parse for TemplateTemplateParamHandle {
                      -> Result<(TemplateTemplateParamHandle, IndexStr<'b>)> {
         log_parse!("TemplateTemplateParamHandle", input);
 
-        if let Ok((param, tail)) = TemplateParam::parse(subs, input) {
-            let ttp = TemplateTemplateParam(param);
-            let ttp = Substitutable::TemplateTemplateParam(ttp);
-            let idx = subs.insert(ttp);
-            let handle = TemplateTemplateParamHandle::BackReference(idx);
-            return Ok((handle, tail));
+
+        if let Ok((sub, tail)) = Substitution::parse(subs, input) {
+            match sub {
+                Substitution::WellKnown(component) => {
+                    return Ok((TemplateTemplateParamHandle::WellKnown(component), tail));
+                }
+                Substitution::BackReference(idx) => {
+                    // TODO: should this check if the thing at idx is a
+                    // template-template-param? There could otherwise be ambiguity
+                    // with <type>'s <substitution> form...
+                    return Ok((TemplateTemplateParamHandle::BackReference(idx), tail));
+                }
+            }
         }
 
-        let (sub, tail) = try!(Substitution::parse(subs, input));
-        match sub {
-            Substitution::WellKnown(component) => {
-                Ok((TemplateTemplateParamHandle::WellKnown(component), tail))
-            }
-            Substitution::BackReference(idx) => {
-                // TODO: should this check if the thing at idx is a
-                // template-template-param? There could otherwise be ambiguity
-                // with <type>'s <substitution> form...
-                Ok((TemplateTemplateParamHandle::BackReference(idx), tail))
-            }
-        }
+        let (param, tail) = try!(TemplateParam::parse(subs, input));
+        let ttp = TemplateTemplateParam(param);
+        let ttp = Substitutable::TemplateTemplateParam(ttp);
+        let idx = subs.insert(ttp);
+        let handle = TemplateTemplateParamHandle::BackReference(idx);
+        Ok((handle, tail))
     }
 }
 
@@ -1705,10 +1714,6 @@ impl Parse for TemplateArg {
                      -> Result<(TemplateArg, IndexStr<'b>)> {
         log_parse!("TemplateArg", input);
 
-        if let Ok((ty, tail)) = TypeHandle::parse(subs, input) {
-            return Ok((TemplateArg::Type(ty), tail));
-        }
-
         if let Ok(tail) = consume(b"X", input) {
             let (expr, tail) = try!(Expression::parse(subs, tail));
             let tail = try!(consume(b"E", tail));
@@ -1719,7 +1724,16 @@ impl Parse for TemplateArg {
             return Ok((TemplateArg::SimpleExpression(expr), tail));
         }
 
-        let (args, tail) = try!(zero_or_more::<TemplateArg>(subs, input));
+        if let Ok((ty, tail)) = TypeHandle::parse(subs, input) {
+            return Ok((TemplateArg::Type(ty), tail));
+        }
+
+        let tail = try!(consume(b"J", input));
+        let (args, tail) = if tail.peek() == Some(b'E') {
+            (vec![], tail)
+        } else {
+            try!(zero_or_more::<TemplateArg>(subs, tail))
+        };
         let tail = try!(consume(b"E", tail));
         Ok((TemplateArg::ArgPack(args), tail))
     }
@@ -2479,7 +2493,7 @@ impl Parse for ExprPrimary {
 
         let tail = try!(consume(b"L", input));
 
-        if let Ok((ty, tail)) = TypeHandle::parse(subs, input) {
+        if let Ok((ty, tail)) = TypeHandle::parse(subs, tail) {
             let start = tail.index();
             let num_bytes_in_literal = tail.as_ref()
                 .iter()
@@ -2487,6 +2501,7 @@ impl Parse for ExprPrimary {
                 .count();
             let tail = tail.range_from(num_bytes_in_literal..);
             let end = tail.index();
+            let tail = try!(consume(b"E", tail));
             let expr = ExprPrimary::Literal(ty, start, end);
             return Ok((expr, tail));
         }
@@ -2738,7 +2753,7 @@ impl Parse for Substitution {
         }
 
         let tail = try!(consume(b"_", tail));
-        log!("reference to @ {}", idx);
+        log!("Found a reference to @ {}", idx);
         Ok((Substitution::BackReference(idx), tail))
     }
 }
@@ -2999,11 +3014,14 @@ mod tests {
     use std::fmt::Debug;
     use std::iter::FromIterator;
     use subs::{Substitutable, SubstitutionTable};
-    use super::{BuiltinType, CallOffset, CtorDtorName, CvQualifiers, DataMemberPrefix,
-                Decltype, Discriminator, Expression, FunctionParam, Identifier, Number,
-                NvOffset, OperatorName, Parse, RefQualifier, SeqId, SourceName,
-                StandardBuiltinType, Substitution, TemplateParam, Type, UnnamedTypeName,
-                UnqualifiedName, UnscopedName, VOffset, WellKnownComponent};
+    use super::{ArrayType, BuiltinType, CallOffset, CtorDtorName, CvQualifiers,
+                DataMemberPrefix, Decltype, Discriminator, ExprPrimary, Expression,
+                FunctionParam, Identifier, Number, NvOffset, OperatorName, Parse,
+                PointerToMemberType, RefQualifier, SeqId, SourceName,
+                StandardBuiltinType, Substitution, TemplateArg, TemplateParam,
+                TemplateTemplateParam, TemplateTemplateParamHandle, Type, TypeHandle,
+                UnnamedTypeName, UnqualifiedName, UnscopedName, VOffset,
+                WellKnownComponent};
 
     fn assert_parse_ok<P, S1, S2, I1, I2>(production: &'static str,
                                           subs: S1,
@@ -3097,8 +3115,8 @@ mod tests {
                 panic!("Parsing {:?} as {} produced an error of kind {:?}, but we expected kind {:?}",
                        String::from_utf8_lossy(input),
                        production,
-                       expected_error_kind,
-                       error.kind());
+                       error.kind(),
+                       expected_error_kind);
             }
             Ok((value, tail)) => {
                 panic!("Parsing {:?} as {} produced value {:?} and tail {:?}, but we expected error kind {:?}",
@@ -3252,21 +3270,108 @@ mod tests {
     }
 
     #[test]
-    #[should_panic]
     fn parse_array_type() {
-        unimplemented!()
+        assert_parse!(ArrayType {
+            with subs [
+                Substitutable::Type(Type::Decltype(Decltype::Expression(Expression::Rethrow)))
+            ] => {
+                Ok => {
+                    b"A10_S_..." => {
+                        ArrayType::DimensionNumber(10, TypeHandle::BackReference(0)),
+                        b"...",
+                        []
+                    }
+                    b"A10_Sb..." => {
+                        ArrayType::DimensionNumber(10,
+                                                   TypeHandle::WellKnown(
+                                                       WellKnownComponent::StdString1)),
+                        b"...",
+                        []
+                    }
+                    b"Atr_S_..." => {
+                        ArrayType::DimensionExpression(Expression::Rethrow,
+                                                       TypeHandle::BackReference(0)),
+                        b"...",
+                        []
+                    }
+                    b"A_S_..." => {
+                        ArrayType::NoDimension(TypeHandle::BackReference(0)),
+                        b"...",
+                        []
+                    }
+                }
+                Err => {
+                    b"A10_" => ErrorKind::UnexpectedEnd,
+                    b"A10" => ErrorKind::UnexpectedEnd,
+                    b"A" => ErrorKind::UnexpectedEnd,
+                    b"" => ErrorKind::UnexpectedEnd,
+                    b"A10_..." => ErrorKind::UnexpectedText,
+                    b"A10..." => ErrorKind::UnexpectedText,
+                    b"A..." => ErrorKind::UnexpectedText,
+                    b"..." => ErrorKind::UnexpectedText,
+                }
+            }
+        });
     }
 
     #[test]
-    #[should_panic]
     fn parse_pointer_to_member_type() {
-        unimplemented!()
+        assert_parse!(PointerToMemberType {
+            with subs [
+                Substitutable::Type(Type::Decltype(Decltype::Expression(Expression::Rethrow)))
+            ] => {
+                Ok => {
+                    b"MS_S_..." => {
+                        PointerToMemberType(TypeHandle::BackReference(0),
+                                            TypeHandle::BackReference(0)),
+                        b"...",
+                        []
+                    }
+                }
+                Err => {
+                    b"MS_S" => ErrorKind::UnexpectedEnd,
+                    b"MS_" => ErrorKind::UnexpectedEnd,
+                    b"MS" => ErrorKind::UnexpectedEnd,
+                    b"M" => ErrorKind::UnexpectedEnd,
+                    b"" => ErrorKind::UnexpectedEnd,
+                    b"MS_..." => ErrorKind::UnexpectedText,
+                    b"M..." => ErrorKind::UnexpectedText,
+                    b"..." => ErrorKind::UnexpectedText,
+                }
+            }
+        });
     }
 
     #[test]
-    #[should_panic]
     fn parse_template_template_param_handle() {
-        unimplemented!()
+        assert_parse!(TemplateTemplateParamHandle {
+            with subs [
+                Substitutable::TemplateTemplateParam(TemplateTemplateParam(TemplateParam(0)))
+            ] => {
+                Ok => {
+                    b"S_..." => {
+                        TemplateTemplateParamHandle::BackReference(0),
+                        b"...",
+                        []
+                    }
+                    b"T1_..." => {
+                        TemplateTemplateParamHandle::BackReference(1),
+                        b"...",
+                        [
+                            Substitutable::TemplateTemplateParam(TemplateTemplateParam(TemplateParam(2)))
+                        ]
+                    }
+                }
+                Err => {
+                    b"S" => ErrorKind::UnexpectedText,
+                    b"T" => ErrorKind::UnexpectedEnd,
+                    b"" => ErrorKind::UnexpectedEnd,
+                    b"S..." => ErrorKind::UnexpectedText,
+                    b"T..." => ErrorKind::UnexpectedText,
+                    b"..." => ErrorKind::UnexpectedText,
+                }
+            }
+        });
     }
 
     #[test]
@@ -3276,9 +3381,57 @@ mod tests {
     }
 
     #[test]
-    #[should_panic]
     fn parse_template_arg() {
-        unimplemented!()
+        assert_parse!(TemplateArg {
+            with subs [
+                Substitutable::Type(Type::Decltype(Decltype::Expression(Expression::Rethrow)))
+            ] => {
+                Ok => {
+                    b"S_..." => {
+                        TemplateArg::Type(TypeHandle::BackReference(0)),
+                        b"...",
+                        []
+                    }
+                    b"XtrE..." => {
+                        TemplateArg::Expression(Expression::Rethrow),
+                        b"...",
+                        []
+                    }
+                    b"LS_E..." => {
+                        TemplateArg::SimpleExpression(
+                            ExprPrimary::Literal(TypeHandle::BackReference(0), 3, 3)),
+                        b"...",
+                        []
+                    }
+                    b"JE..." => {
+                        TemplateArg::ArgPack(vec![]),
+                        b"...",
+                        []
+                    }
+                    b"JS_XtrELS_EJEE..." => {
+                        TemplateArg::ArgPack(vec![
+                            TemplateArg::Type(TypeHandle::BackReference(0)),
+                            TemplateArg::Expression(Expression::Rethrow),
+                            TemplateArg::SimpleExpression(
+                                ExprPrimary::Literal(TypeHandle::BackReference(0), 10, 10)),
+                            TemplateArg::ArgPack(vec![]),
+                        ]),
+                        b"...",
+                        []
+                    }
+                }
+                Err => {
+                    b"..." => ErrorKind::UnexpectedText,
+                    b"X..." => ErrorKind::UnexpectedText,
+                    b"J..." => ErrorKind::UnexpectedText,
+                    b"JS_..." => ErrorKind::UnexpectedText,
+                    b"JS_" => ErrorKind::UnexpectedEnd,
+                    b"X" => ErrorKind::UnexpectedEnd,
+                    b"J" => ErrorKind::UnexpectedEnd,
+                    b"" => ErrorKind::UnexpectedEnd,
+                }
+            }
+        });
     }
 
     #[test]
@@ -3627,11 +3780,11 @@ mod tests {
         assert_parse!(TemplateParam {
             Ok => {
                 b"T_..." => {
-                    TemplateParam(None),
+                    TemplateParam(0),
                     b"..."
                 }
                 b"T3_..." => {
-                    TemplateParam(Some(3)),
+                    TemplateParam(4),
                     b"..."
                 }
             }
