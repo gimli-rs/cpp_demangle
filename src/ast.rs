@@ -2529,7 +2529,8 @@ impl Parse for Initializer {
                      -> Result<(Initializer, IndexStr<'b>)> {
         log_parse!("Initializer", input);
 
-        let (exprs, tail) = try!(zero_or_more::<Expression>(subs, input));
+        let tail = try!(consume(b"pi", input));
+        let (exprs, tail) = try!(zero_or_more::<Expression>(subs, tail));
         let tail = try!(consume(b"E", tail));
         Ok((Initializer(exprs), tail))
     }
@@ -3020,8 +3021,8 @@ mod tests {
     use subs::{Substitutable, SubstitutionTable};
     use super::{ArrayType, BuiltinType, CallOffset, ClosureTypeName, CtorDtorName,
                 CvQualifiers, DataMemberPrefix, Decltype, Discriminator, ExprPrimary,
-                Expression, FunctionParam, Identifier, LambdaSig, Number, NvOffset,
-                OperatorName, Parse, PointerToMemberType, RefQualifier, SeqId,
+                Expression, FunctionParam, Identifier, Initializer, LambdaSig, Number,
+                NvOffset, OperatorName, Parse, PointerToMemberType, RefQualifier, SeqId,
                 SourceName, StandardBuiltinType, Substitution, TemplateArg,
                 TemplateParam, TemplateTemplateParam, TemplateTemplateParamHandle, Type,
                 TypeHandle, UnnamedTypeName, UnqualifiedName, UnscopedName, VOffset,
@@ -3487,9 +3488,32 @@ mod tests {
     }
 
     #[test]
-    #[should_panic]
     fn parse_initializer() {
-        unimplemented!()
+        assert_parse!(Initializer {
+            Ok => {
+                b"piE..." => {
+                    Initializer(vec![]),
+                    b"..."
+                }
+                b"pitrtrtrE..." => {
+                    Initializer(vec![
+                        Expression::Rethrow,
+                        Expression::Rethrow,
+                        Expression::Rethrow,
+                    ]),
+                    b"..."
+                }
+            }
+            Err => {
+                b"pirtrtrt..." => ErrorKind::UnexpectedText,
+                b"pi..." => ErrorKind::UnexpectedText,
+                b"..." => ErrorKind::UnexpectedText,
+                b"pirt" => ErrorKind::UnexpectedText,
+                b"pi" => ErrorKind::UnexpectedEnd,
+                b"p" => ErrorKind::UnexpectedEnd,
+                b"" => ErrorKind::UnexpectedEnd,
+            }
+        });
     }
 
     #[test]
