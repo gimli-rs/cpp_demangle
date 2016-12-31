@@ -2678,7 +2678,11 @@ impl Parse for LambdaSig {
                      -> Result<(LambdaSig, IndexStr<'b>)> {
         log_parse!("LambdaSig", input);
 
-        let (types, tail) = try!(one_or_more::<TypeHandle>(subs, input));
+        let (types, tail) = if let Ok(tail) = consume(b"v", input) {
+            (vec![], tail)
+        } else {
+            try!(one_or_more::<TypeHandle>(subs, input))
+        };
         Ok((LambdaSig(types), tail))
     }
 }
@@ -3016,8 +3020,8 @@ mod tests {
     use subs::{Substitutable, SubstitutionTable};
     use super::{ArrayType, BuiltinType, CallOffset, CtorDtorName, CvQualifiers,
                 DataMemberPrefix, Decltype, Discriminator, ExprPrimary, Expression,
-                FunctionParam, Identifier, Number, NvOffset, OperatorName, Parse,
-                PointerToMemberType, RefQualifier, SeqId, SourceName,
+                FunctionParam, Identifier, LambdaSig, Number, NvOffset, OperatorName,
+                Parse, PointerToMemberType, RefQualifier, SeqId, SourceName,
                 StandardBuiltinType, Substitution, TemplateArg, TemplateParam,
                 TemplateTemplateParam, TemplateTemplateParamHandle, Type, TypeHandle,
                 UnnamedTypeName, UnqualifiedName, UnscopedName, VOffset,
@@ -3501,9 +3505,34 @@ mod tests {
     }
 
     #[test]
-    #[should_panic]
     fn parse_lambda_sig() {
-        unimplemented!()
+        assert_parse!(LambdaSig {
+            with subs [
+                Substitutable::Type(Type::Builtin(BuiltinType::Standard(StandardBuiltinType::Bool)))
+            ] => {
+                Ok => {
+                    b"v..." => {
+                        LambdaSig(vec![]),
+                        b"...",
+                        []
+                    }
+                    b"S_S_S_..." => {
+                        LambdaSig(vec![
+                            TypeHandle::BackReference(0),
+                            TypeHandle::BackReference(0),
+                            TypeHandle::BackReference(0),
+                        ]),
+                        b"...",
+                        []
+                    }
+                }
+                Err => {
+                    b"..." => ErrorKind::UnexpectedText,
+                    b"S" => ErrorKind::UnexpectedEnd,
+                    b"" => ErrorKind::UnexpectedEnd,
+                }
+            }
+        });
     }
 
     #[test]
