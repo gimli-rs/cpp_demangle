@@ -1554,7 +1554,7 @@ impl Parse for PointerToMemberType {
 ///                  ::= T <parameter-2 non-negative number> _
 /// ```
 #[derive(Clone, Debug, Hash, PartialEq, Eq)]
-pub struct TemplateParam(Option<usize>);
+pub struct TemplateParam(usize);
 
 impl Parse for TemplateParam {
     fn parse<'a, 'b>(_subs: &'a mut SubstitutionTable,
@@ -1564,8 +1564,8 @@ impl Parse for TemplateParam {
 
         let input = try!(consume(b"T", input));
         let (number, input) = match parse_number(10, false, input) {
-            Ok((number, input)) => (Some(number as _), input),
-            Err(_) => (None, input),
+            Ok((number, input)) => ((number + 1) as _, input),
+            Err(_) => (0, input),
         };
         let input = try!(consume(b"_", input));
         Ok((TemplateParam(number), input))
@@ -1592,26 +1592,27 @@ impl Parse for TemplateTemplateParamHandle {
                      -> Result<(TemplateTemplateParamHandle, IndexStr<'b>)> {
         log_parse!("TemplateTemplateParamHandle", input);
 
-        if let Ok((param, tail)) = TemplateParam::parse(subs, input) {
-            let ttp = TemplateTemplateParam(param);
-            let ttp = Substitutable::TemplateTemplateParam(ttp);
-            let idx = subs.insert(ttp);
-            let handle = TemplateTemplateParamHandle::BackReference(idx);
-            return Ok((handle, tail));
+
+        if let Ok((sub, tail)) = Substitution::parse(subs, input) {
+            match sub {
+                Substitution::WellKnown(component) => {
+                    return Ok((TemplateTemplateParamHandle::WellKnown(component), tail));
+                }
+                Substitution::BackReference(idx) => {
+                    // TODO: should this check if the thing at idx is a
+                    // template-template-param? There could otherwise be ambiguity
+                    // with <type>'s <substitution> form...
+                    return Ok((TemplateTemplateParamHandle::BackReference(idx), tail));
+                }
+            }
         }
 
-        let (sub, tail) = try!(Substitution::parse(subs, input));
-        match sub {
-            Substitution::WellKnown(component) => {
-                Ok((TemplateTemplateParamHandle::WellKnown(component), tail))
-            }
-            Substitution::BackReference(idx) => {
-                // TODO: should this check if the thing at idx is a
-                // template-template-param? There could otherwise be ambiguity
-                // with <type>'s <substitution> form...
-                Ok((TemplateTemplateParamHandle::BackReference(idx), tail))
-            }
-        }
+        let (param, tail) = try!(TemplateParam::parse(subs, input));
+        let ttp = TemplateTemplateParam(param);
+        let ttp = Substitutable::TemplateTemplateParam(ttp);
+        let idx = subs.insert(ttp);
+        let handle = TemplateTemplateParamHandle::BackReference(idx);
+        Ok((handle, tail))
     }
 }
 
@@ -3011,8 +3012,9 @@ mod tests {
                 DataMemberPrefix, Decltype, Discriminator, Expression, FunctionParam,
                 Identifier, Number, NvOffset, OperatorName, Parse, PointerToMemberType,
                 RefQualifier, SeqId, SourceName, StandardBuiltinType, Substitution,
-                TemplateParam, Type, TypeHandle, UnnamedTypeName, UnqualifiedName,
-                UnscopedName, VOffset, WellKnownComponent};
+                TemplateParam, TemplateTemplateParam, TemplateTemplateParamHandle, Type,
+                TypeHandle, UnnamedTypeName, UnqualifiedName, UnscopedName, VOffset,
+                WellKnownComponent};
 
     fn assert_parse_ok<P, S1, S2, I1, I2>(production: &'static str,
                                           subs: S1,
@@ -3106,8 +3108,8 @@ mod tests {
                 panic!("Parsing {:?} as {} produced an error of kind {:?}, but we expected kind {:?}",
                        String::from_utf8_lossy(input),
                        production,
-                       expected_error_kind,
-                       error.kind());
+                       error.kind(),
+                       expected_error_kind);
             }
             Ok((value, tail)) => {
                 panic!("Parsing {:?} as {} produced value {:?} and tail {:?}, but we expected error kind {:?}",
@@ -3334,9 +3336,35 @@ mod tests {
     }
 
     #[test]
-    #[should_panic]
     fn parse_template_template_param_handle() {
-        unimplemented!()
+        assert_parse!(TemplateTemplateParamHandle {
+            with subs [
+                Substitutable::TemplateTemplateParam(TemplateTemplateParam(TemplateParam(0)))
+            ] => {
+                Ok => {
+                    b"S_..." => {
+                        TemplateTemplateParamHandle::BackReference(0),
+                        b"...",
+                        []
+                    }
+                    b"T1_..." => {
+                        TemplateTemplateParamHandle::BackReference(1),
+                        b"...",
+                        [
+                            Substitutable::TemplateTemplateParam(TemplateTemplateParam(TemplateParam(2)))
+                        ]
+                    }
+                }
+                Err => {
+                    b"S" => ErrorKind::UnexpectedText,
+                    b"T" => ErrorKind::UnexpectedEnd,
+                    b"" => ErrorKind::UnexpectedEnd,
+                    b"S..." => ErrorKind::UnexpectedText,
+                    b"T..." => ErrorKind::UnexpectedText,
+                    b"..." => ErrorKind::UnexpectedText,
+                }
+            }
+        });
     }
 
     #[test]
@@ -3697,11 +3725,11 @@ mod tests {
         assert_parse!(TemplateParam {
             Ok => {
                 b"T_..." => {
-                    TemplateParam(None),
+                    TemplateParam(0),
                     b"..."
                 }
                 b"T3_..." => {
-                    TemplateParam(Some(3)),
+                    TemplateParam(4),
                     b"..."
                 }
             }
