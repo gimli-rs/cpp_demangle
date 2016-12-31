@@ -3023,10 +3023,10 @@ mod tests {
                 CvQualifiers, DataMemberPrefix, Decltype, Discriminator, ExprPrimary,
                 Expression, FunctionParam, Identifier, Initializer, LambdaSig, Number,
                 NvOffset, OperatorName, Parse, PointerToMemberType, RefQualifier, SeqId,
-                SourceName, StandardBuiltinType, Substitution, TemplateArg,
-                TemplateParam, TemplateTemplateParam, TemplateTemplateParamHandle, Type,
-                TypeHandle, UnnamedTypeName, UnqualifiedName, UnscopedName, VOffset,
-                WellKnownComponent};
+                SimpleId, SourceName, StandardBuiltinType, Substitution, TemplateArg,
+                TemplateArgs, TemplateParam, TemplateTemplateParam,
+                TemplateTemplateParamHandle, Type, TypeHandle, UnnamedTypeName,
+                UnqualifiedName, UnscopedName, VOffset, WellKnownComponent};
 
     fn assert_parse_ok<P, S1, S2, I1, I2>(production: &'static str,
                                           subs: S1,
@@ -3380,9 +3380,37 @@ mod tests {
     }
 
     #[test]
-    #[should_panic]
     fn parse_template_args() {
-        unimplemented!()
+        assert_parse!(TemplateArgs {
+            with subs [
+                Substitutable::Type(Type::Decltype(Decltype::Expression(Expression::Rethrow)))
+            ] => {
+                Ok => {
+                    b"IS_E..." => {
+                        TemplateArgs(vec![TemplateArg::Type(TypeHandle::BackReference(0))]),
+                        b"...",
+                        []
+                    }
+                    b"IS_S_S_S_E..." => {
+                        TemplateArgs(vec![
+                            TemplateArg::Type(TypeHandle::BackReference(0)),
+                            TemplateArg::Type(TypeHandle::BackReference(0)),
+                            TemplateArg::Type(TypeHandle::BackReference(0)),
+                            TemplateArg::Type(TypeHandle::BackReference(0)),
+                        ]),
+                        b"...",
+                        []
+                    }
+                }
+                Err => {
+                    b"zzz" => ErrorKind::UnexpectedText,
+                    b"IE" => ErrorKind::UnexpectedText,
+                    b"IS_" => ErrorKind::UnexpectedEnd,
+                    b"I" => ErrorKind::UnexpectedEnd,
+                    b"" => ErrorKind::UnexpectedEnd,
+                }
+            }
+        });
     }
 
     #[test]
@@ -3464,9 +3492,37 @@ mod tests {
     }
 
     #[test]
-    #[should_panic]
     fn parse_simple_id() {
-        unimplemented!()
+        assert_parse!(SimpleId {
+            with subs [
+                Substitutable::Type(Type::Decltype(Decltype::Expression(Expression::Rethrow)))
+            ] => {
+                Ok => {
+                    b"3abc..." => {
+                        SimpleId(SourceName(Identifier {
+                            start: 1,
+                            end: 4,
+                        }), None),
+                        b"...",
+                        []
+                    }
+                    b"3abcIS_E..." => {
+                        SimpleId(SourceName(Identifier {
+                            start: 1,
+                            end: 4,
+                        }), Some(TemplateArgs(vec![
+                            TemplateArg::Type(TypeHandle::BackReference(0))
+                        ]))),
+                        b"...",
+                        []
+                    }
+                }
+                Err => {
+                    b"zzz" => ErrorKind::UnexpectedText,
+                    b"" => ErrorKind::UnexpectedEnd,
+                }
+            }
+        });
     }
 
     #[test]
