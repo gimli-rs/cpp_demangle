@@ -3009,10 +3009,10 @@ mod tests {
     use subs::{Substitutable, SubstitutionTable};
     use super::{ArrayType, BuiltinType, CallOffset, CtorDtorName, CvQualifiers,
                 DataMemberPrefix, Decltype, Discriminator, Expression, FunctionParam,
-                Identifier, Number, NvOffset, OperatorName, Parse, RefQualifier, SeqId,
-                SourceName, StandardBuiltinType, Substitution, TemplateParam, Type,
-                TypeHandle, UnnamedTypeName, UnqualifiedName, UnscopedName, VOffset,
-                WellKnownComponent};
+                Identifier, Number, NvOffset, OperatorName, Parse, PointerToMemberType,
+                RefQualifier, SeqId, SourceName, StandardBuiltinType, Substitution,
+                TemplateParam, Type, TypeHandle, UnnamedTypeName, UnqualifiedName,
+                UnscopedName, VOffset, WellKnownComponent};
 
     fn assert_parse_ok<P, S1, S2, I1, I2>(production: &'static str,
                                           subs: S1,
@@ -3306,9 +3306,31 @@ mod tests {
     }
 
     #[test]
-    #[should_panic]
     fn parse_pointer_to_member_type() {
-        unimplemented!()
+        assert_parse!(PointerToMemberType {
+            with subs [
+                Substitutable::Type(Type::Decltype(Decltype::Expression(Expression::Rethrow)))
+            ] => {
+                Ok => {
+                    b"MS_S_..." => {
+                        PointerToMemberType(TypeHandle::BackReference(0),
+                                            TypeHandle::BackReference(0)),
+                        b"...",
+                        []
+                    }
+                }
+                Err => {
+                    b"MS_S" => ErrorKind::UnexpectedEnd,
+                    b"MS_" => ErrorKind::UnexpectedEnd,
+                    b"MS" => ErrorKind::UnexpectedEnd,
+                    b"M" => ErrorKind::UnexpectedEnd,
+                    b"" => ErrorKind::UnexpectedEnd,
+                    b"MS_..." => ErrorKind::UnexpectedText,
+                    b"M..." => ErrorKind::UnexpectedText,
+                    b"..." => ErrorKind::UnexpectedText,
+                }
+            }
+        });
     }
 
     #[test]
