@@ -3020,14 +3020,15 @@ mod tests {
     use std::iter::FromIterator;
     use subs::{Substitutable, SubstitutionTable};
     use super::{ArrayType, BuiltinType, CallOffset, ClosureTypeName, CtorDtorName,
-                CvQualifiers, DataMemberPrefix, Decltype, Discriminator, ExprPrimary,
-                Expression, FunctionParam, Identifier, Initializer, LambdaSig, Number,
-                NvOffset, OperatorName, Parse, PointerToMemberType, RefQualifier, SeqId,
-                SimpleId, SourceName, StandardBuiltinType, Substitution, TemplateArg,
-                TemplateArgs, TemplateParam, TemplateTemplateParam,
-                TemplateTemplateParamHandle, Type, TypeHandle, UnnamedTypeName,
-                UnqualifiedName, UnresolvedQualifierLevel, UnresolvedType,
-                UnresolvedTypeHandle, UnscopedName, VOffset, WellKnownComponent};
+                CvQualifiers, DataMemberPrefix, Decltype, DestructorName, Discriminator,
+                ExprPrimary, Expression, FunctionParam, Identifier, Initializer,
+                LambdaSig, Number, NvOffset, OperatorName, Parse, PointerToMemberType,
+                RefQualifier, SeqId, SimpleId, SourceName, StandardBuiltinType,
+                Substitution, TemplateArg, TemplateArgs, TemplateParam,
+                TemplateTemplateParam, TemplateTemplateParamHandle, Type, TypeHandle,
+                UnnamedTypeName, UnqualifiedName, UnresolvedQualifierLevel,
+                UnresolvedType, UnresolvedTypeHandle, UnscopedName, VOffset,
+                WellKnownComponent};
 
     fn assert_parse_ok<P, S1, S2, I1, I2>(production: &'static str,
                                           subs: S1,
@@ -3604,9 +3605,33 @@ mod tests {
     }
 
     #[test]
-    #[should_panic]
     fn parse_destructor_name() {
-        unimplemented!()
+        assert_parse!(DestructorName {
+            with subs [
+                Substitutable::UnresolvedType(
+                    UnresolvedType::Decltype(Decltype::Expression(Expression::Rethrow))),
+            ] => {
+                Ok => {
+                    b"S_..." => {
+                        DestructorName::Unresolved(UnresolvedTypeHandle::BackReference(0)),
+                        b"...",
+                        []
+                    }
+                    b"3abc..." => {
+                        DestructorName::Name(SimpleId(SourceName(Identifier {
+                            start: 1,
+                            end: 4,
+                        }), None)),
+                        b"...",
+                        []
+                    }
+                }
+                Err => {
+                    b"zzz" => ErrorKind::UnexpectedText,
+                    b"" => ErrorKind::UnexpectedEnd,
+                }
+            }
+        });
     }
 
     #[test]
