@@ -3000,17 +3000,17 @@ mod tests {
     use std::iter::FromIterator;
     use subs::{Substitutable, SubstitutionTable};
     use super::{BuiltinType, CallOffset, CtorDtorName, CvQualifiers, DataMemberPrefix,
-                Discriminator, FunctionParam, Identifier, Number, NvOffset,
-                OperatorName, Parse, RefQualifier, SeqId, SourceName,
-                StandardBuiltinType, Substitution, TemplateParam, UnnamedTypeName,
-                UnqualifiedName, UnscopedName, VOffset};
+                Decltype, Discriminator, Expression, FunctionParam, Identifier, Number,
+                NvOffset, OperatorName, Parse, RefQualifier, SeqId, SourceName,
+                StandardBuiltinType, Substitution, TemplateParam, Type, UnnamedTypeName,
+                UnqualifiedName, UnscopedName, VOffset, WellKnownComponent};
 
     fn assert_parse_ok<P, S1, S2, I1, I2>(production: &'static str,
                                           subs: S1,
                                           input: I1,
                                           expected: P,
                                           expected_tail: I2,
-                                          expected_subs: S2)
+                                          expected_new_subs: S2)
         where P: Debug + Parse + PartialEq,
               S1: AsRef<[Substitutable]>,
               S2: AsRef<[Substitutable]>,
@@ -3020,9 +3020,11 @@ mod tests {
         let input = input.as_ref();
         let expected_tail = expected_tail.as_ref();
 
+        let expected_subs = SubstitutionTable::from_iter(subs.as_ref()
+            .iter()
+            .cloned()
+            .chain(expected_new_subs.as_ref().iter().cloned()));
         let mut subs = SubstitutionTable::from_iter(subs.as_ref().iter().cloned());
-        let expected_subs =
-            SubstitutionTable::from_iter(expected_subs.as_ref().iter().cloned());
 
         match P::parse(&mut subs, IndexStr::from(input)) {
             Err(error) => {
@@ -3125,29 +3127,29 @@ mod tests {
                     $( $input:expr => {
                         $expected:expr ,
                         $expected_tail:expr ,
-                        $expected_subs:expr
+                        $expected_new_subs:expr
                     } )*
                 }
                 Err => {
-                    $( $input:expr => $error_kind:expr , )*
+                    $( $error_input:expr => $error_kind:expr , )*
                 }
             } )*
         } ) => {
-            $(
+            $( $(
                 assert_parse_ok::<$production, _, _, _, _>(stringify!($production),
                                                            $subs,
                                                            $input,
                                                            $expected,
                                                            $expected_tail,
-                                                           $expected_subs);
-            )*
+                                                           $expected_new_subs);
+            )* )*
 
-            $(
-                assert_parse_err<$production, _, _>(stringify!($production),
-                                                    $subs,
-                                                    $input,
-                                                    $error_kind);
-            )*
+            $( $(
+                assert_parse_err::<$production, _, _>(stringify!($production),
+                                                      $subs,
+                                                      $error_input,
+                                                      $error_kind);
+            )* )*
         };
 
         ( $production:ident {
@@ -3352,9 +3354,70 @@ mod tests {
     }
 
     #[test]
-    #[should_panic]
     fn parse_substitution() {
-        unimplemented!()
+        assert_parse!(Substitution {
+            with subs [
+                Substitutable::Type(Type::Decltype(Decltype::Expression(Expression::Rethrow))),
+                Substitutable::Type(Type::Decltype(Decltype::Expression(Expression::Rethrow))),
+                Substitutable::Type(Type::Decltype(Decltype::Expression(Expression::Rethrow)))
+            ] => {
+                Ok => {
+                    b"S_..." => {
+                        Substitution::BackReference(0),
+                        b"...",
+                        []
+                    }
+                    b"S1_..." => {
+                        Substitution::BackReference(2),
+                        b"...",
+                        []
+                    }
+                    b"St..." => {
+                        Substitution::WellKnown(WellKnownComponent::Std),
+                        b"...",
+                        []
+                    }
+                    b"Sa..." => {
+                        Substitution::WellKnown(WellKnownComponent::StdAllocator),
+                        b"...",
+                        []
+                    }
+                    b"Sb..." => {
+                        Substitution::WellKnown(WellKnownComponent::StdString1),
+                        b"...",
+                        []
+                    }
+                    b"Ss..." => {
+                        Substitution::WellKnown(WellKnownComponent::StdString2),
+                        b"...",
+                        []
+                    }
+                    b"Si..." => {
+                        Substitution::WellKnown(WellKnownComponent::StdIstream),
+                        b"...",
+                        []
+                    }
+                    b"So..." => {
+                        Substitution::WellKnown(WellKnownComponent::StdOstream),
+                        b"...",
+                        []
+                    }
+                    b"Sd..." => {
+                        Substitution::WellKnown(WellKnownComponent::StdIostream),
+                        b"...",
+                        []
+                    }
+                }
+                Err => {
+                    b"S999_" => ErrorKind::BadBackReference,
+                    b"Sz" => ErrorKind::UnexpectedText,
+                    b"zzz" => ErrorKind::UnexpectedText,
+                    b"S1" => ErrorKind::UnexpectedEnd,
+                    b"S" => ErrorKind::UnexpectedEnd,
+                    b"" => ErrorKind::UnexpectedEnd,
+                }
+            }
+        });
     }
 
     #[test]
