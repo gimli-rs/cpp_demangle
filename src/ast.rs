@@ -3525,31 +3525,27 @@ mod tests {
     #[test]
     fn parse_closure_type_name() {
         assert_parse!(ClosureTypeName {
-            with subs [] => {
-                Ok => {
-                    b"UlvE_..." => {
-                        ClosureTypeName(LambdaSig(vec![]), None),
-                        b"...",
-                        []
-                    }
-                    b"UlvE36_..." => {
-                        ClosureTypeName(LambdaSig(vec![]), Some(36)),
-                        b"...",
-                        []
-                    }
+            Ok => {
+                b"UlvE_..." => {
+                    ClosureTypeName(LambdaSig(vec![]), None),
+                    b"..."
                 }
-                Err => {
-                    b"UlvE36zzz" => ErrorKind::UnexpectedText,
-                    b"UlvEzzz" => ErrorKind::UnexpectedText,
-                    b"Ulvzzz" => ErrorKind::UnexpectedText,
-                    b"zzz" => ErrorKind::UnexpectedText,
-                    b"UlvE10" => ErrorKind::UnexpectedEnd,
-                    b"UlvE" => ErrorKind::UnexpectedEnd,
-                    b"Ulv" => ErrorKind::UnexpectedEnd,
-                    b"Ul" => ErrorKind::UnexpectedEnd,
-                    b"U" => ErrorKind::UnexpectedEnd,
-                    b"" => ErrorKind::UnexpectedEnd,
+                b"UlvE36_..." => {
+                    ClosureTypeName(LambdaSig(vec![]), Some(36)),
+                    b"..."
                 }
+            }
+            Err => {
+                b"UlvE36zzz" => ErrorKind::UnexpectedText,
+                b"UlvEzzz" => ErrorKind::UnexpectedText,
+                b"Ulvzzz" => ErrorKind::UnexpectedText,
+                b"zzz" => ErrorKind::UnexpectedText,
+                b"UlvE10" => ErrorKind::UnexpectedEnd,
+                b"UlvE" => ErrorKind::UnexpectedEnd,
+                b"Ulv" => ErrorKind::UnexpectedEnd,
+                b"Ul" => ErrorKind::UnexpectedEnd,
+                b"U" => ErrorKind::UnexpectedEnd,
+                b"" => ErrorKind::UnexpectedEnd,
             }
         });
     }
