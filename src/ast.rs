@@ -3019,14 +3019,14 @@ mod tests {
     use std::fmt::Debug;
     use std::iter::FromIterator;
     use subs::{Substitutable, SubstitutionTable};
-    use super::{ArrayType, BuiltinType, CallOffset, ClosureTypeName, CtorDtorName,
-                CvQualifiers, DataMemberPrefix, Decltype, DestructorName, Discriminator,
-                ExprPrimary, Expression, FunctionParam, Identifier, Initializer,
-                LambdaSig, Number, NvOffset, OperatorName, Parse, PointerToMemberType,
-                RefQualifier, SeqId, SimpleId, SourceName, StandardBuiltinType,
-                Substitution, TemplateArg, TemplateArgs, TemplateParam,
-                TemplateTemplateParam, TemplateTemplateParamHandle, Type, TypeHandle,
-                UnnamedTypeName, UnqualifiedName, UnresolvedQualifierLevel,
+    use super::{ArrayType, BaseUnresolvedName, BuiltinType, CallOffset, ClosureTypeName,
+                CtorDtorName, CvQualifiers, DataMemberPrefix, Decltype, DestructorName,
+                Discriminator, ExprPrimary, Expression, FunctionParam, Identifier,
+                Initializer, LambdaSig, Number, NvOffset, OperatorName, Parse,
+                PointerToMemberType, RefQualifier, SeqId, SimpleId, SourceName,
+                StandardBuiltinType, Substitution, TemplateArg, TemplateArgs,
+                TemplateParam, TemplateTemplateParam, TemplateTemplateParamHandle, Type,
+                TypeHandle, UnnamedTypeName, UnqualifiedName, UnresolvedQualifierLevel,
                 UnresolvedType, UnresolvedTypeHandle, UnscopedName, VOffset,
                 WellKnownComponent};
 
@@ -3599,9 +3599,50 @@ mod tests {
     }
 
     #[test]
-    #[should_panic]
     fn parse_base_unresolved_name() {
-        unimplemented!()
+        assert_parse!(BaseUnresolvedName {
+            with subs [
+                Substitutable::Type(Type::Decltype(Decltype::Expression(Expression::Rethrow)))
+            ] => {
+                Ok => {
+                    b"3abc..." => {
+                        BaseUnresolvedName::Name(SimpleId(SourceName(Identifier {
+                            start: 1,
+                            end: 4,
+                        }), None)),
+                        b"...",
+                        []
+                    }
+                    b"onnw..." => {
+                        BaseUnresolvedName::Operator(OperatorName::New, None),
+                        b"...",
+                        []
+                    }
+                    b"onnwIS_E..." => {
+                        BaseUnresolvedName::Operator(OperatorName::New, Some(TemplateArgs(vec![
+                            TemplateArg::Type(TypeHandle::BackReference(0))
+                        ]))),
+                        b"...",
+                        []
+                    }
+                    b"dn3abc..." => {
+                        BaseUnresolvedName::Destructor(DestructorName::Name(SimpleId(SourceName(Identifier {
+                            start: 3,
+                            end: 6,
+                        }), None))),
+                        b"...",
+                        []
+                    }
+                }
+                Err => {
+                    b"ozzz" => ErrorKind::UnexpectedText,
+                    b"dzzz" => ErrorKind::UnexpectedText,
+                    b"dn" => ErrorKind::UnexpectedEnd,
+                    b"on" => ErrorKind::UnexpectedEnd,
+                    b"" => ErrorKind::UnexpectedEnd,
+                }
+            }
+        });
     }
 
     #[test]
