@@ -3026,7 +3026,8 @@ mod tests {
                 SimpleId, SourceName, StandardBuiltinType, Substitution, TemplateArg,
                 TemplateArgs, TemplateParam, TemplateTemplateParam,
                 TemplateTemplateParamHandle, Type, TypeHandle, UnnamedTypeName,
-                UnqualifiedName, UnscopedName, VOffset, WellKnownComponent};
+                UnqualifiedName, UnresolvedQualifierLevel, UnscopedName, VOffset,
+                WellKnownComponent};
 
     fn assert_parse_ok<P, S1, S2, I1, I2>(production: &'static str,
                                           subs: S1,
@@ -3486,9 +3487,37 @@ mod tests {
     }
 
     #[test]
-    #[should_panic]
     fn parse_unresolved_qualifier_level() {
-        unimplemented!()
+        assert_parse!(UnresolvedQualifierLevel {
+            with subs [
+                Substitutable::Type(Type::Decltype(Decltype::Expression(Expression::Rethrow)))
+            ] => {
+                Ok => {
+                    b"3abc..." => {
+                        UnresolvedQualifierLevel(SimpleId(SourceName(Identifier {
+                            start: 1,
+                            end: 4,
+                        }), None)),
+                        b"...",
+                        []
+                    }
+                    b"3abcIS_E..." => {
+                        UnresolvedQualifierLevel(SimpleId(SourceName(Identifier {
+                            start: 1,
+                            end: 4,
+                        }), Some(TemplateArgs(vec![
+                            TemplateArg::Type(TypeHandle::BackReference(0))
+                        ])))),
+                        b"...",
+                        []
+                    }
+                }
+                Err => {
+                    b"zzz" => ErrorKind::UnexpectedText,
+                    b"" => ErrorKind::UnexpectedEnd,
+                }
+            }
+        });
     }
 
     #[test]
