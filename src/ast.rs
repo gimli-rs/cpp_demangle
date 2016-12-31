@@ -1005,6 +1005,19 @@ impl Parse for TypeHandle {
             Ok((handle, tail))
         }
 
+        if let Ok((sub, tail)) = Substitution::parse(subs, input) {
+            match sub {
+                Substitution::WellKnown(component) => {
+                    return Ok((TypeHandle::WellKnown(component), tail));
+                }
+                Substitution::BackReference(idx) => {
+                    // TODO: should this check if the back reference actually points
+                    // to a <type>?
+                    return Ok((TypeHandle::BackReference(idx), tail));
+                }
+            }
+        }
+
         if let Ok((builtin, tail)) = BuiltinType::parse(subs, input) {
             let ty = Type::Builtin(builtin);
             return insert_and_return_handle(ty, subs, tail);
@@ -1100,23 +1113,10 @@ impl Parse for TypeHandle {
             return insert_and_return_handle(ty, subs, tail);
         }
 
-        if let Ok(tail) = consume(b"Dp", input) {
-            let (ty, tail) = try!(TypeHandle::parse(subs, tail));
-            let ty = Type::PackExpansion(ty);
-            return insert_and_return_handle(ty, subs, tail);
-        }
-
-        let (sub, tail) = try!(Substitution::parse(subs, input));
-        match sub {
-            Substitution::WellKnown(component) => {
-                Ok((TypeHandle::WellKnown(component), tail))
-            }
-            Substitution::BackReference(idx) => {
-                // TODO: should this check if the back reference actually points
-                // to a <type>?
-                Ok((TypeHandle::BackReference(idx), tail))
-            }
-        }
+        let tail = try!(consume(b"Dp", input));
+        let (ty, tail) = try!(TypeHandle::parse(subs, tail));
+        let ty = Type::PackExpansion(ty);
+        insert_and_return_handle(ty, subs, tail)
     }
 }
 
@@ -1494,6 +1494,9 @@ pub enum ArrayType {
 
     /// An array with an expression for its dimension.
     DimensionExpression(Expression, TypeHandle),
+
+    /// An array with no dimension.
+    NoDimension(TypeHandle),
 }
 
 impl Parse for ArrayType {
@@ -1511,10 +1514,15 @@ impl Parse for ArrayType {
             return Ok((ArrayType::DimensionNumber(num as _, ty), tail));
         }
 
-        let (expr, tail) = try!(Expression::parse(subs, tail));
+        if let Ok((expr, tail)) = Expression::parse(subs, tail) {
+            let tail = try!(consume(b"_", tail));
+            let (ty, tail) = try!(TypeHandle::parse(subs, tail));
+            return Ok((ArrayType::DimensionExpression(expr, ty), tail));
+        }
+
         let tail = try!(consume(b"_", tail));
         let (ty, tail) = try!(TypeHandle::parse(subs, tail));
-        Ok((ArrayType::DimensionExpression(expr, ty), tail))
+        Ok((ArrayType::NoDimension(ty), tail))
     }
 }
 
@@ -2738,7 +2746,7 @@ impl Parse for Substitution {
         }
 
         let tail = try!(consume(b"_", tail));
-        log!("reference to @ {}", idx);
+        log!("Found a reference to @ {}", idx);
         Ok((Substitution::BackReference(idx), tail))
     }
 }
@@ -2999,11 +3007,12 @@ mod tests {
     use std::fmt::Debug;
     use std::iter::FromIterator;
     use subs::{Substitutable, SubstitutionTable};
-    use super::{BuiltinType, CallOffset, CtorDtorName, CvQualifiers, DataMemberPrefix,
-                Decltype, Discriminator, Expression, FunctionParam, Identifier, Number,
-                NvOffset, OperatorName, Parse, RefQualifier, SeqId, SourceName,
-                StandardBuiltinType, Substitution, TemplateParam, Type, UnnamedTypeName,
-                UnqualifiedName, UnscopedName, VOffset, WellKnownComponent};
+    use super::{ArrayType, BuiltinType, CallOffset, CtorDtorName, CvQualifiers,
+                DataMemberPrefix, Decltype, Discriminator, Expression, FunctionParam,
+                Identifier, Number, NvOffset, OperatorName, Parse, RefQualifier, SeqId,
+                SourceName, StandardBuiltinType, Substitution, TemplateParam, Type,
+                TypeHandle, UnnamedTypeName, UnqualifiedName, UnscopedName, VOffset,
+                WellKnownComponent};
 
     fn assert_parse_ok<P, S1, S2, I1, I2>(production: &'static str,
                                           subs: S1,
@@ -3252,9 +3261,48 @@ mod tests {
     }
 
     #[test]
-    #[should_panic]
     fn parse_array_type() {
-        unimplemented!()
+        assert_parse!(ArrayType {
+            with subs [
+                Substitutable::Type(Type::Decltype(Decltype::Expression(Expression::Rethrow)))
+            ] => {
+                Ok => {
+                    b"A10_S_..." => {
+                        ArrayType::DimensionNumber(10, TypeHandle::BackReference(0)),
+                        b"...",
+                        []
+                    }
+                    b"A10_Sb..." => {
+                        ArrayType::DimensionNumber(10,
+                                                   TypeHandle::WellKnown(
+                                                       WellKnownComponent::StdString1)),
+                        b"...",
+                        []
+                    }
+                    b"Atr_S_..." => {
+                        ArrayType::DimensionExpression(Expression::Rethrow,
+                                                       TypeHandle::BackReference(0)),
+                        b"...",
+                        []
+                    }
+                    b"A_S_..." => {
+                        ArrayType::NoDimension(TypeHandle::BackReference(0)),
+                        b"...",
+                        []
+                    }
+                }
+                Err => {
+                    b"A10_" => ErrorKind::UnexpectedEnd,
+                    b"A10" => ErrorKind::UnexpectedEnd,
+                    b"A" => ErrorKind::UnexpectedEnd,
+                    b"" => ErrorKind::UnexpectedEnd,
+                    b"A10_..." => ErrorKind::UnexpectedText,
+                    b"A10..." => ErrorKind::UnexpectedText,
+                    b"A..." => ErrorKind::UnexpectedText,
+                    b"..." => ErrorKind::UnexpectedText,
+                }
+            }
+        });
     }
 
     #[test]
