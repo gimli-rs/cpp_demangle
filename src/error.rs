@@ -19,3 +19,14 @@ error_chain! {
         }
     }
 }
+
+impl PartialEq<ErrorKind> for ErrorKind {
+    fn eq(&self, rhs: &ErrorKind) -> bool {
+        match (self, rhs) {
+            (&ErrorKind::UnexpectedEnd, &ErrorKind::UnexpectedEnd) |
+            (&ErrorKind::UnexpectedText, &ErrorKind::UnexpectedText) |
+            (&ErrorKind::BadBackReference, &ErrorKind::BadBackReference) => true,
+            _ => false,
+        }
+    }
+}

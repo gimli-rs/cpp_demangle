@@ -2995,78 +2995,188 @@ fn parse_number(base: u32,
 #[cfg(test)]
 mod tests {
     use error::ErrorKind;
+    use index_str::IndexStr;
+    use std::fmt::Debug;
     use std::iter::FromIterator;
     use subs::{Substitutable, SubstitutionTable};
     use super::{BuiltinType, CallOffset, CtorDtorName, CvQualifiers, DataMemberPrefix,
-                Discriminator, FunctionParam, Identifier, Number, NvOffset,
-                OperatorName, Parse, RefQualifier, SeqId, SourceName,
-                StandardBuiltinType, TemplateParam, UnnamedTypeName, UnqualifiedName,
-                UnscopedName, VOffset};
+                Decltype, Discriminator, Expression, FunctionParam, Identifier, Number,
+                NvOffset, OperatorName, Parse, RefQualifier, SeqId, SourceName,
+                StandardBuiltinType, Substitution, TemplateParam, Type, UnnamedTypeName,
+                UnqualifiedName, UnscopedName, VOffset, WellKnownComponent};
 
-    /// Try to parse something, and check the result. For example:
-    ///
-    ///     assert_parse!(OperatorName: "quokka" => Ok(OperatorName::Question, "okka"));
-    ///     assert_parse!(OperatorName: "quokka" => Err(ErrorKind::UnexpectedEnd)));
-    ///
-    /// This asserts that calling `OperatorName::parse` on the text `"qu"`
-    /// succeeds, producing the value `OperatorName::Question`, and leaving the
-    /// unparsed text `"okka"`.
-    macro_rules! assert_parse {
-        ($nonterm:ty : $input:expr => Ok($ex_value:expr, $ex_tail:expr)) => {
-            assert_parse!($nonterm : $input => Ok($ex_value, $ex_tail), [])
-        };
+    fn assert_parse_ok<P, S1, S2, I1, I2>(production: &'static str,
+                                          subs: S1,
+                                          input: I1,
+                                          expected: P,
+                                          expected_tail: I2,
+                                          expected_new_subs: S2)
+        where P: Debug + Parse + PartialEq,
+              S1: AsRef<[Substitutable]>,
+              S2: AsRef<[Substitutable]>,
+              I1: AsRef<[u8]>,
+              I2: AsRef<[u8]>
+    {
+        let input = input.as_ref();
+        let expected_tail = expected_tail.as_ref();
 
-        ($nonterm:ty : $input:expr => Ok($ex_value:expr, $ex_tail:expr), $ex_subs:expr) => {
-            let input = $input as &[u8];
-            let input_printable = String::from_utf8_lossy(input).into_owned();
-            let ex_value = $ex_value;
-            let ex_tail = $ex_tail as &[u8];
-            let ex_subs = SubstitutionTable::from_iter($ex_subs.iter().cloned());
-            let mut subs = SubstitutionTable::new();
-            match <$nonterm>::parse(&mut subs, ::index_str::IndexStr::from(input)) {
-                Err(e) => panic!("Parsing {:?} as {} failed: {}",
-                                 input_printable, stringify!($nonterm), e),
-                Ok((value, tail)) => {
-                    if value != ex_value {
-                        panic!("Parsing {:?} as {} produced {:?}, expected {:?}",
-                               input_printable, stringify!($nonterm), value, ex_value);
-                    }
-                    if tail != ex_tail {
-                        panic!("Parsing {:?} as {} left a tail of {:?}, expected {:?}",
-                               input_printable, stringify!($nonterm), tail.as_ref(), ex_tail);
-                    }
-                    if subs != ex_subs {
-                        panic!("Parsing {:?} as {} produced a substitutions table of\n\n\
-                                {:#?}\n\n\
-                                but we expected\n\n\
-                                {:#?}",
-                               input_printable,
-                               stringify!($nonterm),
-                               subs,
-                               ex_subs);
-                    }
-                }
+        let expected_subs = SubstitutionTable::from_iter(subs.as_ref()
+            .iter()
+            .cloned()
+            .chain(expected_new_subs.as_ref().iter().cloned()));
+        let mut subs = SubstitutionTable::from_iter(subs.as_ref().iter().cloned());
+
+        match P::parse(&mut subs, IndexStr::from(input)) {
+            Err(error) => {
+                panic!("Parsing {:?} as {} failed: {}",
+                       String::from_utf8_lossy(input),
+                       production,
+                       error)
             }
-        };
-
-        ($nonterm:ty : $input:expr => Err($ex_error:pat)) => {
-            let input = $input as &[u8];
-            let input_printable = String::from_utf8_lossy(input).into_owned();
-            let mut subs = SubstitutionTable::new();
-            match <$nonterm>::parse(&mut subs, ::index_str::IndexStr::from(input)) {
-                Err(::error::Error($ex_error, _)) => { },
-                Err(err) => {
-                    panic!("Parsing {:?} as {} should fail with {},\n\
-                            failed with {:?} instead",
-                           input_printable, stringify!($nonterm), stringify!($ex_error), err.kind());
+            Ok((value, tail)) => {
+                if value != expected {
+                    panic!("Parsing {:?} as {} produced {:?}, expected {:?}",
+                           String::from_utf8_lossy(input),
+                           production,
+                           value,
+                           expected);
                 }
-                Ok((value, tail)) => {
-                    panic!("Parsing {:?} as {} should fail with {},\n\
-                            but succeeded with value {:?}, tail {:?}",
-                           input_printable, stringify!($nonterm), stringify!($ex_error), value, tail);
+                if tail != expected_tail {
+                    panic!("Parsing {:?} as {} left a tail of {:?}, expected {:?}",
+                           String::from_utf8_lossy(input),
+                           production,
+                           tail,
+                           String::from_utf8_lossy(expected_tail));
+                }
+                if subs != expected_subs {
+                    panic!("Parsing {:?} as {} produced a substitutions table of\n\n\
+                            {:#?}\n\n\
+                            but we expected\n\n\
+                            {:#?}",
+                           String::from_utf8_lossy(input),
+                           production,
+                           subs,
+                           expected_subs);
                 }
             }
         }
+    }
+
+    fn simple_assert_parse_ok<P, I1, I2>(production: &'static str,
+                                         input: I1,
+                                         expected: P,
+                                         expected_tail: I2)
+        where P: Debug + Parse + PartialEq,
+              I1: AsRef<[u8]>,
+              I2: AsRef<[u8]>
+    {
+        assert_parse_ok::<P, _, _, _, _>(production,
+                                         [],
+                                         input,
+                                         expected,
+                                         expected_tail,
+                                         []);
+    }
+
+    fn assert_parse_err<P, S, I>(production: &'static str,
+                                 subs: S,
+                                 input: I,
+                                 expected_error_kind: ErrorKind)
+        where P: Debug + Parse + PartialEq,
+              S: AsRef<[Substitutable]>,
+              I: AsRef<[u8]>
+    {
+        let input = input.as_ref();
+        let mut subs = SubstitutionTable::from_iter(subs.as_ref().iter().cloned());
+
+        match P::parse(&mut subs, IndexStr::from(input)) {
+            Err(ref error) if *error.kind() == expected_error_kind => {
+                return;
+            }
+            Err(ref error) => {
+                panic!("Parsing {:?} as {} produced an error of kind {:?}, but we expected kind {:?}",
+                       String::from_utf8_lossy(input),
+                       production,
+                       expected_error_kind,
+                       error.kind());
+            }
+            Ok((value, tail)) => {
+                panic!("Parsing {:?} as {} produced value {:?} and tail {:?}, but we expected error kind {:?}",
+                       String::from_utf8_lossy(input),
+                       production,
+                       value,
+                       tail,
+                       expected_error_kind);
+            }
+        }
+    }
+
+    fn simple_assert_parse_err<P, I>(production: &'static str,
+                                     input: I,
+                                     expected_error_kind: ErrorKind)
+        where P: Debug + Parse + PartialEq,
+              I: AsRef<[u8]>
+    {
+        assert_parse_err::<P, _, _>(production, [], input, expected_error_kind);
+    }
+
+    macro_rules! assert_parse {
+        ( $production:ident {
+            $( with subs $subs:expr => {
+                Ok => {
+                    $( $input:expr => {
+                        $expected:expr ,
+                        $expected_tail:expr ,
+                        $expected_new_subs:expr
+                    } )*
+                }
+                Err => {
+                    $( $error_input:expr => $error_kind:expr , )*
+                }
+            } )*
+        } ) => {
+            $( $(
+                assert_parse_ok::<$production, _, _, _, _>(stringify!($production),
+                                                           $subs,
+                                                           $input,
+                                                           $expected,
+                                                           $expected_tail,
+                                                           $expected_new_subs);
+            )* )*
+
+            $( $(
+                assert_parse_err::<$production, _, _>(stringify!($production),
+                                                      $subs,
+                                                      $error_input,
+                                                      $error_kind);
+            )* )*
+        };
+
+        ( $production:ident {
+            Ok => {
+                $( $input:expr => {
+                    $expected:expr ,
+                    $expected_tail:expr
+                } )*
+            }
+            Err => {
+                $( $error_input:expr => $error_kind:expr , )*
+            }
+        } ) => {
+            $(
+                simple_assert_parse_ok::<$production, _, _>(stringify!($production),
+                                                            $input,
+                                                            $expected,
+                                                            $expected_tail);
+            )*
+
+
+            $(
+                simple_assert_parse_err::<$production, _>(stringify!($production),
+                                                          $error_input,
+                                                          $error_kind);
+            )*
+        };
     }
 
     #[test]
@@ -3244,9 +3354,70 @@ mod tests {
     }
 
     #[test]
-    #[should_panic]
     fn parse_substitution() {
-        unimplemented!()
+        assert_parse!(Substitution {
+            with subs [
+                Substitutable::Type(Type::Decltype(Decltype::Expression(Expression::Rethrow))),
+                Substitutable::Type(Type::Decltype(Decltype::Expression(Expression::Rethrow))),
+                Substitutable::Type(Type::Decltype(Decltype::Expression(Expression::Rethrow)))
+            ] => {
+                Ok => {
+                    b"S_..." => {
+                        Substitution::BackReference(0),
+                        b"...",
+                        []
+                    }
+                    b"S1_..." => {
+                        Substitution::BackReference(2),
+                        b"...",
+                        []
+                    }
+                    b"St..." => {
+                        Substitution::WellKnown(WellKnownComponent::Std),
+                        b"...",
+                        []
+                    }
+                    b"Sa..." => {
+                        Substitution::WellKnown(WellKnownComponent::StdAllocator),
+                        b"...",
+                        []
+                    }
+                    b"Sb..." => {
+                        Substitution::WellKnown(WellKnownComponent::StdString1),
+                        b"...",
+                        []
+                    }
+                    b"Ss..." => {
+                        Substitution::WellKnown(WellKnownComponent::StdString2),
+                        b"...",
+                        []
+                    }
+                    b"Si..." => {
+                        Substitution::WellKnown(WellKnownComponent::StdIstream),
+                        b"...",
+                        []
+                    }
+                    b"So..." => {
+                        Substitution::WellKnown(WellKnownComponent::StdOstream),
+                        b"...",
+                        []
+                    }
+                    b"Sd..." => {
+                        Substitution::WellKnown(WellKnownComponent::StdIostream),
+                        b"...",
+                        []
+                    }
+                }
+                Err => {
+                    b"S999_" => ErrorKind::BadBackReference,
+                    b"Sz" => ErrorKind::UnexpectedText,
+                    b"zzz" => ErrorKind::UnexpectedText,
+                    b"S1" => ErrorKind::UnexpectedEnd,
+                    b"S" => ErrorKind::UnexpectedEnd,
+                    b"" => ErrorKind::UnexpectedEnd,
+                }
+            }
+        });
     }
 
     #[test]
@@ -3257,280 +3428,534 @@ mod tests {
 
     #[test]
     fn parse_function_param() {
-        assert_parse!(FunctionParam: b"fpK_..." =>
-                      Ok(FunctionParam(0, CvQualifiers {
-                          restrict: false,
-                          volatile: false,
-                          const_: true,
-                      }, None), b"..."));
-        assert_parse!(FunctionParam: b"fL1pK_..." =>
-                      Ok(FunctionParam(1, CvQualifiers {
-                          restrict: false,
-                          volatile: false,
-                          const_: true,
-                      }, None), b"..."));
-        assert_parse!(FunctionParam: b"fpK3_..." =>
-                      Ok(FunctionParam(0, CvQualifiers {
-                          restrict: false,
-                          volatile: false,
-                          const_: true,
-                      }, Some(3)), b"..."));
-        assert_parse!(FunctionParam: b"fL1pK4_..." =>
-                      Ok(FunctionParam(1, CvQualifiers {
-                          restrict: false,
-                          volatile: false,
-                          const_: true,
-                      }, Some(4)), b"..."));
-        assert_parse!(FunctionParam: b"fz" => Err(ErrorKind::UnexpectedText));
-        assert_parse!(FunctionParam: b"fLp_" => Err(ErrorKind::UnexpectedText));
-        assert_parse!(FunctionParam: b"fpL_" => Err(ErrorKind::UnexpectedText));
-        assert_parse!(FunctionParam: b"fL1pK4z" => Err(ErrorKind::UnexpectedText));
-        assert_parse!(FunctionParam: b"fL1pK4" => Err(ErrorKind::UnexpectedEnd));
-        assert_parse!(FunctionParam: b"fL1p" => Err(ErrorKind::UnexpectedEnd));
-        assert_parse!(FunctionParam: b"fL1" => Err(ErrorKind::UnexpectedEnd));
-        assert_parse!(FunctionParam: b"fL" => Err(ErrorKind::UnexpectedEnd));
-        assert_parse!(FunctionParam: b"f" => Err(ErrorKind::UnexpectedEnd));
-        assert_parse!(FunctionParam: b"" => Err(ErrorKind::UnexpectedEnd));
+        assert_parse!(FunctionParam {
+            Ok => {
+                b"fpK_..." => {
+                    FunctionParam(0,
+                                  CvQualifiers {
+                                      restrict: false,
+                                      volatile: false,
+                                      const_: true,
+                                  },
+                                  None),
+                    b"..."
+                }
+                b"fL1pK_..." => {
+                    FunctionParam(1,
+                                  CvQualifiers {
+                                      restrict: false,
+                                      volatile: false,
+                                      const_: true,
+                                  },
+                                  None),
+                    b"..."
+                }
+                b"fpK3_..." => {
+                    FunctionParam(0,
+                                  CvQualifiers {
+                                      restrict: false,
+                                      volatile: false,
+                                      const_: true,
+                                  },
+                                  Some(3)),
+                    b"..."
+                }
+                b"fL1pK4_..." => {
+                    FunctionParam(1,
+                                  CvQualifiers {
+                                      restrict: false,
+                                      volatile: false,
+                                      const_: true,
+                                  },
+                                  Some(4)),
+                    b"..."
+                }
+            }
+            Err => {
+                b"fz" => ErrorKind::UnexpectedText,
+                b"fLp_" => ErrorKind::UnexpectedText,
+                b"fpL_" => ErrorKind::UnexpectedText,
+                b"fL1pK4z" => ErrorKind::UnexpectedText,
+                b"fL1pK4" => ErrorKind::UnexpectedEnd,
+                b"fL1p" => ErrorKind::UnexpectedEnd,
+                b"fL1" => ErrorKind::UnexpectedEnd,
+                b"fL" => ErrorKind::UnexpectedEnd,
+                b"f" => ErrorKind::UnexpectedEnd,
+                b"" => ErrorKind::UnexpectedEnd,
+            }
+        });
     }
 
     #[test]
     fn parse_discriminator() {
-        assert_parse!(Discriminator: b"_0..." => Ok(Discriminator(0), b"..."));
-        assert_parse!(Discriminator: b"_9..." => Ok(Discriminator(9), b"..."));
-        assert_parse!(Discriminator: b"__99_..." => Ok(Discriminator(99), b"..."));
-        assert_parse!(Discriminator: b"_n1" => Err(ErrorKind::UnexpectedText));
-        assert_parse!(Discriminator: b"__99..." => Err(ErrorKind::UnexpectedText));
-        assert_parse!(Discriminator: b"__99" => Err(ErrorKind::UnexpectedEnd));
-        assert_parse!(Discriminator: b"..." => Err(ErrorKind::UnexpectedText));
+        assert_parse!(Discriminator {
+            Ok => {
+                b"_0..." => {
+                    Discriminator(0),
+                    b"..."
+                }
+                b"_9..." => {
+                    Discriminator(9),
+                    b"..."
+                }
+                b"__99_..." => {
+                    Discriminator(99),
+                    b"..."
+                }
+            }
+            Err => {
+                b"_n1" => ErrorKind::UnexpectedText,
+                b"__99..." => ErrorKind::UnexpectedText,
+                b"__99" => ErrorKind::UnexpectedEnd,
+                b"..." => ErrorKind::UnexpectedText,
+            }
+        });
     }
 
     #[test]
     fn parse_data_member_prefix() {
-        assert_parse!(DataMemberPrefix: b"3fooM..." =>
-                      Ok(DataMemberPrefix(SourceName(Identifier {
-                          start: 1,
-                          end: 4,
-                      })),
-                         b"..."));
-        assert_parse!(DataMemberPrefix: b"zzz" => Err(ErrorKind::UnexpectedText));
+        assert_parse!(DataMemberPrefix {
+            Ok => {
+                b"3fooM..." => {
+                    DataMemberPrefix(SourceName(Identifier {
+                        start: 1,
+                        end: 4,
+                    })),
+                    b"..."
+                }
+            }
+            Err => {
+                b"zzz" => ErrorKind::UnexpectedText,
+                b"1" => ErrorKind::UnexpectedEnd,
+                b"" => ErrorKind::UnexpectedEnd,
+            }
+        });
     }
 
     #[test]
     fn parse_ref_qualifier() {
-        assert_parse!(RefQualifier: b"R..." => Ok(RefQualifier::LValueRef, b"..."));
-        assert_parse!(RefQualifier: b"O..." => Ok(RefQualifier::RValueRef, b"..."));
-        assert_parse!(RefQualifier: b"..." => Err(ErrorKind::UnexpectedText));
-        assert_parse!(RefQualifier: b"" => Err(ErrorKind::UnexpectedEnd));
+        assert_parse!(RefQualifier {
+            Ok => {
+                b"R..." => {
+                    RefQualifier::LValueRef,
+                    b"..."
+                }
+                b"O..." => {
+                    RefQualifier::RValueRef,
+                    b"..."
+                }
+            }
+            Err => {
+                b"..." => ErrorKind::UnexpectedText,
+                b"" => ErrorKind::UnexpectedEnd,
+            }
+        });
     }
 
     #[test]
     fn parse_cv_qualifiers() {
-        assert_parse!(CvQualifiers: b"" =>
-                      Ok(CvQualifiers { restrict: false, volatile: false, const_: false },
-                         b""));
-        assert_parse!(CvQualifiers: b"..." =>
-                      Ok(CvQualifiers { restrict: false, volatile: false, const_: false },
-                         b"..."));
-
-        assert_parse!(CvQualifiers: b"r..." =>
-                      Ok(CvQualifiers { restrict: true, volatile: false, const_: false },
-                         b"..."));
-        assert_parse!(CvQualifiers: b"rV..." =>
-                      Ok(CvQualifiers { restrict: true, volatile: true, const_: false },
-                         b"..."));
-        assert_parse!(CvQualifiers: b"rVK..." =>
-                      Ok(CvQualifiers { restrict: true, volatile: true, const_: true },
-                         b"..."));
-
-        assert_parse!(CvQualifiers: b"V" =>
-                      Ok(CvQualifiers { restrict: false, volatile: true, const_: false },
-                         b""));
-        assert_parse!(CvQualifiers: b"VK" =>
-                      Ok(CvQualifiers { restrict: false, volatile: true, const_: true },
-                         b""));
-
-        assert_parse!(CvQualifiers: b"K..." =>
-                      Ok(CvQualifiers { restrict: false, volatile: false, const_: true },
-                         b"..."));
+        assert_parse!(CvQualifiers {
+            Ok => {
+                b"" => {
+                    CvQualifiers { restrict: false, volatile: false, const_: false },
+                    b""
+                }
+                b"..." => {
+                    CvQualifiers { restrict: false, volatile: false, const_: false },
+                    b"..."
+                }
+                b"r..." => {
+                    CvQualifiers { restrict: true, volatile: false, const_: false },
+                    b"..."
+                }
+                b"rV..." => {
+                    CvQualifiers { restrict: true, volatile: true, const_: false },
+                    b"..."
+                }
+                b"rVK..." => {
+                    CvQualifiers { restrict: true, volatile: true, const_: true },
+                    b"..."
+                }
+                b"V" => {
+                    CvQualifiers { restrict: false, volatile: true, const_: false },
+                    b""
+                }
+                b"VK" => {
+                    CvQualifiers { restrict: false, volatile: true, const_: true },
+                    b""
+                }
+                b"K..." => {
+                    CvQualifiers { restrict: false, volatile: false, const_: true },
+                    b"..."
+                }
+            }
+            Err => {
+                // None.
+            }
+        });
     }
 
     #[test]
     fn parse_builtin_type() {
-        assert_parse!(BuiltinType: b"c..." =>
-                      Ok(BuiltinType::Standard(StandardBuiltinType::Char), b"..."));
-        assert_parse!(BuiltinType: b"c" =>
-                      Ok(BuiltinType::Standard(StandardBuiltinType::Char), b""));
-        assert_parse!(BuiltinType: b"u3abc..." =>
-                      Ok(BuiltinType::Extension(SourceName(Identifier {
-                          start: 2,
-                          end: 5,
-                      })),
-                         b"..."));
-        assert_parse!(BuiltinType: b"." => Err(ErrorKind::UnexpectedText));
-        assert_parse!(BuiltinType: b"" => Err(ErrorKind::UnexpectedEnd));
+        assert_parse!(BuiltinType {
+            Ok => {
+                b"c..." => {
+                    BuiltinType::Standard(StandardBuiltinType::Char),
+                    b"..."
+                }
+                b"c" => {
+                    BuiltinType::Standard(StandardBuiltinType::Char),
+                    b""
+                }
+                b"u3abc..." => {
+                    BuiltinType::Extension(SourceName(Identifier {
+                        start: 2,
+                        end: 5,
+                    })),
+                    b"..."
+                }
+            }
+            Err => {
+                b"." => ErrorKind::UnexpectedText,
+                b"" => ErrorKind::UnexpectedEnd,
+            }
+        });
     }
 
     #[test]
     fn parse_template_param() {
-        assert_parse!(TemplateParam: b"T_..." => Ok(TemplateParam(None), b"..."));
-        assert_parse!(TemplateParam: b"T3_..." => Ok(TemplateParam(Some(3)), b"..."));
-        assert_parse!(TemplateParam: b"wtf" => Err(ErrorKind::UnexpectedText));
-        assert_parse!(TemplateParam: b"Twtf" => Err(ErrorKind::UnexpectedText));
-        assert_parse!(TemplateParam: b"T3wtf" => Err(ErrorKind::UnexpectedText));
-        assert_parse!(TemplateParam: b"T" => Err(ErrorKind::UnexpectedEnd));
-        assert_parse!(TemplateParam: b"T3" => Err(ErrorKind::UnexpectedEnd));
-        assert_parse!(TemplateParam: b"" => Err(ErrorKind::UnexpectedEnd));
+        assert_parse!(TemplateParam {
+            Ok => {
+                b"T_..." => {
+                    TemplateParam(None),
+                    b"..."
+                }
+                b"T3_..." => {
+                    TemplateParam(Some(3)),
+                    b"..."
+                }
+            }
+            Err => {
+                b"wtf" => ErrorKind::UnexpectedText,
+                b"Twtf" => ErrorKind::UnexpectedText,
+                b"T3wtf" => ErrorKind::UnexpectedText,
+                b"T" => ErrorKind::UnexpectedEnd,
+                b"T3" => ErrorKind::UnexpectedEnd,
+                b"" => ErrorKind::UnexpectedEnd,
+            }
+        });
     }
 
     #[test]
     fn parse_unscoped_name() {
-        assert_parse!(UnscopedName: b"St5hello..." =>
-                      Ok(UnscopedName::Std(UnqualifiedName::Source(SourceName(Identifier {
-                          start: 3,
-                          end: 8,
-                      }))),
-                         b"..."));
-        assert_parse!(UnscopedName: b"5hello..." =>
-                      Ok(UnscopedName::Unqualified(UnqualifiedName::Source(SourceName(Identifier {
-                          start: 1,
-                          end: 6,
-                      }))),
-                         b"..."));
-        assert_parse!(UnscopedName: b"St..." => Err(ErrorKind::UnexpectedText));
-        assert_parse!(UnscopedName: b"..." => Err(ErrorKind::UnexpectedText));
-        assert_parse!(UnscopedName: b"" => Err(ErrorKind::UnexpectedEnd));
+        assert_parse!(UnscopedName {
+            Ok => {
+                b"St5hello..." => {
+                    UnscopedName::Std(UnqualifiedName::Source(SourceName(Identifier {
+                        start: 3,
+                        end: 8,
+                    }))),
+                    b"..."
+                }
+                b"5hello..." => {
+                    UnscopedName::Unqualified(UnqualifiedName::Source(SourceName(Identifier {
+                        start: 1,
+                        end: 6,
+                    }))),
+                    b"..."
+                }
+            }
+            Err => {
+                b"St..." => ErrorKind::UnexpectedText,
+                b"..." => ErrorKind::UnexpectedText,
+                b"" => ErrorKind::UnexpectedEnd,
+            }
+        });
     }
 
     #[test]
     fn parse_unqualified_name() {
-        assert_parse!(UnqualifiedName: b"qu.." =>
-                      Ok(UnqualifiedName::Operator(OperatorName::Question), b".."));
-        assert_parse!(UnqualifiedName: b"C1.." =>
-                      Ok(UnqualifiedName::CtorDtor(CtorDtorName::CompleteConstructor), b".."));
-        assert_parse!(UnqualifiedName: b"10abcdefghij..." =>
-                      Ok(UnqualifiedName::Source(SourceName(Identifier {
-                          start: 2,
-                          end: 12,
-                      })),
-                         b"..."));
-        assert_parse!(UnqualifiedName: b"Ut5_..." =>
-                      Ok(UnqualifiedName::UnnamedType(UnnamedTypeName(Some(5))),
-                         b"..."));
+        assert_parse!(UnqualifiedName {
+            Ok => {
+                b"qu.." => {
+                    UnqualifiedName::Operator(OperatorName::Question),
+                    b".."
+                }
+                b"C1.." => {
+                    UnqualifiedName::CtorDtor(CtorDtorName::CompleteConstructor),
+                    b".."
+                }
+                b"10abcdefghij..." => {
+                    UnqualifiedName::Source(SourceName(Identifier {
+                        start: 2,
+                        end: 12,
+                    })),
+                    b"..."
+                }
+                b"Ut5_..." => {
+                    UnqualifiedName::UnnamedType(UnnamedTypeName(Some(5))),
+                    b"..."
+                }
+            }
+            Err => {
+                b"zzz" => ErrorKind::UnexpectedText,
+                b"C" => ErrorKind::UnexpectedEnd,
+                b"" => ErrorKind::UnexpectedEnd,
+            }
+        });
     }
 
     #[test]
     fn parse_unnamed_type_name() {
-        assert_parse!(UnnamedTypeName: b"Ut_abc" => Ok(UnnamedTypeName(None), b"abc"));
-        assert_parse!(UnnamedTypeName: b"Ut42_abc" => Ok(UnnamedTypeName(Some(42)), b"abc"));
-        assert_parse!(UnnamedTypeName: b"Ut42_" => Ok(UnnamedTypeName(Some(42)), b""));
-        assert_parse!(UnnamedTypeName: b"ut_" => Err(ErrorKind::UnexpectedText));
-        assert_parse!(UnnamedTypeName: b"u" => Err(ErrorKind::UnexpectedEnd));
-        assert_parse!(UnnamedTypeName: b"Ut" => Err(ErrorKind::UnexpectedEnd));
-        assert_parse!(UnnamedTypeName: b"Ut._" => Err(ErrorKind::UnexpectedText));
-        assert_parse!(UnnamedTypeName: b"Ut42" => Err(ErrorKind::UnexpectedEnd));
+        assert_parse!(UnnamedTypeName {
+            Ok => {
+                b"Ut_abc" => {
+                    UnnamedTypeName(None),
+                    b"abc"
+                }
+                b"Ut42_abc" => {
+                    UnnamedTypeName(Some(42)),
+                    b"abc"
+                }
+                b"Ut42_" => {
+                    UnnamedTypeName(Some(42)),
+                    b""
+                }
+            }
+            Err => {
+                b"ut_" => ErrorKind::UnexpectedText,
+                b"u" => ErrorKind::UnexpectedEnd,
+                b"Ut" => ErrorKind::UnexpectedEnd,
+                b"Ut._" => ErrorKind::UnexpectedText,
+                b"Ut42" => ErrorKind::UnexpectedEnd,
+            }
+        });
     }
 
     #[test]
     fn parse_identifier() {
-        assert_parse!(Identifier: b"1abc" =>
-                      Ok(Identifier { start: 0, end: 4 }, b""));
-        assert_parse!(Identifier: b"_Az1..." =>
-                      Ok(Identifier { start: 0, end: 4 }, b"..."));
-        assert_parse!(Identifier: b"..." => Err(ErrorKind::UnexpectedText));
-        assert_parse!(Identifier: b"" => Err(ErrorKind::UnexpectedEnd));
+        assert_parse!(Identifier {
+            Ok => {
+                b"1abc" => {
+                    Identifier { start: 0, end: 4 },
+                    b""
+                }
+                b"_Az1..." => {
+                    Identifier { start: 0, end: 4 },
+                    b"..."
+                }
+            }
+            Err => {
+                b"..." => ErrorKind::UnexpectedText,
+                b"" => ErrorKind::UnexpectedEnd,
+            }
+        });
     }
 
     #[test]
     fn parse_source_name() {
-        assert_parse!(SourceName: b"1abc" =>
-                      Ok(SourceName(Identifier { start: 1, end: 2 }), b"bc"));
-        assert_parse!(SourceName: b"10abcdefghijklm" =>
-                      Ok(SourceName(Identifier { start: 2, end: 12 }), b"klm"));
-        assert_parse!(SourceName: b"0abc" => Err(ErrorKind::UnexpectedText));
-        assert_parse!(SourceName: b"n1abc" => Err(ErrorKind::UnexpectedText));
-        assert_parse!(SourceName: b"10abcdef" => Err(ErrorKind::UnexpectedEnd));
-        assert_parse!(SourceName: b"" => Err(ErrorKind::UnexpectedEnd));
+        assert_parse!(SourceName {
+            Ok => {
+                b"1abc" => {
+                    SourceName(Identifier { start: 1, end: 2 }),
+                    b"bc"
+                }
+                b"10abcdefghijklm" => {
+                    SourceName(Identifier { start: 2, end: 12 }),
+                    b"klm"
+                }
+            }
+            Err => {
+                b"0abc" => ErrorKind::UnexpectedText,
+                b"n1abc" => ErrorKind::UnexpectedText,
+                b"10abcdef" => ErrorKind::UnexpectedEnd,
+                b"" => ErrorKind::UnexpectedEnd,
+            }
+        });
     }
 
     #[test]
     fn parse_number() {
-        assert_parse!(Number: b"n2n3" => Ok(-2, b"n3"));
-        assert_parse!(Number: b"12345abcdef" => Ok(12345, b"abcdef"));
-        assert_parse!(Number: b"0abcdef" => Ok(0, b"abcdef"));
-        assert_parse!(Number: b"42" => Ok(42, b""));
-        assert_parse!(Number: b"001" => Err(ErrorKind::UnexpectedText));
-        assert_parse!(Number: b"wutang" => Err(ErrorKind::UnexpectedText));
-        assert_parse!(Number: b"n" => Err(ErrorKind::UnexpectedEnd));
-        assert_parse!(Number: b"" => Err(ErrorKind::UnexpectedEnd));
+        assert_parse!(Number {
+            Ok => {
+                b"n2n3" => {
+                    -2,
+                    b"n3"
+                }
+                b"12345abcdef" => {
+                    12345,
+                    b"abcdef"
+                }
+                b"0abcdef" => {
+                    0,
+                    b"abcdef"
+                }
+                b"42" => {
+                    42,
+                    b""
+                }
+            }
+            Err => {
+                b"001" => ErrorKind::UnexpectedText,
+                b"wutang" => ErrorKind::UnexpectedText,
+                b"n" => ErrorKind::UnexpectedEnd,
+                b"" => ErrorKind::UnexpectedEnd,
+            }
+        });
     }
 
     #[test]
     fn parse_call_offset() {
-        assert_parse!(CallOffset: b"hn42_..." =>
-                      Ok(CallOffset::NonVirtual(NvOffset(-42)), b"..."));
-        assert_parse!(CallOffset: b"vn42_36_..." =>
-                      Ok(CallOffset::Virtual(VOffset(-42, 36)), b"..."));
-        assert_parse!(CallOffset: b"h1..." => Err(ErrorKind::UnexpectedText));
-        assert_parse!(CallOffset: b"v1_1..." => Err(ErrorKind::UnexpectedText));
-        assert_parse!(CallOffset: b"hh" => Err(ErrorKind::UnexpectedText));
-        assert_parse!(CallOffset: b"vv" => Err(ErrorKind::UnexpectedText));
-        assert_parse!(CallOffset: b"z" => Err(ErrorKind::UnexpectedText));
-        assert_parse!(CallOffset: b"" => Err(ErrorKind::UnexpectedEnd));
+        assert_parse!(CallOffset {
+            Ok => {
+                b"hn42_..." => {
+                    CallOffset::NonVirtual(NvOffset(-42)),
+                    b"..."
+                }
+                b"vn42_36_..." => {
+                    CallOffset::Virtual(VOffset(-42, 36)),
+                    b"..."
+                }
+            }
+            Err => {
+                b"h1..." => ErrorKind::UnexpectedText,
+                b"v1_1..." => ErrorKind::UnexpectedText,
+                b"hh" => ErrorKind::UnexpectedText,
+                b"vv" => ErrorKind::UnexpectedText,
+                b"z" => ErrorKind::UnexpectedText,
+                b"" => ErrorKind::UnexpectedEnd,
+            }
+        });
     }
 
     #[test]
     fn parse_v_offset() {
-        assert_parse!(VOffset: b"n2_n3abcdef" => Ok(VOffset(-2, -3), b"abcdef"));
-        assert_parse!(VOffset: b"12345_12345abcdef" => Ok(VOffset(12345, 12345), b"abcdef"));
-        assert_parse!(VOffset: b"0_0abcdef" => Ok(VOffset(0, 0), b"abcdef"));
-        assert_parse!(VOffset: b"42_n3" => Ok(VOffset(42, -3), b""));
-        assert_parse!(VOffset: b"001" => Err(ErrorKind::UnexpectedText));
-        assert_parse!(VOffset: b"1_001" => Err(ErrorKind::UnexpectedText));
-        assert_parse!(VOffset: b"wutang" => Err(ErrorKind::UnexpectedText));
-        assert_parse!(VOffset: b"n_" => Err(ErrorKind::UnexpectedText));
-        assert_parse!(VOffset: b"1_n" => Err(ErrorKind::UnexpectedEnd));
-        assert_parse!(VOffset: b"1_" => Err(ErrorKind::UnexpectedEnd));
-        assert_parse!(VOffset: b"n" => Err(ErrorKind::UnexpectedEnd));
-        assert_parse!(VOffset: b"" => Err(ErrorKind::UnexpectedEnd));
+        assert_parse!(VOffset {
+            Ok => {
+                b"n2_n3abcdef" => {
+                    VOffset(-2, -3),
+                    b"abcdef"
+                }
+                b"12345_12345abcdef" => {
+                    VOffset(12345, 12345),
+                    b"abcdef"
+                }
+                b"0_0abcdef" => {
+                    VOffset(0, 0),
+                    b"abcdef"
+                }
+                b"42_n3" => {
+                    VOffset(42, -3),
+                    b""
+                }
+            }
+            Err => {
+                b"001" => ErrorKind::UnexpectedText,
+                b"1_001" => ErrorKind::UnexpectedText,
+                b"wutang" => ErrorKind::UnexpectedText,
+                b"n_" => ErrorKind::UnexpectedText,
+                b"1_n" => ErrorKind::UnexpectedEnd,
+                b"1_" => ErrorKind::UnexpectedEnd,
+                b"n" => ErrorKind::UnexpectedEnd,
+                b"" => ErrorKind::UnexpectedEnd,
+            }
+        });
     }
 
     #[test]
     fn parse_nv_offset() {
-        assert_parse!(NvOffset: b"n2n3" => Ok(NvOffset(-2), b"n3"));
-        assert_parse!(NvOffset: b"12345abcdef" => Ok(NvOffset(12345), b"abcdef"));
-        assert_parse!(NvOffset: b"0abcdef" => Ok(NvOffset(0), b"abcdef"));
-        assert_parse!(NvOffset: b"42" => Ok(NvOffset(42), b""));
-        assert_parse!(NvOffset: b"001" => Err(ErrorKind::UnexpectedText));
-        assert_parse!(NvOffset: b"wutang" => Err(ErrorKind::UnexpectedText));
-        assert_parse!(NvOffset: b"" => Err(ErrorKind::UnexpectedEnd));
+        assert_parse!(NvOffset {
+            Ok => {
+                b"n2n3" => {
+                    NvOffset(-2),
+                    b"n3"
+                }
+                b"12345abcdef" => {
+                    NvOffset(12345),
+                    b"abcdef"
+                }
+                b"0abcdef" => {
+                    NvOffset(0),
+                    b"abcdef"
+                }
+                b"42" => {
+                    NvOffset(42),
+                    b""
+                }
+            }
+            Err => {
+                b"001" => ErrorKind::UnexpectedText,
+                b"wutang" => ErrorKind::UnexpectedText,
+                b"" => ErrorKind::UnexpectedEnd,
+            }
+        });
     }
 
     #[test]
     fn parse_seq_id() {
-        assert_parse!(SeqId: b"1_" => Ok(SeqId(1), b"_"));
-        assert_parse!(SeqId: b"42" => Ok(SeqId(146), b""));
-        assert_parse!(SeqId: b"ABCabc" => Ok(SeqId(13368), b"abc"));
-        assert_parse!(SeqId: b"abc" => Err(ErrorKind::UnexpectedText));
-        assert_parse!(SeqId: b"001" => Err(ErrorKind::UnexpectedText));
-        assert_parse!(SeqId: b"wutang" => Err(ErrorKind::UnexpectedText));
-        assert_parse!(SeqId: b"" => Err(ErrorKind::UnexpectedEnd));
+        assert_parse!(SeqId {
+            Ok => {
+                b"1_" => {
+                    SeqId(1),
+                    b"_"
+                }
+                b"42" => {
+                    SeqId(146),
+                    b""
+                }
+                b"ABCabc" => {
+                    SeqId(13368),
+                    b"abc"
+                }
+            }
+            Err => {
+                b"abc" => ErrorKind::UnexpectedText,
+                b"001" => ErrorKind::UnexpectedText,
+                b"wutang" => ErrorKind::UnexpectedText,
+                b"" => ErrorKind::UnexpectedEnd,
+            }
+        });
     }
 
     #[test]
     fn parse_ctor_dtor_name() {
-        assert_parse!(CtorDtorName: b"D0" => Ok(CtorDtorName::DeletingDestructor, b""));
-        assert_parse!(CtorDtorName: b"C101" => Ok(CtorDtorName::CompleteConstructor, b"01"));
-        assert_parse!(CtorDtorName: b"gayagaya" => Err(ErrorKind::UnexpectedText));
-        assert_parse!(CtorDtorName: b"C" => Err(ErrorKind::UnexpectedEnd));
-        assert_parse!(CtorDtorName: b"" => Err(ErrorKind::UnexpectedEnd));
+        assert_parse!(CtorDtorName {
+            Ok => {
+                b"D0" => {
+                    CtorDtorName::DeletingDestructor,
+                    b""
+                }
+                b"C101" => {
+                    CtorDtorName::CompleteConstructor,
+                    b"01"
+                }
+            }
+            Err => {
+                b"gayagaya" => ErrorKind::UnexpectedText,
+                b"C" => ErrorKind::UnexpectedEnd,
+                b"" => ErrorKind::UnexpectedEnd,
+            }
+        });
     }
 
     #[test]
     fn parse_operator_name() {
-        assert_parse!(OperatorName: b"qu" => Ok(OperatorName::Question, b""));
-        assert_parse!(OperatorName: b"quokka" => Ok(OperatorName::Question, b"okka"));
-        assert_parse!(OperatorName: b"bu-buuu" => Err(ErrorKind::UnexpectedText));
-        assert_parse!(OperatorName: b"q" => Err(ErrorKind::UnexpectedEnd));
-        assert_parse!(OperatorName: b"" => Err(ErrorKind::UnexpectedEnd));
+        assert_parse!(OperatorName {
+            Ok => {
+                b"qu" => {
+                    OperatorName::Question,
+                    b""
+                }
+                b"quokka" => {
+                    OperatorName::Question,
+                    b"okka"
+                }
+            }
+            Err => {
+                b"bu-buuuu" => ErrorKind::UnexpectedText,
+                b"q" => ErrorKind::UnexpectedEnd,
+                b"" => ErrorKind::UnexpectedEnd,
+            }
+        });
     }
 }
