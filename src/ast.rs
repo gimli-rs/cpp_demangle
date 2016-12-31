@@ -3018,13 +3018,13 @@ mod tests {
     use std::fmt::Debug;
     use std::iter::FromIterator;
     use subs::{Substitutable, SubstitutionTable};
-    use super::{ArrayType, BuiltinType, CallOffset, CtorDtorName, CvQualifiers,
-                DataMemberPrefix, Decltype, Discriminator, ExprPrimary, Expression,
-                FunctionParam, Identifier, LambdaSig, Number, NvOffset, OperatorName,
-                Parse, PointerToMemberType, RefQualifier, SeqId, SourceName,
-                StandardBuiltinType, Substitution, TemplateArg, TemplateParam,
-                TemplateTemplateParam, TemplateTemplateParamHandle, Type, TypeHandle,
-                UnnamedTypeName, UnqualifiedName, UnscopedName, VOffset,
+    use super::{ArrayType, BuiltinType, CallOffset, ClosureTypeName, CtorDtorName,
+                CvQualifiers, DataMemberPrefix, Decltype, Discriminator, ExprPrimary,
+                Expression, FunctionParam, Identifier, LambdaSig, Number, NvOffset,
+                OperatorName, Parse, PointerToMemberType, RefQualifier, SeqId,
+                SourceName, StandardBuiltinType, Substitution, TemplateArg,
+                TemplateParam, TemplateTemplateParam, TemplateTemplateParamHandle, Type,
+                TypeHandle, UnnamedTypeName, UnqualifiedName, UnscopedName, VOffset,
                 WellKnownComponent};
 
     fn assert_parse_ok<P, S1, S2, I1, I2>(production: &'static str,
@@ -3499,9 +3499,35 @@ mod tests {
     }
 
     #[test]
-    #[should_panic]
     fn parse_closure_type_name() {
-        unimplemented!()
+        assert_parse!(ClosureTypeName {
+            with subs [] => {
+                Ok => {
+                    b"UlvE_..." => {
+                        ClosureTypeName(LambdaSig(vec![]), None),
+                        b"...",
+                        []
+                    }
+                    b"UlvE36_..." => {
+                        ClosureTypeName(LambdaSig(vec![]), Some(36)),
+                        b"...",
+                        []
+                    }
+                }
+                Err => {
+                    b"UlvE36zzz" => ErrorKind::UnexpectedText,
+                    b"UlvEzzz" => ErrorKind::UnexpectedText,
+                    b"Ulvzzz" => ErrorKind::UnexpectedText,
+                    b"zzz" => ErrorKind::UnexpectedText,
+                    b"UlvE10" => ErrorKind::UnexpectedEnd,
+                    b"UlvE" => ErrorKind::UnexpectedEnd,
+                    b"Ulv" => ErrorKind::UnexpectedEnd,
+                    b"Ul" => ErrorKind::UnexpectedEnd,
+                    b"U" => ErrorKind::UnexpectedEnd,
+                    b"" => ErrorKind::UnexpectedEnd,
+                }
+            }
+        });
     }
 
     #[test]
