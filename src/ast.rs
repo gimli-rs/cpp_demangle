@@ -3026,8 +3026,8 @@ mod tests {
                 SimpleId, SourceName, StandardBuiltinType, Substitution, TemplateArg,
                 TemplateArgs, TemplateParam, TemplateTemplateParam,
                 TemplateTemplateParamHandle, Type, TypeHandle, UnnamedTypeName,
-                UnqualifiedName, UnresolvedQualifierLevel, UnscopedName, VOffset,
-                WellKnownComponent};
+                UnqualifiedName, UnresolvedQualifierLevel, UnresolvedType,
+                UnresolvedTypeHandle, UnscopedName, VOffset, WellKnownComponent};
 
     fn assert_parse_ok<P, S1, S2, I1, I2>(production: &'static str,
                                           subs: S1,
@@ -3481,9 +3481,52 @@ mod tests {
     }
 
     #[test]
-    #[should_panic]
     fn parse_unresolved_type_handle() {
-        unimplemented!()
+        assert_parse!(UnresolvedTypeHandle {
+            with subs [
+                Substitutable::UnresolvedType(
+                    UnresolvedType::Decltype(Decltype::Expression(Expression::Rethrow))),
+            ] => {
+                Ok => {
+                    b"S_..." => {
+                        UnresolvedTypeHandle::BackReference(0),
+                        b"...",
+                        []
+                    }
+                    b"T_..." => {
+                        UnresolvedTypeHandle::BackReference(1),
+                        b"...",
+                        [
+                            Substitutable::UnresolvedType(
+                                UnresolvedType::Template(TemplateParam(0), None)),
+                        ]
+                    }
+                    b"T_IS_E..." => {
+                        UnresolvedTypeHandle::BackReference(1),
+                        b"...",
+                        [
+                            Substitutable::UnresolvedType(
+                                UnresolvedType::Template(TemplateParam(0), Some(TemplateArgs(vec![
+                                    TemplateArg::Type(TypeHandle::BackReference(0))
+                                ])))),
+                        ]
+                    }
+                    b"DTtrE..." => {
+                        UnresolvedTypeHandle::BackReference(1),
+                        b"...",
+                        [
+                            Substitutable::UnresolvedType(
+                                UnresolvedType::Decltype(Decltype::Expression(Expression::Rethrow)))
+                        ]
+
+                    }
+                }
+                Err => {
+                    b"zzzzzzz" => ErrorKind::UnexpectedText,
+                    b"" => ErrorKind::UnexpectedEnd,
+                }
+            }
+        });
     }
 
     #[test]
