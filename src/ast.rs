@@ -3482,9 +3482,34 @@ mod tests {
     }
 
     #[test]
-    #[should_panic]
     fn parse_expr_primary() {
-        unimplemented!()
+        assert_parse!(ExprPrimary {
+            with subs [
+                Substitutable::Type(Type::Decltype(Decltype::Expression(Expression::Rethrow)))
+            ] => {
+                Ok => {
+                    b"LS_12345E..." => {
+                        ExprPrimary::Literal(TypeHandle::BackReference(0), 3, 8),
+                        b"...",
+                        []
+                    }
+                    b"LS_E..." => {
+                        ExprPrimary::Literal(TypeHandle::BackReference(0), 3, 3),
+                        b"...",
+                        []
+                    }
+                    // TODO: L <mangled-name> E
+                }
+                Err => {
+                    b"zzz" => ErrorKind::UnexpectedText,
+                    b"LS_zzz" => ErrorKind::UnexpectedEnd,
+                    b"LS_12345" => ErrorKind::UnexpectedEnd,
+                    b"LS_" => ErrorKind::UnexpectedEnd,
+                    b"L" => ErrorKind::UnexpectedEnd,
+                    b"" => ErrorKind::UnexpectedEnd,
+                }
+            }
+        });
     }
 
     #[test]
