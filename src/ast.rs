@@ -3272,9 +3272,30 @@ mod tests {
     }
 
     #[test]
-    #[should_panic]
     fn parse_decltype() {
-        unimplemented!()
+        assert_parse!(Decltype {
+            Ok => {
+                b"DTtrE..." => {
+                    Decltype::Expression(Expression::Rethrow),
+                    b"..."
+                }
+                b"DttrE..." => {
+                    Decltype::IdExpression(Expression::Rethrow),
+                    b"..."
+                }
+            }
+            Err => {
+                b"Dtrtz" => ErrorKind::UnexpectedText,
+                b"DTrtz" => ErrorKind::UnexpectedText,
+                b"Dz" => ErrorKind::UnexpectedText,
+                b"Dtrt" => ErrorKind::UnexpectedText,
+                b"DTrt" => ErrorKind::UnexpectedText,
+                b"Dt" => ErrorKind::UnexpectedEnd,
+                b"DT" => ErrorKind::UnexpectedEnd,
+                b"D" => ErrorKind::UnexpectedEnd,
+                b"" => ErrorKind::UnexpectedEnd,
+            }
+        });
     }
 
     #[test]
