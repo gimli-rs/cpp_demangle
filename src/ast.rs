@@ -1044,8 +1044,14 @@ impl Parse for TypeHandle {
         }
 
         if let Ok((param, tail)) = TemplateParam::parse(subs, input) {
-            let ty = Type::TemplateParam(param);
-            return insert_and_return_handle(ty, subs, tail);
+            // If we see an 'I', then this is a <template-template-param>. Throw
+            // away what we just parsed, and re-parse it in
+            // `TemplateTemplateParamHandle::parse` for now, but it would be
+            // nice not to duplicate work we've already done.
+            if tail.peek() != Some(b'I') {
+                let ty = Type::TemplateParam(param);
+                return insert_and_return_handle(ty, subs, tail);
+            }
         }
 
         if let Ok((ttp, tail)) = TemplateTemplateParamHandle::parse(subs, input) {
@@ -3255,9 +3261,190 @@ mod tests {
     }
 
     #[test]
-    #[should_panic]
     fn parse_type_handle() {
-        unimplemented!()
+        assert_parse!(TypeHandle {
+            with subs [
+                Substitutable::Type(
+                    Type::Builtin(BuiltinType::Standard(StandardBuiltinType::Char))),
+            ] => {
+                Ok => {
+                    b"S_..." => {
+                        TypeHandle::BackReference(0),
+                        b"...",
+                        []
+                    }
+                    b"c..." => {
+                        TypeHandle::BackReference(1),
+                        b"...",
+                        [
+                            Substitutable::Type(
+                                Type::Builtin(BuiltinType::Standard(StandardBuiltinType::Char)))
+                        ]
+                    }
+                    b"FS_E..." => {
+                        TypeHandle::BackReference(1),
+                        b"...",
+                        [
+                            Substitutable::Type(
+                                Type::Function(FunctionType {
+                                    cv_qualifiers: CvQualifiers {
+                                        restrict: false,
+                                        volatile: false,
+                                        const_: false,
+                                    },
+                                    transaction_safe: false,
+                                    extern_c: false,
+                                    bare: BareFunctionType(vec![TypeHandle::BackReference(0)]),
+                                    ref_qualifier: None,
+                                })),
+                        ]
+                    }
+                    b"A_S_..." => {
+                        TypeHandle::BackReference(1),
+                        b"...",
+                        [
+                            Substitutable::Type(
+                                Type::Array(ArrayType::NoDimension(TypeHandle::BackReference(0)))),
+                        ]
+                    }
+                    b"MS_S_..." => {
+                        TypeHandle::BackReference(1),
+                        b"...",
+                        [
+                            Substitutable::Type(
+                                Type::PointerToMember(
+                                    PointerToMemberType(TypeHandle::BackReference(0),
+                                                        TypeHandle::BackReference(0)))),
+                        ]
+                    }
+                    b"T_..." => {
+                        TypeHandle::BackReference(1),
+                        b"...",
+                        [
+                            Substitutable::Type(Type::TemplateParam(TemplateParam(0))),
+                        ]
+                    }
+                    b"T_IS_E..." => {
+                        TypeHandle::BackReference(2),
+                        b"...",
+                        [
+                            Substitutable::TemplateTemplateParam(
+                                TemplateTemplateParam(TemplateParam(0))),
+                            Substitutable::Type(
+                                Type::TemplateTemplate(
+                                    TemplateTemplateParamHandle::BackReference(1),
+                                    TemplateArgs(vec![
+                                        TemplateArg::Type(TypeHandle::BackReference(0))
+                                    ]))),
+                        ]
+                    }
+                    b"DTtrE..." => {
+                        TypeHandle::BackReference(1),
+                        b"...",
+                        [
+                            Substitutable::Type(
+                                Type::Decltype(Decltype::Expression(Expression::Rethrow))),
+                        ]
+                    }
+                    b"KS_..." => {
+                        TypeHandle::BackReference(1),
+                        b"...",
+                        [
+                            Substitutable::Type(Type::Qualified(CvQualifiers {
+                                restrict: false,
+                                volatile: false,
+                                const_: true,
+                            }, TypeHandle::BackReference(0)))
+                        ]
+                    }
+                    b"PS_..." => {
+                        TypeHandle::BackReference(1),
+                        b"...",
+                        [
+                            Substitutable::Type(Type::PointerTo(TypeHandle::BackReference(0)))
+                        ]
+                    }
+                    b"RS_..." => {
+                        TypeHandle::BackReference(1),
+                        b"...",
+                        [
+                            Substitutable::Type(Type::LvalueRef(TypeHandle::BackReference(0)))
+                        ]
+                    }
+                    b"OS_..." => {
+                        TypeHandle::BackReference(1),
+                        b"...",
+                        [
+                            Substitutable::Type(Type::RvalueRef(TypeHandle::BackReference(0)))
+                        ]
+                    }
+                    b"CS_..." => {
+                        TypeHandle::BackReference(1),
+                        b"...",
+                        [
+                            Substitutable::Type(Type::Complex(TypeHandle::BackReference(0)))
+                        ]
+                    }
+                    b"GS_..." => {
+                        TypeHandle::BackReference(1),
+                        b"...",
+                        [
+                            Substitutable::Type(Type::Imaginary(TypeHandle::BackReference(0)))
+                        ]
+                    }
+                    b"U3abcS_..." => {
+                        TypeHandle::BackReference(1),
+                        b"...",
+                        [
+                            Substitutable::Type(
+                                Type::VendorExtension(
+                                    SourceName(Identifier {
+                                        start: 2,
+                                        end: 5,
+                                    }),
+                                    None,
+                                    TypeHandle::BackReference(0)))
+                        ]
+                    }
+                    b"U3abcIS_ES_..." => {
+                        TypeHandle::BackReference(1),
+                        b"...",
+                        [
+                            Substitutable::Type(
+                                Type::VendorExtension(
+                                    SourceName(Identifier {
+                                        start: 2,
+                                        end: 5,
+                                    }),
+                                    Some(TemplateArgs(vec![
+                                        TemplateArg::Type(TypeHandle::BackReference(0))
+                                    ])),
+                                    TypeHandle::BackReference(0)))
+                        ]
+                    }
+                    b"DpS_..." => {
+                        TypeHandle::BackReference(1),
+                        b"...",
+                        [
+                            Substitutable::Type(
+                                Type::PackExpansion(TypeHandle::BackReference(0))),
+                        ]
+                    }
+                    // TODO: <class-enum-type>
+                }
+                Err => {
+                    b"P" => ErrorKind::UnexpectedEnd,
+                    b"R" => ErrorKind::UnexpectedEnd,
+                    b"O" => ErrorKind::UnexpectedEnd,
+                    b"C" => ErrorKind::UnexpectedEnd,
+                    b"G" => ErrorKind::UnexpectedEnd,
+                    b"Dp" => ErrorKind::UnexpectedEnd,
+                    b"D" => ErrorKind::UnexpectedEnd,
+                    b"P" => ErrorKind::UnexpectedEnd,
+                    b"" => ErrorKind::UnexpectedEnd,
+                }
+            }
+        });
     }
 
     #[test]
