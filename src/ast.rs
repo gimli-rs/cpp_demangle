@@ -3042,7 +3042,8 @@ mod tests {
                 TemplateTemplateParam, TemplateTemplateParamHandle, Type, TypeHandle,
                 UnnamedTypeName, UnqualifiedName, UnresolvedName,
                 UnresolvedQualifierLevel, UnresolvedType, UnresolvedTypeHandle,
-                UnscopedName, VOffset, WellKnownComponent};
+                UnscopedName, UnscopedTemplateName, UnscopedTemplateNameHandle, VOffset,
+                WellKnownComponent};
 
     fn assert_parse_ok<P, S1, S2, I1, I2>(production: &'static str,
                                           subs: S1,
@@ -3237,9 +3238,39 @@ mod tests {
     }
 
     #[test]
-    #[should_panic]
     fn parse_unscoped_template_name_handle() {
-        unimplemented!()
+        assert_parse!(UnscopedTemplateNameHandle {
+            with subs [
+                Substitutable::UnscopedTemplateName(
+                    UnscopedTemplateName(
+                        UnscopedName::Unqualified(
+                            UnqualifiedName::Operator(
+                                OperatorName::New)))),
+            ] => {
+                Ok => {
+                    b"S_..." => {
+                        UnscopedTemplateNameHandle::BackReference(0),
+                        b"...",
+                        []
+                    }
+                    b"dl..." => {
+                        UnscopedTemplateNameHandle::BackReference(1),
+                        b"...",
+                        [
+                            Substitutable::UnscopedTemplateName(
+                                UnscopedTemplateName(
+                                    UnscopedName::Unqualified(
+                                        UnqualifiedName::Operator(
+                                            OperatorName::Delete))))
+                        ]
+                    }
+                }
+                Err => {
+                    b"zzzz" => ErrorKind::UnexpectedText,
+                    b"" => ErrorKind::UnexpectedEnd,
+                }
+            }
+        });
     }
 
     #[test]
