@@ -3029,14 +3029,14 @@ mod tests {
     use super::{ArrayType, BareFunctionType, BaseUnresolvedName, BuiltinType,
                 CallOffset, ClosureTypeName, CtorDtorName, CvQualifiers,
                 DataMemberPrefix, Decltype, DestructorName, Discriminator, ExprPrimary,
-                Expression, FunctionParam, Identifier, Initializer, LambdaSig, Number,
-                NvOffset, OperatorName, Parse, PointerToMemberType, RefQualifier, SeqId,
-                SimpleId, SourceName, StandardBuiltinType, Substitution, TemplateArg,
-                TemplateArgs, TemplateParam, TemplateTemplateParam,
-                TemplateTemplateParamHandle, Type, TypeHandle, UnnamedTypeName,
-                UnqualifiedName, UnresolvedName, UnresolvedQualifierLevel,
-                UnresolvedType, UnresolvedTypeHandle, UnscopedName, VOffset,
-                WellKnownComponent};
+                Expression, FunctionParam, FunctionType, Identifier, Initializer,
+                LambdaSig, Number, NvOffset, OperatorName, Parse, PointerToMemberType,
+                RefQualifier, SeqId, SimpleId, SourceName, StandardBuiltinType,
+                Substitution, TemplateArg, TemplateArgs, TemplateParam,
+                TemplateTemplateParam, TemplateTemplateParamHandle, Type, TypeHandle,
+                UnnamedTypeName, UnqualifiedName, UnresolvedName,
+                UnresolvedQualifierLevel, UnresolvedType, UnresolvedTypeHandle,
+                UnscopedName, VOffset, WellKnownComponent};
 
     fn assert_parse_ok<P, S1, S2, I1, I2>(production: &'static str,
                                           subs: S1,
@@ -3261,9 +3261,99 @@ mod tests {
     }
 
     #[test]
-    #[should_panic]
     fn parse_function_type() {
-        unimplemented!()
+        assert_parse!(FunctionType {
+            with subs [
+                Substitutable::Type(
+                    Type::Builtin(BuiltinType::Standard(StandardBuiltinType::Char))),
+            ] => {
+                Ok => {
+                    b"KDxFYS_RE..." => {
+                        FunctionType {
+                            cv_qualifiers: CvQualifiers {
+                                restrict: false,
+                                volatile: false,
+                                const_: true,
+                            },
+                            transaction_safe: true,
+                            extern_c: true,
+                            bare: BareFunctionType(vec![TypeHandle::BackReference(0)]),
+                            ref_qualifier: Some(RefQualifier::LValueRef),
+                        },
+                        b"...",
+                        []
+                    }
+                    b"DxFYS_RE..." => {
+                        FunctionType {
+                            cv_qualifiers: CvQualifiers {
+                                restrict: false,
+                                volatile: false,
+                                const_: false,
+                            },
+                            transaction_safe: true,
+                            extern_c: true,
+                            bare: BareFunctionType(vec![TypeHandle::BackReference(0)]),
+                            ref_qualifier: Some(RefQualifier::LValueRef),
+                        },
+                        b"...",
+                        []
+                    }
+                    b"FYS_RE..." => {
+                        FunctionType {
+                            cv_qualifiers: CvQualifiers {
+                                restrict: false,
+                                volatile: false,
+                                const_: false,
+                            },
+                            transaction_safe: false,
+                            extern_c: true,
+                            bare: BareFunctionType(vec![TypeHandle::BackReference(0)]),
+                            ref_qualifier: Some(RefQualifier::LValueRef),
+                        },
+                        b"...",
+                        []
+                    }
+                    b"FS_RE..." => {
+                        FunctionType {
+                            cv_qualifiers: CvQualifiers {
+                                restrict: false,
+                                volatile: false,
+                                const_: false,
+                            },
+                            transaction_safe: false,
+                            extern_c: false,
+                            bare: BareFunctionType(vec![TypeHandle::BackReference(0)]),
+                            ref_qualifier: Some(RefQualifier::LValueRef),
+                        },
+                        b"...",
+                        []
+                    }
+                    b"FS_E..." => {
+                        FunctionType {
+                            cv_qualifiers: CvQualifiers {
+                                restrict: false,
+                                volatile: false,
+                                const_: false,
+                            },
+                            transaction_safe: false,
+                            extern_c: false,
+                            bare: BareFunctionType(vec![TypeHandle::BackReference(0)]),
+                            ref_qualifier: None,
+                        },
+                        b"...",
+                        []
+                    }
+                }
+                Err => {
+                    b"DFYS_E" => ErrorKind::UnexpectedText,
+                    b"KKFS_E" => ErrorKind::UnexpectedText,
+                    b"FYS_..." => ErrorKind::UnexpectedText,
+                    b"FYS_" => ErrorKind::UnexpectedEnd,
+                    b"F" => ErrorKind::UnexpectedEnd,
+                    b"" => ErrorKind::UnexpectedEnd,
+                }
+            }
+        });
     }
 
     #[test]
