@@ -3026,16 +3026,17 @@ mod tests {
     use std::fmt::Debug;
     use std::iter::FromIterator;
     use subs::{Substitutable, SubstitutionTable};
-    use super::{ArrayType, BaseUnresolvedName, BuiltinType, CallOffset, ClosureTypeName,
-                CtorDtorName, CvQualifiers, DataMemberPrefix, Decltype, DestructorName,
-                Discriminator, ExprPrimary, Expression, FunctionParam, Identifier,
-                Initializer, LambdaSig, Number, NvOffset, OperatorName, Parse,
-                PointerToMemberType, RefQualifier, SeqId, SimpleId, SourceName,
-                StandardBuiltinType, Substitution, TemplateArg, TemplateArgs,
-                TemplateParam, TemplateTemplateParam, TemplateTemplateParamHandle, Type,
-                TypeHandle, UnnamedTypeName, UnqualifiedName, UnresolvedName,
-                UnresolvedQualifierLevel, UnresolvedType, UnresolvedTypeHandle,
-                UnscopedName, VOffset, WellKnownComponent};
+    use super::{ArrayType, BareFunctionType, BaseUnresolvedName, BuiltinType,
+                CallOffset, ClosureTypeName, CtorDtorName, CvQualifiers,
+                DataMemberPrefix, Decltype, DestructorName, Discriminator, ExprPrimary,
+                Expression, FunctionParam, Identifier, Initializer, LambdaSig, Number,
+                NvOffset, OperatorName, Parse, PointerToMemberType, RefQualifier, SeqId,
+                SimpleId, SourceName, StandardBuiltinType, Substitution, TemplateArg,
+                TemplateArgs, TemplateParam, TemplateTemplateParam,
+                TemplateTemplateParamHandle, Type, TypeHandle, UnnamedTypeName,
+                UnqualifiedName, UnresolvedName, UnresolvedQualifierLevel,
+                UnresolvedType, UnresolvedTypeHandle, UnscopedName, VOffset,
+                WellKnownComponent};
 
     fn assert_parse_ok<P, S1, S2, I1, I2>(production: &'static str,
                                           subs: S1,
@@ -3266,9 +3267,27 @@ mod tests {
     }
 
     #[test]
-    #[should_panic]
     fn parse_bare_function_type() {
-        unimplemented!()
+        assert_parse!(BareFunctionType {
+            with subs [
+                Substitutable::Type(
+                    Type::Builtin(BuiltinType::Standard(StandardBuiltinType::Char))),
+            ] => {
+                Ok => {
+                    b"S_S_..." => {
+                        BareFunctionType(vec![
+                            TypeHandle::BackReference(0),
+                            TypeHandle::BackReference(0),
+                        ]),
+                        b"...",
+                        []
+                    }
+                }
+                Err => {
+                    b"" => ErrorKind::UnexpectedEnd,
+                }
+            }
+        });
     }
 
     #[test]
