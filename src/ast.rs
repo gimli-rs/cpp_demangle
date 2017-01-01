@@ -445,6 +445,12 @@ impl Parse for PrefixHandle {
             if let Ok((name, tail_tail)) = UnqualifiedName::parse(subs, tail) {
                 if let Some(handle) = current {
                     match tail_tail.peek() {
+                        Some(b'E') => {
+                            // This is the end of a <nested-name>, and the last
+                            // part of the prefix was actually the
+                            // <nested-name>'s final <unqualified-name>.
+                            return Ok((handle, tail));
+                        }
                         Some(b'I') => {
                             // This is a <template-prefix>.
                             let (args, tail_tail) = try!(TemplateArgs::parse(subs,

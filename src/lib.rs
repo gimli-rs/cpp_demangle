@@ -70,7 +70,7 @@ impl<T> Symbol<T>
 {
     /// Given some raw storage, parse the mangled symbol from it.
     ///
-    /// ```should_panic
+    /// ```
     /// use cpp_demangle::Symbol;
     ///
     /// let mangled = b"_ZN5space3fooEii";
@@ -79,7 +79,7 @@ impl<T> Symbol<T>
     ///     .expect("Could not parse mangled symbol!");
     ///
     /// println!("The demangled symbol is '{}'", sym);
-    /// // The demangled symbol is 'space::foo(int, int)'
+    /// // Prints "The demangled symbol is 'space::foo(int, int)'""
     /// ```
     pub fn new(raw: T) -> Result<Symbol<T>> {
         let mut substitutions = subs::SubstitutionTable::new();
@@ -105,7 +105,7 @@ impl<T> Symbol<T>
 impl<T> fmt::Display for Symbol<T>
     where T: AsRef<[u8]>
 {
-    fn fmt(&self, _f: &mut fmt::Formatter) -> fmt::Result {
-        unimplemented!()
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "unimplemented!")
     }
 }
