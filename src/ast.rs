@@ -2267,7 +2267,8 @@ impl Parse for UnresolvedName {
         let tail = try!(consume(b"sr", input));
 
         if tail.peek() == Some(b'N') {
-            let (ty, tail) = try!(UnresolvedTypeHandle::parse(subs, input));
+            let tail = consume(b"N", tail).unwrap();
+            let (ty, tail) = try!(UnresolvedTypeHandle::parse(subs, tail));
             let (levels, tail) = try!(one_or_more::<UnresolvedQualifierLevel>(subs,
                                                                               tail));
             let tail = try!(consume(b"E", tail));
@@ -2275,9 +2276,15 @@ impl Parse for UnresolvedName {
             return Ok((UnresolvedName::Nested1(ty, levels, name), tail));
         }
 
-        let (ty, tail) = try!(UnresolvedTypeHandle::parse(subs, tail));
+        if let Ok((ty, tail)) = UnresolvedTypeHandle::parse(subs, tail) {
+            let (name, tail) = try!(BaseUnresolvedName::parse(subs, tail));
+            return Ok((UnresolvedName::Nested1(ty, vec![], name), tail));
+        }
+
+        let (levels, tail) = try!(one_or_more::<UnresolvedQualifierLevel>(subs, tail));
+        let tail = try!(consume(b"E", tail));
         let (name, tail) = try!(BaseUnresolvedName::parse(subs, tail));
-        Ok((UnresolvedName::Nested1(ty, vec![], name), tail))
+        Ok((UnresolvedName::Nested2(levels, name), tail))
     }
 }
 
@@ -3026,9 +3033,9 @@ mod tests {
                 PointerToMemberType, RefQualifier, SeqId, SimpleId, SourceName,
                 StandardBuiltinType, Substitution, TemplateArg, TemplateArgs,
                 TemplateParam, TemplateTemplateParam, TemplateTemplateParamHandle, Type,
-                TypeHandle, UnnamedTypeName, UnqualifiedName, UnresolvedQualifierLevel,
-                UnresolvedType, UnresolvedTypeHandle, UnscopedName, VOffset,
-                WellKnownComponent};
+                TypeHandle, UnnamedTypeName, UnqualifiedName, UnresolvedName,
+                UnresolvedQualifierLevel, UnresolvedType, UnresolvedTypeHandle,
+                UnscopedName, VOffset, WellKnownComponent};
 
     fn assert_parse_ok<P, S1, S2, I1, I2>(production: &'static str,
                                           subs: S1,
@@ -3476,9 +3483,107 @@ mod tests {
     }
 
     #[test]
-    #[should_panic]
     fn parse_unresolved_name() {
-        unimplemented!()
+        assert_parse!(UnresolvedName {
+            with subs [
+                Substitutable::UnresolvedType(
+                    UnresolvedType::Decltype(Decltype::Expression(Expression::Rethrow))),
+            ] => {
+                Ok => {
+                    b"gs3abc..." => {
+                        UnresolvedName::Global(BaseUnresolvedName::Name(SimpleId(SourceName(Identifier {
+                            start: 3,
+                            end: 6,
+                        }), None))),
+                        b"...",
+                        []
+                    }
+                    b"3abc..." => {
+                        UnresolvedName::Name(BaseUnresolvedName::Name(SimpleId(SourceName(Identifier {
+                            start: 1,
+                            end: 4,
+                        }), None))),
+                        b"...",
+                        []
+                    }
+                    b"srS_3abc..." => {
+                        UnresolvedName::Nested1(UnresolvedTypeHandle::BackReference(0),
+                                                vec![],
+                                                BaseUnresolvedName::Name(SimpleId(SourceName(Identifier {
+                                                    start: 5,
+                                                    end: 8,
+                                                }), None))),
+                        b"...",
+                        []
+                    }
+                    b"srNS_3abc3abcE3abc..." => {
+                        UnresolvedName::Nested1(
+                            UnresolvedTypeHandle::BackReference(0),
+                            vec![
+                                UnresolvedQualifierLevel(SimpleId(SourceName(Identifier {
+                                    start: 6,
+                                    end: 9,
+                                }), None)),
+                                UnresolvedQualifierLevel(SimpleId(SourceName(Identifier {
+                                    start: 10,
+                                    end: 13,
+                                }), None)),
+                            ],
+                            BaseUnresolvedName::Name(SimpleId(SourceName(Identifier {
+                                start: 15,
+                                end: 18,
+                            }), None))),
+                        b"...",
+                        []
+                    }
+                    b"gssr3abcE3abc..." => {
+                        UnresolvedName::GlobalNested2(
+                            vec![
+                                UnresolvedQualifierLevel(SimpleId(SourceName(Identifier {
+                                    start: 5,
+                                    end: 8,
+                                }), None)),
+                            ],
+                            BaseUnresolvedName::Name(SimpleId(SourceName(Identifier {
+                                start: 10,
+                                end: 13,
+                            }), None))),
+                        b"...",
+                        []
+                    }
+                    b"sr3abcE3abc..." => {
+                        UnresolvedName::Nested2(
+                            vec![
+                                UnresolvedQualifierLevel(SimpleId(SourceName(Identifier {
+                                    start: 3,
+                                    end: 6,
+                                }), None)),
+                            ],
+                            BaseUnresolvedName::Name(SimpleId(SourceName(Identifier {
+                                start: 8,
+                                end: 11,
+                            }), None))),
+                        b"...",
+                        []
+                    }
+                }
+                Err => {
+                    b"zzzzzz" => ErrorKind::UnexpectedText,
+                    b"gszzz" => ErrorKind::UnexpectedText,
+                    b"gssrzzz" => ErrorKind::UnexpectedText,
+                    b"srNzzz" => ErrorKind::UnexpectedText,
+                    b"srzzz" => ErrorKind::UnexpectedText,
+                    b"srN3abczzzz" => ErrorKind::UnexpectedText,
+                    b"srN3abcE" => ErrorKind::UnexpectedText,
+                    b"srN3abc" => ErrorKind::UnexpectedText,
+                    b"srN" => ErrorKind::UnexpectedEnd,
+                    b"sr" => ErrorKind::UnexpectedEnd,
+                    b"gssr" => ErrorKind::UnexpectedEnd,
+                    b"gs" => ErrorKind::UnexpectedEnd,
+                    b"" => ErrorKind::UnexpectedEnd,
+                }
+            }
+        });
     }
 
     #[test]
