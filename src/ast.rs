@@ -445,6 +445,12 @@ impl Parse for PrefixHandle {
             if let Ok((name, tail_tail)) = UnqualifiedName::parse(subs, tail) {
                 if let Some(handle) = current {
                     match tail_tail.peek() {
+                        Some(b'E') => {
+                            // This is the end of a <nested-name>, and the last
+                            // part of the prefix was actually the
+                            // <nested-name>'s final <unqualified-name>.
+                            return Ok((handle, tail));
+                        }
                         Some(b'I') => {
                             // This is a <template-prefix>.
                             let (args, tail_tail) = try!(TemplateArgs::parse(subs,
@@ -1044,8 +1050,14 @@ impl Parse for TypeHandle {
         }
 
         if let Ok((param, tail)) = TemplateParam::parse(subs, input) {
-            let ty = Type::TemplateParam(param);
-            return insert_and_return_handle(ty, subs, tail);
+            // If we see an 'I', then this is a <template-template-param>. Throw
+            // away what we just parsed, and re-parse it in
+            // `TemplateTemplateParamHandle::parse` for now, but it would be
+            // nice not to duplicate work we've already done.
+            if tail.peek() != Some(b'I') {
+                let ty = Type::TemplateParam(param);
+                return insert_and_return_handle(ty, subs, tail);
+            }
         }
 
         if let Ok((ttp, tail)) = TemplateTemplateParamHandle::parse(subs, input) {
@@ -2267,7 +2279,8 @@ impl Parse for UnresolvedName {
         let tail = try!(consume(b"sr", input));
 
         if tail.peek() == Some(b'N') {
-            let (ty, tail) = try!(UnresolvedTypeHandle::parse(subs, input));
+            let tail = consume(b"N", tail).unwrap();
+            let (ty, tail) = try!(UnresolvedTypeHandle::parse(subs, tail));
             let (levels, tail) = try!(one_or_more::<UnresolvedQualifierLevel>(subs,
                                                                               tail));
             let tail = try!(consume(b"E", tail));
@@ -2275,9 +2288,15 @@ impl Parse for UnresolvedName {
             return Ok((UnresolvedName::Nested1(ty, levels, name), tail));
         }
 
-        let (ty, tail) = try!(UnresolvedTypeHandle::parse(subs, tail));
+        if let Ok((ty, tail)) = UnresolvedTypeHandle::parse(subs, tail) {
+            let (name, tail) = try!(BaseUnresolvedName::parse(subs, tail));
+            return Ok((UnresolvedName::Nested1(ty, vec![], name), tail));
+        }
+
+        let (levels, tail) = try!(one_or_more::<UnresolvedQualifierLevel>(subs, tail));
+        let tail = try!(consume(b"E", tail));
         let (name, tail) = try!(BaseUnresolvedName::parse(subs, tail));
-        Ok((UnresolvedName::Nested1(ty, vec![], name), tail))
+        Ok((UnresolvedName::Nested2(levels, name), tail))
     }
 }
 
@@ -2529,7 +2548,8 @@ impl Parse for Initializer {
                      -> Result<(Initializer, IndexStr<'b>)> {
         log_parse!("Initializer", input);
 
-        let (exprs, tail) = try!(zero_or_more::<Expression>(subs, input));
+        let tail = try!(consume(b"pi", input));
+        let (exprs, tail) = try!(zero_or_more::<Expression>(subs, tail));
         let tail = try!(consume(b"E", tail));
         Ok((Initializer(exprs), tail))
     }
@@ -2678,7 +2698,11 @@ impl Parse for LambdaSig {
                      -> Result<(LambdaSig, IndexStr<'b>)> {
         log_parse!("LambdaSig", input);
 
-        let (types, tail) = try!(one_or_more::<TypeHandle>(subs, input));
+        let (types, tail) = if let Ok(tail) = consume(b"v", input) {
+            (vec![], tail)
+        } else {
+            try!(one_or_more::<TypeHandle>(subs, input))
+        };
         Ok((LambdaSig(types), tail))
     }
 }
@@ -3014,13 +3038,17 @@ mod tests {
     use std::fmt::Debug;
     use std::iter::FromIterator;
     use subs::{Substitutable, SubstitutionTable};
-    use super::{ArrayType, BuiltinType, CallOffset, CtorDtorName, CvQualifiers,
-                DataMemberPrefix, Decltype, Discriminator, ExprPrimary, Expression,
-                FunctionParam, Identifier, Number, NvOffset, OperatorName, Parse,
-                PointerToMemberType, RefQualifier, SeqId, SourceName,
-                StandardBuiltinType, Substitution, TemplateArg, TemplateParam,
+    use super::{ArrayType, BareFunctionType, BaseUnresolvedName, BuiltinType,
+                CallOffset, ClosureTypeName, CtorDtorName, CvQualifiers,
+                DataMemberPrefix, Decltype, DestructorName, Discriminator, ExprPrimary,
+                Expression, FunctionParam, FunctionType, Identifier, Initializer,
+                LambdaSig, Number, NvOffset, OperatorName, Parse, PointerToMemberType,
+                RefQualifier, SeqId, SimpleId, SourceName, StandardBuiltinType,
+                Substitution, TemplateArg, TemplateArgs, TemplateParam,
                 TemplateTemplateParam, TemplateTemplateParamHandle, Type, TypeHandle,
-                UnnamedTypeName, UnqualifiedName, UnscopedName, VOffset,
+                UnnamedTypeName, UnqualifiedName, UnresolvedName,
+                UnresolvedQualifierLevel, UnresolvedType, UnresolvedTypeHandle,
+                UnscopedName, UnscopedTemplateName, UnscopedTemplateNameHandle, VOffset,
                 WellKnownComponent};
 
     fn assert_parse_ok<P, S1, S2, I1, I2>(production: &'static str,
@@ -3216,9 +3244,39 @@ mod tests {
     }
 
     #[test]
-    #[should_panic]
     fn parse_unscoped_template_name_handle() {
-        unimplemented!()
+        assert_parse!(UnscopedTemplateNameHandle {
+            with subs [
+                Substitutable::UnscopedTemplateName(
+                    UnscopedTemplateName(
+                        UnscopedName::Unqualified(
+                            UnqualifiedName::Operator(
+                                OperatorName::New)))),
+            ] => {
+                Ok => {
+                    b"S_..." => {
+                        UnscopedTemplateNameHandle::BackReference(0),
+                        b"...",
+                        []
+                    }
+                    b"dl..." => {
+                        UnscopedTemplateNameHandle::BackReference(1),
+                        b"...",
+                        [
+                            Substitutable::UnscopedTemplateName(
+                                UnscopedTemplateName(
+                                    UnscopedName::Unqualified(
+                                        UnqualifiedName::Operator(
+                                            OperatorName::Delete))))
+                        ]
+                    }
+                }
+                Err => {
+                    b"zzzz" => ErrorKind::UnexpectedText,
+                    b"" => ErrorKind::UnexpectedEnd,
+                }
+            }
+        });
     }
 
     #[test]
@@ -3240,27 +3298,337 @@ mod tests {
     }
 
     #[test]
-    #[should_panic]
     fn parse_type_handle() {
-        unimplemented!()
+        assert_parse!(TypeHandle {
+            with subs [
+                Substitutable::Type(
+                    Type::Builtin(BuiltinType::Standard(StandardBuiltinType::Char))),
+            ] => {
+                Ok => {
+                    b"S_..." => {
+                        TypeHandle::BackReference(0),
+                        b"...",
+                        []
+                    }
+                    b"c..." => {
+                        TypeHandle::BackReference(1),
+                        b"...",
+                        [
+                            Substitutable::Type(
+                                Type::Builtin(BuiltinType::Standard(StandardBuiltinType::Char)))
+                        ]
+                    }
+                    b"FS_E..." => {
+                        TypeHandle::BackReference(1),
+                        b"...",
+                        [
+                            Substitutable::Type(
+                                Type::Function(FunctionType {
+                                    cv_qualifiers: CvQualifiers {
+                                        restrict: false,
+                                        volatile: false,
+                                        const_: false,
+                                    },
+                                    transaction_safe: false,
+                                    extern_c: false,
+                                    bare: BareFunctionType(vec![TypeHandle::BackReference(0)]),
+                                    ref_qualifier: None,
+                                })),
+                        ]
+                    }
+                    b"A_S_..." => {
+                        TypeHandle::BackReference(1),
+                        b"...",
+                        [
+                            Substitutable::Type(
+                                Type::Array(ArrayType::NoDimension(TypeHandle::BackReference(0)))),
+                        ]
+                    }
+                    b"MS_S_..." => {
+                        TypeHandle::BackReference(1),
+                        b"...",
+                        [
+                            Substitutable::Type(
+                                Type::PointerToMember(
+                                    PointerToMemberType(TypeHandle::BackReference(0),
+                                                        TypeHandle::BackReference(0)))),
+                        ]
+                    }
+                    b"T_..." => {
+                        TypeHandle::BackReference(1),
+                        b"...",
+                        [
+                            Substitutable::Type(Type::TemplateParam(TemplateParam(0))),
+                        ]
+                    }
+                    b"T_IS_E..." => {
+                        TypeHandle::BackReference(2),
+                        b"...",
+                        [
+                            Substitutable::TemplateTemplateParam(
+                                TemplateTemplateParam(TemplateParam(0))),
+                            Substitutable::Type(
+                                Type::TemplateTemplate(
+                                    TemplateTemplateParamHandle::BackReference(1),
+                                    TemplateArgs(vec![
+                                        TemplateArg::Type(TypeHandle::BackReference(0))
+                                    ]))),
+                        ]
+                    }
+                    b"DTtrE..." => {
+                        TypeHandle::BackReference(1),
+                        b"...",
+                        [
+                            Substitutable::Type(
+                                Type::Decltype(Decltype::Expression(Expression::Rethrow))),
+                        ]
+                    }
+                    b"KS_..." => {
+                        TypeHandle::BackReference(1),
+                        b"...",
+                        [
+                            Substitutable::Type(Type::Qualified(CvQualifiers {
+                                restrict: false,
+                                volatile: false,
+                                const_: true,
+                            }, TypeHandle::BackReference(0)))
+                        ]
+                    }
+                    b"PS_..." => {
+                        TypeHandle::BackReference(1),
+                        b"...",
+                        [
+                            Substitutable::Type(Type::PointerTo(TypeHandle::BackReference(0)))
+                        ]
+                    }
+                    b"RS_..." => {
+                        TypeHandle::BackReference(1),
+                        b"...",
+                        [
+                            Substitutable::Type(Type::LvalueRef(TypeHandle::BackReference(0)))
+                        ]
+                    }
+                    b"OS_..." => {
+                        TypeHandle::BackReference(1),
+                        b"...",
+                        [
+                            Substitutable::Type(Type::RvalueRef(TypeHandle::BackReference(0)))
+                        ]
+                    }
+                    b"CS_..." => {
+                        TypeHandle::BackReference(1),
+                        b"...",
+                        [
+                            Substitutable::Type(Type::Complex(TypeHandle::BackReference(0)))
+                        ]
+                    }
+                    b"GS_..." => {
+                        TypeHandle::BackReference(1),
+                        b"...",
+                        [
+                            Substitutable::Type(Type::Imaginary(TypeHandle::BackReference(0)))
+                        ]
+                    }
+                    b"U3abcS_..." => {
+                        TypeHandle::BackReference(1),
+                        b"...",
+                        [
+                            Substitutable::Type(
+                                Type::VendorExtension(
+                                    SourceName(Identifier {
+                                        start: 2,
+                                        end: 5,
+                                    }),
+                                    None,
+                                    TypeHandle::BackReference(0)))
+                        ]
+                    }
+                    b"U3abcIS_ES_..." => {
+                        TypeHandle::BackReference(1),
+                        b"...",
+                        [
+                            Substitutable::Type(
+                                Type::VendorExtension(
+                                    SourceName(Identifier {
+                                        start: 2,
+                                        end: 5,
+                                    }),
+                                    Some(TemplateArgs(vec![
+                                        TemplateArg::Type(TypeHandle::BackReference(0))
+                                    ])),
+                                    TypeHandle::BackReference(0)))
+                        ]
+                    }
+                    b"DpS_..." => {
+                        TypeHandle::BackReference(1),
+                        b"...",
+                        [
+                            Substitutable::Type(
+                                Type::PackExpansion(TypeHandle::BackReference(0))),
+                        ]
+                    }
+                    // TODO: <class-enum-type>
+                }
+                Err => {
+                    b"P" => ErrorKind::UnexpectedEnd,
+                    b"R" => ErrorKind::UnexpectedEnd,
+                    b"O" => ErrorKind::UnexpectedEnd,
+                    b"C" => ErrorKind::UnexpectedEnd,
+                    b"G" => ErrorKind::UnexpectedEnd,
+                    b"Dp" => ErrorKind::UnexpectedEnd,
+                    b"D" => ErrorKind::UnexpectedEnd,
+                    b"P" => ErrorKind::UnexpectedEnd,
+                    b"" => ErrorKind::UnexpectedEnd,
+                }
+            }
+        });
     }
 
     #[test]
-    #[should_panic]
     fn parse_function_type() {
-        unimplemented!()
+        assert_parse!(FunctionType {
+            with subs [
+                Substitutable::Type(
+                    Type::Builtin(BuiltinType::Standard(StandardBuiltinType::Char))),
+            ] => {
+                Ok => {
+                    b"KDxFYS_RE..." => {
+                        FunctionType {
+                            cv_qualifiers: CvQualifiers {
+                                restrict: false,
+                                volatile: false,
+                                const_: true,
+                            },
+                            transaction_safe: true,
+                            extern_c: true,
+                            bare: BareFunctionType(vec![TypeHandle::BackReference(0)]),
+                            ref_qualifier: Some(RefQualifier::LValueRef),
+                        },
+                        b"...",
+                        []
+                    }
+                    b"DxFYS_RE..." => {
+                        FunctionType {
+                            cv_qualifiers: CvQualifiers {
+                                restrict: false,
+                                volatile: false,
+                                const_: false,
+                            },
+                            transaction_safe: true,
+                            extern_c: true,
+                            bare: BareFunctionType(vec![TypeHandle::BackReference(0)]),
+                            ref_qualifier: Some(RefQualifier::LValueRef),
+                        },
+                        b"...",
+                        []
+                    }
+                    b"FYS_RE..." => {
+                        FunctionType {
+                            cv_qualifiers: CvQualifiers {
+                                restrict: false,
+                                volatile: false,
+                                const_: false,
+                            },
+                            transaction_safe: false,
+                            extern_c: true,
+                            bare: BareFunctionType(vec![TypeHandle::BackReference(0)]),
+                            ref_qualifier: Some(RefQualifier::LValueRef),
+                        },
+                        b"...",
+                        []
+                    }
+                    b"FS_RE..." => {
+                        FunctionType {
+                            cv_qualifiers: CvQualifiers {
+                                restrict: false,
+                                volatile: false,
+                                const_: false,
+                            },
+                            transaction_safe: false,
+                            extern_c: false,
+                            bare: BareFunctionType(vec![TypeHandle::BackReference(0)]),
+                            ref_qualifier: Some(RefQualifier::LValueRef),
+                        },
+                        b"...",
+                        []
+                    }
+                    b"FS_E..." => {
+                        FunctionType {
+                            cv_qualifiers: CvQualifiers {
+                                restrict: false,
+                                volatile: false,
+                                const_: false,
+                            },
+                            transaction_safe: false,
+                            extern_c: false,
+                            bare: BareFunctionType(vec![TypeHandle::BackReference(0)]),
+                            ref_qualifier: None,
+                        },
+                        b"...",
+                        []
+                    }
+                }
+                Err => {
+                    b"DFYS_E" => ErrorKind::UnexpectedText,
+                    b"KKFS_E" => ErrorKind::UnexpectedText,
+                    b"FYS_..." => ErrorKind::UnexpectedText,
+                    b"FYS_" => ErrorKind::UnexpectedEnd,
+                    b"F" => ErrorKind::UnexpectedEnd,
+                    b"" => ErrorKind::UnexpectedEnd,
+                }
+            }
+        });
     }
 
     #[test]
-    #[should_panic]
     fn parse_bare_function_type() {
-        unimplemented!()
+        assert_parse!(BareFunctionType {
+            with subs [
+                Substitutable::Type(
+                    Type::Builtin(BuiltinType::Standard(StandardBuiltinType::Char))),
+            ] => {
+                Ok => {
+                    b"S_S_..." => {
+                        BareFunctionType(vec![
+                            TypeHandle::BackReference(0),
+                            TypeHandle::BackReference(0),
+                        ]),
+                        b"...",
+                        []
+                    }
+                }
+                Err => {
+                    b"" => ErrorKind::UnexpectedEnd,
+                }
+            }
+        });
     }
 
     #[test]
-    #[should_panic]
     fn parse_decltype() {
-        unimplemented!()
+        assert_parse!(Decltype {
+            Ok => {
+                b"DTtrE..." => {
+                    Decltype::Expression(Expression::Rethrow),
+                    b"..."
+                }
+                b"DttrE..." => {
+                    Decltype::IdExpression(Expression::Rethrow),
+                    b"..."
+                }
+            }
+            Err => {
+                b"Dtrtz" => ErrorKind::UnexpectedText,
+                b"DTrtz" => ErrorKind::UnexpectedText,
+                b"Dz" => ErrorKind::UnexpectedText,
+                b"Dtrt" => ErrorKind::UnexpectedText,
+                b"DTrt" => ErrorKind::UnexpectedText,
+                b"Dt" => ErrorKind::UnexpectedEnd,
+                b"DT" => ErrorKind::UnexpectedEnd,
+                b"D" => ErrorKind::UnexpectedEnd,
+                b"" => ErrorKind::UnexpectedEnd,
+            }
+        });
     }
 
     #[test]
@@ -3375,9 +3743,37 @@ mod tests {
     }
 
     #[test]
-    #[should_panic]
     fn parse_template_args() {
-        unimplemented!()
+        assert_parse!(TemplateArgs {
+            with subs [
+                Substitutable::Type(Type::Decltype(Decltype::Expression(Expression::Rethrow)))
+            ] => {
+                Ok => {
+                    b"IS_E..." => {
+                        TemplateArgs(vec![TemplateArg::Type(TypeHandle::BackReference(0))]),
+                        b"...",
+                        []
+                    }
+                    b"IS_S_S_S_E..." => {
+                        TemplateArgs(vec![
+                            TemplateArg::Type(TypeHandle::BackReference(0)),
+                            TemplateArg::Type(TypeHandle::BackReference(0)),
+                            TemplateArg::Type(TypeHandle::BackReference(0)),
+                            TemplateArg::Type(TypeHandle::BackReference(0)),
+                        ]),
+                        b"...",
+                        []
+                    }
+                }
+                Err => {
+                    b"zzz" => ErrorKind::UnexpectedText,
+                    b"IE" => ErrorKind::UnexpectedText,
+                    b"IS_" => ErrorKind::UnexpectedEnd,
+                    b"I" => ErrorKind::UnexpectedEnd,
+                    b"" => ErrorKind::UnexpectedEnd,
+                }
+            }
+        });
     }
 
     #[test]
@@ -3441,51 +3837,361 @@ mod tests {
     }
 
     #[test]
-    #[should_panic]
     fn parse_unresolved_name() {
-        unimplemented!()
+        assert_parse!(UnresolvedName {
+            with subs [
+                Substitutable::UnresolvedType(
+                    UnresolvedType::Decltype(Decltype::Expression(Expression::Rethrow))),
+            ] => {
+                Ok => {
+                    b"gs3abc..." => {
+                        UnresolvedName::Global(BaseUnresolvedName::Name(SimpleId(SourceName(Identifier {
+                            start: 3,
+                            end: 6,
+                        }), None))),
+                        b"...",
+                        []
+                    }
+                    b"3abc..." => {
+                        UnresolvedName::Name(BaseUnresolvedName::Name(SimpleId(SourceName(Identifier {
+                            start: 1,
+                            end: 4,
+                        }), None))),
+                        b"...",
+                        []
+                    }
+                    b"srS_3abc..." => {
+                        UnresolvedName::Nested1(UnresolvedTypeHandle::BackReference(0),
+                                                vec![],
+                                                BaseUnresolvedName::Name(SimpleId(SourceName(Identifier {
+                                                    start: 5,
+                                                    end: 8,
+                                                }), None))),
+                        b"...",
+                        []
+                    }
+                    b"srNS_3abc3abcE3abc..." => {
+                        UnresolvedName::Nested1(
+                            UnresolvedTypeHandle::BackReference(0),
+                            vec![
+                                UnresolvedQualifierLevel(SimpleId(SourceName(Identifier {
+                                    start: 6,
+                                    end: 9,
+                                }), None)),
+                                UnresolvedQualifierLevel(SimpleId(SourceName(Identifier {
+                                    start: 10,
+                                    end: 13,
+                                }), None)),
+                            ],
+                            BaseUnresolvedName::Name(SimpleId(SourceName(Identifier {
+                                start: 15,
+                                end: 18,
+                            }), None))),
+                        b"...",
+                        []
+                    }
+                    b"gssr3abcE3abc..." => {
+                        UnresolvedName::GlobalNested2(
+                            vec![
+                                UnresolvedQualifierLevel(SimpleId(SourceName(Identifier {
+                                    start: 5,
+                                    end: 8,
+                                }), None)),
+                            ],
+                            BaseUnresolvedName::Name(SimpleId(SourceName(Identifier {
+                                start: 10,
+                                end: 13,
+                            }), None))),
+                        b"...",
+                        []
+                    }
+                    b"sr3abcE3abc..." => {
+                        UnresolvedName::Nested2(
+                            vec![
+                                UnresolvedQualifierLevel(SimpleId(SourceName(Identifier {
+                                    start: 3,
+                                    end: 6,
+                                }), None)),
+                            ],
+                            BaseUnresolvedName::Name(SimpleId(SourceName(Identifier {
+                                start: 8,
+                                end: 11,
+                            }), None))),
+                        b"...",
+                        []
+                    }
+                }
+                Err => {
+                    b"zzzzzz" => ErrorKind::UnexpectedText,
+                    b"gszzz" => ErrorKind::UnexpectedText,
+                    b"gssrzzz" => ErrorKind::UnexpectedText,
+                    b"srNzzz" => ErrorKind::UnexpectedText,
+                    b"srzzz" => ErrorKind::UnexpectedText,
+                    b"srN3abczzzz" => ErrorKind::UnexpectedText,
+                    b"srN3abcE" => ErrorKind::UnexpectedText,
+                    b"srN3abc" => ErrorKind::UnexpectedText,
+                    b"srN" => ErrorKind::UnexpectedEnd,
+                    b"sr" => ErrorKind::UnexpectedEnd,
+                    b"gssr" => ErrorKind::UnexpectedEnd,
+                    b"gs" => ErrorKind::UnexpectedEnd,
+                    b"" => ErrorKind::UnexpectedEnd,
+                }
+            }
+        });
     }
 
     #[test]
-    #[should_panic]
     fn parse_unresolved_type_handle() {
-        unimplemented!()
+        assert_parse!(UnresolvedTypeHandle {
+            with subs [
+                Substitutable::UnresolvedType(
+                    UnresolvedType::Decltype(Decltype::Expression(Expression::Rethrow))),
+            ] => {
+                Ok => {
+                    b"S_..." => {
+                        UnresolvedTypeHandle::BackReference(0),
+                        b"...",
+                        []
+                    }
+                    b"T_..." => {
+                        UnresolvedTypeHandle::BackReference(1),
+                        b"...",
+                        [
+                            Substitutable::UnresolvedType(
+                                UnresolvedType::Template(TemplateParam(0), None)),
+                        ]
+                    }
+                    b"T_IS_E..." => {
+                        UnresolvedTypeHandle::BackReference(1),
+                        b"...",
+                        [
+                            Substitutable::UnresolvedType(
+                                UnresolvedType::Template(TemplateParam(0), Some(TemplateArgs(vec![
+                                    TemplateArg::Type(TypeHandle::BackReference(0))
+                                ])))),
+                        ]
+                    }
+                    b"DTtrE..." => {
+                        UnresolvedTypeHandle::BackReference(1),
+                        b"...",
+                        [
+                            Substitutable::UnresolvedType(
+                                UnresolvedType::Decltype(Decltype::Expression(Expression::Rethrow)))
+                        ]
+
+                    }
+                }
+                Err => {
+                    b"zzzzzzz" => ErrorKind::UnexpectedText,
+                    b"" => ErrorKind::UnexpectedEnd,
+                }
+            }
+        });
     }
 
     #[test]
-    #[should_panic]
     fn parse_unresolved_qualifier_level() {
-        unimplemented!()
+        assert_parse!(UnresolvedQualifierLevel {
+            with subs [
+                Substitutable::Type(Type::Decltype(Decltype::Expression(Expression::Rethrow)))
+            ] => {
+                Ok => {
+                    b"3abc..." => {
+                        UnresolvedQualifierLevel(SimpleId(SourceName(Identifier {
+                            start: 1,
+                            end: 4,
+                        }), None)),
+                        b"...",
+                        []
+                    }
+                    b"3abcIS_E..." => {
+                        UnresolvedQualifierLevel(SimpleId(SourceName(Identifier {
+                            start: 1,
+                            end: 4,
+                        }), Some(TemplateArgs(vec![
+                            TemplateArg::Type(TypeHandle::BackReference(0))
+                        ])))),
+                        b"...",
+                        []
+                    }
+                }
+                Err => {
+                    b"zzz" => ErrorKind::UnexpectedText,
+                    b"" => ErrorKind::UnexpectedEnd,
+                }
+            }
+        });
     }
 
     #[test]
-    #[should_panic]
     fn parse_simple_id() {
-        unimplemented!()
+        assert_parse!(SimpleId {
+            with subs [
+                Substitutable::Type(Type::Decltype(Decltype::Expression(Expression::Rethrow)))
+            ] => {
+                Ok => {
+                    b"3abc..." => {
+                        SimpleId(SourceName(Identifier {
+                            start: 1,
+                            end: 4,
+                        }), None),
+                        b"...",
+                        []
+                    }
+                    b"3abcIS_E..." => {
+                        SimpleId(SourceName(Identifier {
+                            start: 1,
+                            end: 4,
+                        }), Some(TemplateArgs(vec![
+                            TemplateArg::Type(TypeHandle::BackReference(0))
+                        ]))),
+                        b"...",
+                        []
+                    }
+                }
+                Err => {
+                    b"zzz" => ErrorKind::UnexpectedText,
+                    b"" => ErrorKind::UnexpectedEnd,
+                }
+            }
+        });
     }
 
     #[test]
-    #[should_panic]
     fn parse_base_unresolved_name() {
-        unimplemented!()
+        assert_parse!(BaseUnresolvedName {
+            with subs [
+                Substitutable::Type(Type::Decltype(Decltype::Expression(Expression::Rethrow)))
+            ] => {
+                Ok => {
+                    b"3abc..." => {
+                        BaseUnresolvedName::Name(SimpleId(SourceName(Identifier {
+                            start: 1,
+                            end: 4,
+                        }), None)),
+                        b"...",
+                        []
+                    }
+                    b"onnw..." => {
+                        BaseUnresolvedName::Operator(OperatorName::New, None),
+                        b"...",
+                        []
+                    }
+                    b"onnwIS_E..." => {
+                        BaseUnresolvedName::Operator(OperatorName::New, Some(TemplateArgs(vec![
+                            TemplateArg::Type(TypeHandle::BackReference(0))
+                        ]))),
+                        b"...",
+                        []
+                    }
+                    b"dn3abc..." => {
+                        BaseUnresolvedName::Destructor(DestructorName::Name(SimpleId(SourceName(Identifier {
+                            start: 3,
+                            end: 6,
+                        }), None))),
+                        b"...",
+                        []
+                    }
+                }
+                Err => {
+                    b"ozzz" => ErrorKind::UnexpectedText,
+                    b"dzzz" => ErrorKind::UnexpectedText,
+                    b"dn" => ErrorKind::UnexpectedEnd,
+                    b"on" => ErrorKind::UnexpectedEnd,
+                    b"" => ErrorKind::UnexpectedEnd,
+                }
+            }
+        });
     }
 
     #[test]
-    #[should_panic]
     fn parse_destructor_name() {
-        unimplemented!()
+        assert_parse!(DestructorName {
+            with subs [
+                Substitutable::UnresolvedType(
+                    UnresolvedType::Decltype(Decltype::Expression(Expression::Rethrow))),
+            ] => {
+                Ok => {
+                    b"S_..." => {
+                        DestructorName::Unresolved(UnresolvedTypeHandle::BackReference(0)),
+                        b"...",
+                        []
+                    }
+                    b"3abc..." => {
+                        DestructorName::Name(SimpleId(SourceName(Identifier {
+                            start: 1,
+                            end: 4,
+                        }), None)),
+                        b"...",
+                        []
+                    }
+                }
+                Err => {
+                    b"zzz" => ErrorKind::UnexpectedText,
+                    b"" => ErrorKind::UnexpectedEnd,
+                }
+            }
+        });
     }
 
     #[test]
-    #[should_panic]
     fn parse_expr_primary() {
-        unimplemented!()
+        assert_parse!(ExprPrimary {
+            with subs [
+                Substitutable::Type(Type::Decltype(Decltype::Expression(Expression::Rethrow)))
+            ] => {
+                Ok => {
+                    b"LS_12345E..." => {
+                        ExprPrimary::Literal(TypeHandle::BackReference(0), 3, 8),
+                        b"...",
+                        []
+                    }
+                    b"LS_E..." => {
+                        ExprPrimary::Literal(TypeHandle::BackReference(0), 3, 3),
+                        b"...",
+                        []
+                    }
+                    // TODO: L <mangled-name> E
+                }
+                Err => {
+                    b"zzz" => ErrorKind::UnexpectedText,
+                    b"LS_zzz" => ErrorKind::UnexpectedEnd,
+                    b"LS_12345" => ErrorKind::UnexpectedEnd,
+                    b"LS_" => ErrorKind::UnexpectedEnd,
+                    b"L" => ErrorKind::UnexpectedEnd,
+                    b"" => ErrorKind::UnexpectedEnd,
+                }
+            }
+        });
     }
 
     #[test]
-    #[should_panic]
     fn parse_initializer() {
-        unimplemented!()
+        assert_parse!(Initializer {
+            Ok => {
+                b"piE..." => {
+                    Initializer(vec![]),
+                    b"..."
+                }
+                b"pitrtrtrE..." => {
+                    Initializer(vec![
+                        Expression::Rethrow,
+                        Expression::Rethrow,
+                        Expression::Rethrow,
+                    ]),
+                    b"..."
+                }
+            }
+            Err => {
+                b"pirtrtrt..." => ErrorKind::UnexpectedText,
+                b"pi..." => ErrorKind::UnexpectedText,
+                b"..." => ErrorKind::UnexpectedText,
+                b"pirt" => ErrorKind::UnexpectedText,
+                b"pi" => ErrorKind::UnexpectedEnd,
+                b"p" => ErrorKind::UnexpectedEnd,
+                b"" => ErrorKind::UnexpectedEnd,
+            }
+        });
     }
 
     #[test]
@@ -3495,15 +4201,62 @@ mod tests {
     }
 
     #[test]
-    #[should_panic]
     fn parse_closure_type_name() {
-        unimplemented!()
+        assert_parse!(ClosureTypeName {
+            Ok => {
+                b"UlvE_..." => {
+                    ClosureTypeName(LambdaSig(vec![]), None),
+                    b"..."
+                }
+                b"UlvE36_..." => {
+                    ClosureTypeName(LambdaSig(vec![]), Some(36)),
+                    b"..."
+                }
+            }
+            Err => {
+                b"UlvE36zzz" => ErrorKind::UnexpectedText,
+                b"UlvEzzz" => ErrorKind::UnexpectedText,
+                b"Ulvzzz" => ErrorKind::UnexpectedText,
+                b"zzz" => ErrorKind::UnexpectedText,
+                b"UlvE10" => ErrorKind::UnexpectedEnd,
+                b"UlvE" => ErrorKind::UnexpectedEnd,
+                b"Ulv" => ErrorKind::UnexpectedEnd,
+                b"Ul" => ErrorKind::UnexpectedEnd,
+                b"U" => ErrorKind::UnexpectedEnd,
+                b"" => ErrorKind::UnexpectedEnd,
+            }
+        });
     }
 
     #[test]
-    #[should_panic]
     fn parse_lambda_sig() {
-        unimplemented!()
+        assert_parse!(LambdaSig {
+            with subs [
+                Substitutable::Type(Type::Builtin(BuiltinType::Standard(StandardBuiltinType::Bool)))
+            ] => {
+                Ok => {
+                    b"v..." => {
+                        LambdaSig(vec![]),
+                        b"...",
+                        []
+                    }
+                    b"S_S_S_..." => {
+                        LambdaSig(vec![
+                            TypeHandle::BackReference(0),
+                            TypeHandle::BackReference(0),
+                            TypeHandle::BackReference(0),
+                        ]),
+                        b"...",
+                        []
+                    }
+                }
+                Err => {
+                    b"..." => ErrorKind::UnexpectedText,
+                    b"S" => ErrorKind::UnexpectedEnd,
+                    b"" => ErrorKind::UnexpectedEnd,
+                }
+            }
+        });
     }
 
     #[test]
