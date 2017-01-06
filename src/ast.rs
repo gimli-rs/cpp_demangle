@@ -18,8 +18,15 @@ impl AutoLogParse {
     #[cfg(feature = "logging")]
     fn new<'a>(production: &'static str, input: IndexStr<'a>) -> AutoLogParse {
         PARSE_DEPTH.with(|depth| {
+            if *depth.borrow() == 0 {
+                println!("");
+            }
+
             let indent: String = (0..*depth.borrow() * 4).map(|_| ' ').collect();
-            log!("{}({}::parse: {:?}", indent, production, input);
+            log!("{}({} \"{}\"",
+                 indent,
+                 production,
+                 String::from_utf8_lossy(input.as_ref()));
             *depth.borrow_mut() += 1;
         });
         AutoLogParse
