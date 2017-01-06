@@ -3125,7 +3125,7 @@ mod tests {
                 CallOffset, ClosureTypeName, CtorDtorName, CvQualifiers,
                 DataMemberPrefix, Decltype, DestructorName, Discriminator, Encoding,
                 ExprPrimary, Expression, FunctionParam, FunctionType, Identifier,
-                Initializer, LambdaSig, Name, NestedName, Number, NvOffset,
+                Initializer, LambdaSig, MangledName, Name, NestedName, Number, NvOffset,
                 OperatorName, Parse, PointerToMemberType, Prefix, PrefixHandle,
                 RefQualifier, SeqId, SimpleId, SourceName, StandardBuiltinType,
                 Substitution, TemplateArg, TemplateArgs, TemplateParam,
@@ -3312,19 +3312,38 @@ mod tests {
     }
 
     #[test]
-    #[should_panic]
     fn parse_mangled_name() {
-        unimplemented!()
+        assert_parse!(MangledName {
+            with subs [] => {
+                Ok => {
+                    b"_Z3foo..." => {
+                        MangledName(
+                            Encoding::Data(
+                                Name::Unscoped(
+                                    UnscopedName::Unqualified(
+                                        UnqualifiedName::Source(
+                                            SourceName(Identifier {
+                                                start: 3,
+                                                end: 6,
+                                            })))))),
+                        b"...",
+                        []
+                    }
+                }
+                Err => {
+                    b"_Y" => ErrorKind::UnexpectedText,
+                    b"_Z" => ErrorKind::UnexpectedEnd,
+                    b"_" => ErrorKind::UnexpectedEnd,
+                    b"" => ErrorKind::UnexpectedEnd,
+                }
+            }
+        });
     }
 
     #[test]
     fn parse_encoding() {
-        // <encoding> ::= <function name> <bare-function-type>
-        //            ::= <data name>
-        //            ::= <special-name>
         assert_parse!(Encoding {
-            with subs [
-            ] => {
+            with subs [] => {
                 Ok => {
                     b"3fooi..." => {
                         Encoding::Function(
