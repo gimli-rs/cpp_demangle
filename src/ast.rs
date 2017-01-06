@@ -124,7 +124,11 @@ macro_rules! define_vocabulary {
         }
 
         impl Parse for $typename {
-            fn parse<'a, 'b>(_subs: &'a mut SubstitutionTable, input: IndexStr<'b>) -> Result<($typename, IndexStr<'b>)> {
+            fn parse<'a, 'b>(_subs: &'a mut SubstitutionTable,
+                             input: IndexStr<'b>)
+                             -> Result<($typename, IndexStr<'b>)> {
+                log_parse!(stringify!($typename), input);
+
                 let mut found_prefix = false;
                 $(
                     if let Some((head, tail)) = input.try_split_at($mangled.len()) {
