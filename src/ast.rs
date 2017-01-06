@@ -2614,10 +2614,16 @@ impl Parse for LocalName {
 
         let tail = try!(consume(b"Z", input));
         let (encoding, tail) = try!(Encoding::parse(subs, tail));
+        let tail = try!(consume(b"E", tail));
 
         if let Ok(tail) = consume(b"s", tail) {
-            let (disc, tail) = try!(Discriminator::parse(subs, tail));
-            return Ok((LocalName::Relative(Box::new(encoding), None, Some(disc)), tail));
+            let (disc, tail) = if let Ok((disc, tail)) = Discriminator::parse(subs,
+                                                                              tail) {
+                (Some(disc), tail)
+            } else {
+                (None, tail)
+            };
+            return Ok((LocalName::Relative(Box::new(encoding), None, disc), tail));
         }
 
         if let Ok(tail) = consume(b"d", tail) {
@@ -3082,12 +3088,12 @@ mod tests {
                 CallOffset, ClassEnumType, ClosureTypeName, CtorDtorName, CvQualifiers,
                 DataMemberPrefix, Decltype, DestructorName, Discriminator, Encoding,
                 ExprPrimary, Expression, FunctionParam, FunctionType, Identifier,
-                Initializer, LambdaSig, MangledName, Name, NestedName, Number, NvOffset,
-                OperatorName, Parse, PointerToMemberType, Prefix, PrefixHandle,
-                RefQualifier, SeqId, SimpleId, SourceName, StandardBuiltinType,
-                Substitution, TemplateArg, TemplateArgs, TemplateParam,
-                TemplateTemplateParam, TemplateTemplateParamHandle, Type, TypeHandle,
-                UnnamedTypeName, UnqualifiedName, UnresolvedName,
+                Initializer, LambdaSig, LocalName, MangledName, Name, NestedName,
+                Number, NvOffset, OperatorName, Parse, PointerToMemberType, Prefix,
+                PrefixHandle, RefQualifier, SeqId, SimpleId, SourceName,
+                StandardBuiltinType, Substitution, TemplateArg, TemplateArgs,
+                TemplateParam, TemplateTemplateParam, TemplateTemplateParamHandle, Type,
+                TypeHandle, UnnamedTypeName, UnqualifiedName, UnresolvedName,
                 UnresolvedQualifierLevel, UnresolvedType, UnresolvedTypeHandle,
                 UnscopedName, UnscopedTemplateName, UnscopedTemplateNameHandle, VOffset,
                 WellKnownComponent};
@@ -3346,11 +3352,6 @@ mod tests {
 
     #[test]
     fn parse_name() {
-        // <name> ::= <nested-name>
-        //        ::= <unscoped-name>
-        //        ::= <unscoped-template-name> <template-args>
-        //        ::= <local-name>
-        //        ::= St <unqualified-name> # ::std::
         assert_parse!(Name {
             with subs [
                 Substitutable::Prefix(
@@ -4710,9 +4711,126 @@ mod tests {
     }
 
     #[test]
-    #[should_panic]
     fn parse_local_name() {
-        unimplemented!()
+        assert_parse!(LocalName {
+            Ok => {
+                b"Z3abcE3def_0..." => {
+                    LocalName::Relative(
+                        Box::new(Encoding::Data(
+                            Name::Unscoped(
+                                UnscopedName::Unqualified(
+                                    UnqualifiedName::Source(
+                                        SourceName(Identifier {
+                                            start: 2,
+                                            end: 5,
+                                        })))))),
+                        Some(Box::new(Name::Unscoped(
+                            UnscopedName::Unqualified(
+                                UnqualifiedName::Source(
+                                    SourceName(Identifier {
+                                        start: 7,
+                                        end: 10,
+                                    })))))),
+                        Some(Discriminator(0))),
+                    b"..."
+                }
+                b"Z3abcE3def..." => {
+                    LocalName::Relative(
+                        Box::new(Encoding::Data(
+                            Name::Unscoped(
+                                UnscopedName::Unqualified(
+                                    UnqualifiedName::Source(
+                                        SourceName(Identifier {
+                                            start: 2,
+                                            end: 5,
+                                        })))))),
+                        Some(Box::new(Name::Unscoped(
+                            UnscopedName::Unqualified(
+                                UnqualifiedName::Source(
+                                    SourceName(Identifier {
+                                        start: 7,
+                                        end: 10,
+                                    })))))),
+                        None),
+                    b"..."
+                }
+                b"Z3abcEs_0..." => {
+                    LocalName::Relative(
+                        Box::new(Encoding::Data(
+                            Name::Unscoped(
+                                UnscopedName::Unqualified(
+                                    UnqualifiedName::Source(
+                                        SourceName(Identifier {
+                                            start: 2,
+                                            end: 5,
+                                        })))))),
+                        None,
+                        Some(Discriminator(0))),
+                    b"..."
+                }
+                b"Z3abcEs..." => {
+                    LocalName::Relative(
+                        Box::new(Encoding::Data(
+                            Name::Unscoped(
+                                UnscopedName::Unqualified(
+                                    UnqualifiedName::Source(
+                                        SourceName(Identifier {
+                                            start: 2,
+                                            end: 5,
+                                        })))))),
+                        None,
+                        None),
+                    b"..."
+                }
+                b"Z3abcEd1_3abc..." => {
+                    LocalName::Default(
+                        Box::new(Encoding::Data(
+                            Name::Unscoped(
+                                UnscopedName::Unqualified(
+                                    UnqualifiedName::Source(
+                                        SourceName(Identifier {
+                                            start: 2,
+                                            end: 5,
+                                        })))))),
+                        Some(1),
+                        Box::new(Name::Unscoped(
+                            UnscopedName::Unqualified(
+                                UnqualifiedName::Source(
+                                    SourceName(Identifier {
+                                        start: 10,
+                                        end: 13,
+                                    })))))),
+                    b"..."
+                }
+                b"Z3abcEd_3abc..." => {
+                    LocalName::Default(
+                        Box::new(Encoding::Data(
+                            Name::Unscoped(
+                                UnscopedName::Unqualified(
+                                    UnqualifiedName::Source(
+                                        SourceName(Identifier {
+                                            start: 2,
+                                            end: 5,
+                                        })))))),
+                        None,
+                        Box::new(Name::Unscoped(
+                            UnscopedName::Unqualified(
+                                UnqualifiedName::Source(
+                                    SourceName(Identifier {
+                                        start: 9,
+                                        end: 12,
+                                    })))))),
+                    b"..."
+                }
+            }
+            Err => {
+                b"A" => ErrorKind::UnexpectedText,
+                b"Z1a" => ErrorKind::UnexpectedEnd,
+                b"Z1aE" => ErrorKind::UnexpectedEnd,
+                b"Z" => ErrorKind::UnexpectedEnd,
+                b"" => ErrorKind::UnexpectedEnd,
+            }
+        });
     }
 
     #[test]
