@@ -1484,7 +1484,7 @@ impl Parse for ClassEnumType {
 
         if let Ok(tail) = consume(b"u", tail) {
             let (name, tail) = try!(Name::parse(subs, tail));
-            return Ok((ClassEnumType::ElaboratedEnum(name), tail));
+            return Ok((ClassEnumType::ElaboratedUnion(name), tail));
         }
 
         let tail = try!(consume(b"e", tail));
@@ -3079,7 +3079,7 @@ mod tests {
     use std::iter::FromIterator;
     use subs::{Substitutable, SubstitutionTable};
     use super::{ArrayType, BareFunctionType, BaseUnresolvedName, BuiltinType,
-                CallOffset, ClosureTypeName, CtorDtorName, CvQualifiers,
+                CallOffset, ClassEnumType, ClosureTypeName, CtorDtorName, CvQualifiers,
                 DataMemberPrefix, Decltype, DestructorName, Discriminator, Encoding,
                 ExprPrimary, Expression, FunctionParam, FunctionType, Identifier,
                 Initializer, LambdaSig, MangledName, Name, NestedName, Number, NvOffset,
@@ -4095,9 +4095,61 @@ mod tests {
     }
 
     #[test]
-    #[should_panic]
     fn parse_class_enum_type() {
-        unimplemented!()
+        assert_parse!(ClassEnumType {
+            Ok => {
+                b"3abc..." => {
+                    ClassEnumType::Named(
+                        Name::Unscoped(
+                            UnscopedName::Unqualified(
+                                UnqualifiedName::Source(
+                                    SourceName(Identifier {
+                                        start: 1,
+                                        end: 4,
+                                    }))))),
+                    b"..."
+                }
+                b"Ts3abc..." => {
+                    ClassEnumType::ElaboratedStruct(
+                        Name::Unscoped(
+                            UnscopedName::Unqualified(
+                                UnqualifiedName::Source(
+                                    SourceName(Identifier {
+                                        start: 3,
+                                        end: 6,
+                                    }))))),
+                    b"..."
+                }
+                b"Tu3abc..." => {
+                    ClassEnumType::ElaboratedUnion(
+                        Name::Unscoped(
+                            UnscopedName::Unqualified(
+                                UnqualifiedName::Source(
+                                    SourceName(Identifier {
+                                        start: 3,
+                                        end: 6,
+                                    }))))),
+                    b"..."
+                }
+                b"Te3abc..." => {
+                    ClassEnumType::ElaboratedEnum(
+                        Name::Unscoped(
+                            UnscopedName::Unqualified(
+                                UnqualifiedName::Source(
+                                    SourceName(Identifier {
+                                        start: 3,
+                                        end: 6,
+                                    }))))),
+                    b"..."
+                }
+            }
+            Err => {
+                b"zzz" => ErrorKind::UnexpectedText,
+                b"Tzzz" => ErrorKind::UnexpectedText,
+                b"T" => ErrorKind::UnexpectedEnd,
+                b"" => ErrorKind::UnexpectedEnd,
+            }
+        });
     }
 
     #[test]
