@@ -12,9 +12,6 @@ pub enum Substitutable {
     /// An `<unscoped-template-name>` production.
     UnscopedTemplateName(ast::UnscopedTemplateName),
 
-    /// A `<template-prefix>` production.
-    TemplatePrefix(ast::TemplatePrefix),
-
     /// A `<type>` production.
     Type(ast::Type),
 

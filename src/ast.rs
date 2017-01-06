@@ -124,7 +124,11 @@ macro_rules! define_vocabulary {
         }
 
         impl Parse for $typename {
-            fn parse<'a, 'b>(_subs: &'a mut SubstitutionTable, input: IndexStr<'b>) -> Result<($typename, IndexStr<'b>)> {
+            fn parse<'a, 'b>(_subs: &'a mut SubstitutionTable,
+                             input: IndexStr<'b>)
+                             -> Result<($typename, IndexStr<'b>)> {
+                log_parse!(stringify!($typename), input);
+
                 let mut found_prefix = false;
                 $(
                     if let Some((head, tail)) = input.try_split_at($mangled.len()) {
@@ -217,10 +221,6 @@ impl Parse for Encoding {
                      -> Result<(Encoding, IndexStr<'b>)> {
         log_parse!("Encoding", input);
 
-        if input.is_empty() {
-            return Err(ErrorKind::UnexpectedEnd.into());
-        }
-
         if let Ok((name, tail)) = Name::parse(subs, input) {
             if let Ok((ty, tail)) = BareFunctionType::parse(subs, tail) {
                 return Ok((Encoding::Function(name, ty), tail));
@@ -229,11 +229,8 @@ impl Parse for Encoding {
             }
         }
 
-        if let Ok((name, tail)) = SpecialName::parse(subs, input) {
-            return Ok((Encoding::Special(name), tail));
-        }
-
-        Err(ErrorKind::UnexpectedText.into())
+        let (name, tail) = try!(SpecialName::parse(subs, input));
+        Ok((Encoding::Special(name), tail))
     }
 }
 
@@ -272,7 +269,16 @@ impl Parse for Name {
         }
 
         if let Ok((name, tail)) = UnscopedName::parse(subs, input) {
-            return Ok((Name::Unscoped(name), tail));
+            if tail.peek() == Some(b'I') {
+                let name = UnscopedTemplateName(name);
+                let idx = subs.insert(Substitutable::UnscopedTemplateName(name));
+                let handle = UnscopedTemplateNameHandle::BackReference(idx);
+
+                let (args, tail) = try!(TemplateArgs::parse(subs, tail));
+                return Ok((Name::UnscopedTemplate(handle, args), tail));
+            } else {
+                return Ok((Name::Unscoped(name), tail));
+            }
         }
 
         if let Ok((name, tail)) = UnscopedTemplateNameHandle::parse(subs, input) {
@@ -280,12 +286,10 @@ impl Parse for Name {
             return Ok((Name::UnscopedTemplate(name, args), tail));
         }
 
-        if let Ok((name, tail)) = LocalName::parse(subs, input) {
-            return Ok((Name::Local(name), tail));
-        }
-
         // TODO: the `std` variant
-        Err(ErrorKind::UnexpectedText.into())
+
+        let (name, tail) = try!(LocalName::parse(subs, input));
+        Ok((Name::Local(name), tail))
     }
 }
 
@@ -485,7 +489,7 @@ impl Parse for PrefixHandle {
                         }
                         Substitution::BackReference(idx) => {
                             // TODO: do we need to check that the idx actually points to
-                            // a Prefix or TemplatePrefix?
+                            // a Prefix?
                             PrefixHandle::BackReference(idx)
                         }
                     });
@@ -518,7 +522,8 @@ impl Parse for PrefixHandle {
                         tail = tail_tail;
                     }
                 }
-                Some(b'I') if current.is_some() => {
+                Some(b'I') if current.is_some() &&
+                              current.as_ref().unwrap().is_template_prefix(subs) => {
                     // <prefix> ::= <template-prefix> <template-args>
                     let (args, tail_tail) = try!(TemplateArgs::parse(subs, tail));
                     let prefix = Prefix::Template(current.unwrap(), args);
@@ -576,72 +581,28 @@ impl Parse for PrefixHandle {
     }
 }
 
-/// The `<template-prefix>` production.
-///
-/// ```text
-/// <template-prefix> ::= <template unqualified-name>            # global template
-///                   ::= <prefix> <template unqualified-name>   # nested template
-///                   ::= <template-param>                       # template template parameter
-///                   ::= <substitution>
-/// ```
-#[derive(Clone, Debug, Hash, PartialEq, Eq)]
-pub enum TemplatePrefix {
-    /// A template name.
-    UnqualifiedName(UnqualifiedName),
-
-    /// A nested template name.
-    Nested(PrefixHandle, UnqualifiedName),
-
-    /// A template template parameter.
-    TemplateTemplate(TemplateParam),
+impl Prefix {
+    fn is_template_prefix(&self) -> bool {
+        match *self {
+            Prefix::Unqualified(..) |
+            Prefix::Nested(..) |
+            Prefix::TemplateParam(..) => true,
+            _ => false,
+        }
+    }
 }
 
-define_handle! {
-    /// A reference to a parsed `TemplatePrefix`.
-    pub enum TemplatePrefixHandle
-}
-
-impl Parse for TemplatePrefixHandle {
-    fn parse<'a, 'b>(subs: &'a mut SubstitutionTable,
-                     input: IndexStr<'b>)
-                     -> Result<(TemplatePrefixHandle, IndexStr<'b>)> {
-        log_parse!("TemplatePrefixHandle", input);
-
-        if let Ok((name, tail)) = UnqualifiedName::parse(subs, input) {
-            let prefix = TemplatePrefix::UnqualifiedName(name);
-            let prefix = Substitutable::TemplatePrefix(prefix);
-            let idx = subs.insert(prefix);
-            let handle = TemplatePrefixHandle::BackReference(idx);
-            return Ok((handle, tail));
-        }
-
-        if let Ok((prefix, tail)) = PrefixHandle::parse(subs, input) {
-            let (name, tail) = try!(UnqualifiedName::parse(subs, tail));
-            let nested = TemplatePrefix::Nested(prefix, name);
-            let prefix = Substitutable::TemplatePrefix(nested);
-            let idx = subs.insert(prefix);
-            let handle = TemplatePrefixHandle::BackReference(idx);
-            return Ok((handle, tail));
-        }
-
-        if let Ok((param, tail)) = TemplateParam::parse(subs, input) {
-            let prefix = TemplatePrefix::TemplateTemplate(param);
-            let prefix = Substitutable::TemplatePrefix(prefix);
-            let idx = subs.insert(prefix);
-            let handle = TemplatePrefixHandle::BackReference(idx);
-            return Ok((handle, tail));
-        }
-
-        let (sub, tail) = try!(Substitution::parse(subs, input));
-        match sub {
-            Substitution::WellKnown(component) => {
-                Ok((TemplatePrefixHandle::WellKnown(component), tail))
+impl PrefixHandle {
+    fn is_template_prefix(&self, subs: &SubstitutionTable) -> bool {
+        match *self {
+            PrefixHandle::BackReference(idx) => {
+                if let Some(&Substitutable::Prefix(ref p)) = subs.get(idx) {
+                    p.is_template_prefix()
+                } else {
+                    false
+                }
             }
-            Substitution::BackReference(idx) => {
-                // TODO: should this check if the back reference actually points
-                // to a <template-prefix> ?
-                Ok((TemplatePrefixHandle::BackReference(idx), tail))
-            }
+            _ => false,
         }
     }
 }
@@ -1523,7 +1484,7 @@ impl Parse for ClassEnumType {
 
         if let Ok(tail) = consume(b"u", tail) {
             let (name, tail) = try!(Name::parse(subs, tail));
-            return Ok((ClassEnumType::ElaboratedEnum(name), tail));
+            return Ok((ClassEnumType::ElaboratedUnion(name), tail));
         }
 
         let tail = try!(consume(b"e", tail));
@@ -2653,10 +2614,16 @@ impl Parse for LocalName {
 
         let tail = try!(consume(b"Z", input));
         let (encoding, tail) = try!(Encoding::parse(subs, tail));
+        let tail = try!(consume(b"E", tail));
 
         if let Ok(tail) = consume(b"s", tail) {
-            let (disc, tail) = try!(Discriminator::parse(subs, tail));
-            return Ok((LocalName::Relative(Box::new(encoding), None, Some(disc)), tail));
+            let (disc, tail) = if let Ok((disc, tail)) = Discriminator::parse(subs,
+                                                                              tail) {
+                (Some(disc), tail)
+            } else {
+                (None, tail)
+            };
+            return Ok((LocalName::Relative(Box::new(encoding), None, disc), tail));
         }
 
         if let Ok(tail) = consume(b"d", tail) {
@@ -3118,17 +3085,17 @@ mod tests {
     use std::iter::FromIterator;
     use subs::{Substitutable, SubstitutionTable};
     use super::{ArrayType, BareFunctionType, BaseUnresolvedName, BuiltinType,
-                CallOffset, ClosureTypeName, CtorDtorName, CvQualifiers,
-                DataMemberPrefix, Decltype, DestructorName, Discriminator, ExprPrimary,
-                Expression, FunctionParam, FunctionType, Identifier, Initializer,
-                LambdaSig, NestedName, Number, NvOffset, OperatorName, Parse,
-                PointerToMemberType, Prefix, PrefixHandle, RefQualifier, SeqId,
-                SimpleId, SourceName, StandardBuiltinType, Substitution, TemplateArg,
-                TemplateArgs, TemplateParam, TemplateTemplateParam,
-                TemplateTemplateParamHandle, Type, TypeHandle, UnnamedTypeName,
-                UnqualifiedName, UnresolvedName, UnresolvedQualifierLevel,
-                UnresolvedType, UnresolvedTypeHandle, UnscopedName,
-                UnscopedTemplateName, UnscopedTemplateNameHandle, VOffset,
+                CallOffset, ClassEnumType, ClosureTypeName, CtorDtorName, CvQualifiers,
+                DataMemberPrefix, Decltype, DestructorName, Discriminator, Encoding,
+                ExprPrimary, Expression, FunctionParam, FunctionType, Identifier,
+                Initializer, LambdaSig, LocalName, MangledName, Name, NestedName,
+                Number, NvOffset, OperatorName, Parse, PointerToMemberType, Prefix,
+                PrefixHandle, RefQualifier, SeqId, SimpleId, SourceName,
+                StandardBuiltinType, Substitution, TemplateArg, TemplateArgs,
+                TemplateParam, TemplateTemplateParam, TemplateTemplateParamHandle, Type,
+                TypeHandle, UnnamedTypeName, UnqualifiedName, UnresolvedName,
+                UnresolvedQualifierLevel, UnresolvedType, UnresolvedTypeHandle,
+                UnscopedName, UnscopedTemplateName, UnscopedTemplateNameHandle, VOffset,
                 WellKnownComponent};
 
     fn assert_parse_ok<P, S1, S2, I1, I2>(production: &'static str,
@@ -3308,21 +3275,139 @@ mod tests {
     }
 
     #[test]
-    #[should_panic]
     fn parse_mangled_name() {
-        unimplemented!()
+        assert_parse!(MangledName {
+            with subs [] => {
+                Ok => {
+                    b"_Z3foo..." => {
+                        MangledName(
+                            Encoding::Data(
+                                Name::Unscoped(
+                                    UnscopedName::Unqualified(
+                                        UnqualifiedName::Source(
+                                            SourceName(Identifier {
+                                                start: 3,
+                                                end: 6,
+                                            })))))),
+                        b"...",
+                        []
+                    }
+                }
+                Err => {
+                    b"_Y" => ErrorKind::UnexpectedText,
+                    b"_Z" => ErrorKind::UnexpectedEnd,
+                    b"_" => ErrorKind::UnexpectedEnd,
+                    b"" => ErrorKind::UnexpectedEnd,
+                }
+            }
+        });
     }
 
     #[test]
-    #[should_panic]
     fn parse_encoding() {
-        unimplemented!()
+        assert_parse!(Encoding {
+            with subs [] => {
+                Ok => {
+                    b"3fooi..." => {
+                        Encoding::Function(
+                            Name::Unscoped(
+                                UnscopedName::Unqualified(
+                                    UnqualifiedName::Source(
+                                        SourceName(Identifier {
+                                            start: 1,
+                                            end: 4,
+                                        })))),
+                            BareFunctionType(vec![
+                                TypeHandle::BackReference(0)
+                            ])),
+                        b"...",
+                        [
+                            Substitutable::Type(
+                                Type::Builtin(
+                                    BuiltinType::Standard(
+                                        StandardBuiltinType::Int))),
+                        ]
+                    }
+                    b"3foo..." => {
+                        Encoding::Data(
+                            Name::Unscoped(
+                                UnscopedName::Unqualified(
+                                    UnqualifiedName::Source(
+                                        SourceName(Identifier {
+                                            start: 1,
+                                            end: 4,
+                                        }))))),
+                        b"...",
+                        []
+                    }
+                    // TODO: <special-name>
+                }
+                Err => {
+                    b"zzz" => ErrorKind::UnexpectedText,
+                    b"" => ErrorKind::UnexpectedEnd,
+                }
+            }
+        });
     }
 
     #[test]
-    #[should_panic]
     fn parse_name() {
-        unimplemented!()
+        assert_parse!(Name {
+            with subs [
+                Substitutable::Prefix(
+                    Prefix::Unqualified(
+                        UnqualifiedName::Operator(OperatorName::New))),
+                Substitutable::Prefix(
+                    Prefix::Nested(PrefixHandle::BackReference(0),
+                                   UnqualifiedName::Operator(OperatorName::New))),
+            ] => {
+                Ok => {
+                    b"NS0_E..." => {
+                        Name::Nested(NestedName(CvQualifiers::default(),
+                                                None,
+                                                PrefixHandle::BackReference(1))),
+                        b"...",
+                        []
+                    }
+                    b"3abc..." => {
+                        Name::Unscoped(
+                            UnscopedName::Unqualified(
+                                UnqualifiedName::Source(
+                                    SourceName(Identifier {
+                                        start: 1,
+                                        end: 4,
+                                    })))),
+                        b"...",
+                        []
+                    }
+                    b"dlIcE..." => {
+                        Name::UnscopedTemplate(
+                            UnscopedTemplateNameHandle::BackReference(2),
+                            TemplateArgs(vec![
+                                TemplateArg::Type(TypeHandle::BackReference(3)),
+                            ])),
+                        b"...",
+                        [
+                            Substitutable::UnscopedTemplateName(
+                                UnscopedTemplateName(
+                                    UnscopedName::Unqualified(
+                                        UnqualifiedName::Operator(
+                                            OperatorName::Delete)))),
+                            Substitutable::Type(
+                                Type::Builtin(
+                                    BuiltinType::Standard(
+                                        StandardBuiltinType::Char))),
+                        ]
+                    }
+                    // TODO: <local-name>
+                    // TODO: St <unqualified-name>
+                }
+                Err => {
+                    b"zzz" => ErrorKind::UnexpectedText,
+                    b"" => ErrorKind::UnexpectedEnd,
+                }
+            }
+        });
     }
 
     #[test]
@@ -3677,12 +3762,6 @@ mod tests {
     }
 
     #[test]
-    #[should_panic]
-    fn parse_template_prefix_handle() {
-        unimplemented!()
-    }
-
-    #[test]
     fn parse_type_handle() {
         assert_parse!(TypeHandle {
             with subs [
@@ -4017,9 +4096,61 @@ mod tests {
     }
 
     #[test]
-    #[should_panic]
     fn parse_class_enum_type() {
-        unimplemented!()
+        assert_parse!(ClassEnumType {
+            Ok => {
+                b"3abc..." => {
+                    ClassEnumType::Named(
+                        Name::Unscoped(
+                            UnscopedName::Unqualified(
+                                UnqualifiedName::Source(
+                                    SourceName(Identifier {
+                                        start: 1,
+                                        end: 4,
+                                    }))))),
+                    b"..."
+                }
+                b"Ts3abc..." => {
+                    ClassEnumType::ElaboratedStruct(
+                        Name::Unscoped(
+                            UnscopedName::Unqualified(
+                                UnqualifiedName::Source(
+                                    SourceName(Identifier {
+                                        start: 3,
+                                        end: 6,
+                                    }))))),
+                    b"..."
+                }
+                b"Tu3abc..." => {
+                    ClassEnumType::ElaboratedUnion(
+                        Name::Unscoped(
+                            UnscopedName::Unqualified(
+                                UnqualifiedName::Source(
+                                    SourceName(Identifier {
+                                        start: 3,
+                                        end: 6,
+                                    }))))),
+                    b"..."
+                }
+                b"Te3abc..." => {
+                    ClassEnumType::ElaboratedEnum(
+                        Name::Unscoped(
+                            UnscopedName::Unqualified(
+                                UnqualifiedName::Source(
+                                    SourceName(Identifier {
+                                        start: 3,
+                                        end: 6,
+                                    }))))),
+                    b"..."
+                }
+            }
+            Err => {
+                b"zzz" => ErrorKind::UnexpectedText,
+                b"Tzzz" => ErrorKind::UnexpectedText,
+                b"T" => ErrorKind::UnexpectedEnd,
+                b"" => ErrorKind::UnexpectedEnd,
+            }
+        });
     }
 
     #[test]
@@ -4580,9 +4711,126 @@ mod tests {
     }
 
     #[test]
-    #[should_panic]
     fn parse_local_name() {
-        unimplemented!()
+        assert_parse!(LocalName {
+            Ok => {
+                b"Z3abcE3def_0..." => {
+                    LocalName::Relative(
+                        Box::new(Encoding::Data(
+                            Name::Unscoped(
+                                UnscopedName::Unqualified(
+                                    UnqualifiedName::Source(
+                                        SourceName(Identifier {
+                                            start: 2,
+                                            end: 5,
+                                        })))))),
+                        Some(Box::new(Name::Unscoped(
+                            UnscopedName::Unqualified(
+                                UnqualifiedName::Source(
+                                    SourceName(Identifier {
+                                        start: 7,
+                                        end: 10,
+                                    })))))),
+                        Some(Discriminator(0))),
+                    b"..."
+                }
+                b"Z3abcE3def..." => {
+                    LocalName::Relative(
+                        Box::new(Encoding::Data(
+                            Name::Unscoped(
+                                UnscopedName::Unqualified(
+                                    UnqualifiedName::Source(
+                                        SourceName(Identifier {
+                                            start: 2,
+                                            end: 5,
+                                        })))))),
+                        Some(Box::new(Name::Unscoped(
+                            UnscopedName::Unqualified(
+                                UnqualifiedName::Source(
+                                    SourceName(Identifier {
+                                        start: 7,
+                                        end: 10,
+                                    })))))),
+                        None),
+                    b"..."
+                }
+                b"Z3abcEs_0..." => {
+                    LocalName::Relative(
+                        Box::new(Encoding::Data(
+                            Name::Unscoped(
+                                UnscopedName::Unqualified(
+                                    UnqualifiedName::Source(
+                                        SourceName(Identifier {
+                                            start: 2,
+                                            end: 5,
+                                        })))))),
+                        None,
+                        Some(Discriminator(0))),
+                    b"..."
+                }
+                b"Z3abcEs..." => {
+                    LocalName::Relative(
+                        Box::new(Encoding::Data(
+                            Name::Unscoped(
+                                UnscopedName::Unqualified(
+                                    UnqualifiedName::Source(
+                                        SourceName(Identifier {
+                                            start: 2,
+                                            end: 5,
+                                        })))))),
+                        None,
+                        None),
+                    b"..."
+                }
+                b"Z3abcEd1_3abc..." => {
+                    LocalName::Default(
+                        Box::new(Encoding::Data(
+                            Name::Unscoped(
+                                UnscopedName::Unqualified(
+                                    UnqualifiedName::Source(
+                                        SourceName(Identifier {
+                                            start: 2,
+                                            end: 5,
+                                        })))))),
+                        Some(1),
+                        Box::new(Name::Unscoped(
+                            UnscopedName::Unqualified(
+                                UnqualifiedName::Source(
+                                    SourceName(Identifier {
+                                        start: 10,
+                                        end: 13,
+                                    })))))),
+                    b"..."
+                }
+                b"Z3abcEd_3abc..." => {
+                    LocalName::Default(
+                        Box::new(Encoding::Data(
+                            Name::Unscoped(
+                                UnscopedName::Unqualified(
+                                    UnqualifiedName::Source(
+                                        SourceName(Identifier {
+                                            start: 2,
+                                            end: 5,
+                                        })))))),
+                        None,
+                        Box::new(Name::Unscoped(
+                            UnscopedName::Unqualified(
+                                UnqualifiedName::Source(
+                                    SourceName(Identifier {
+                                        start: 9,
+                                        end: 12,
+                                    })))))),
+                    b"..."
+                }
+            }
+            Err => {
+                b"A" => ErrorKind::UnexpectedText,
+                b"Z1a" => ErrorKind::UnexpectedEnd,
+                b"Z1aE" => ErrorKind::UnexpectedEnd,
+                b"Z" => ErrorKind::UnexpectedEnd,
+                b"" => ErrorKind::UnexpectedEnd,
+            }
+        });
     }
 
     #[test]
