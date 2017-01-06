@@ -3207,6 +3207,8 @@ mod tests {
                 }
             }
         }
+
+        log!("=== assert_parse_ok PASSED ====================================");
     }
 
     fn simple_assert_parse_ok<P, I1, I2>(production: &'static str,
@@ -3237,9 +3239,7 @@ mod tests {
         let mut subs = SubstitutionTable::from_iter(subs.as_ref().iter().cloned());
 
         match P::parse(&mut subs, IndexStr::from(input)) {
-            Err(ref error) if *error.kind() == expected_error_kind => {
-                return;
-            }
+            Err(ref error) if *error.kind() == expected_error_kind => {}
             Err(ref error) => {
                 panic!("Parsing {:?} as {} produced an error of kind {:?}, but we expected kind {:?}",
                        String::from_utf8_lossy(input),
@@ -3256,6 +3256,8 @@ mod tests {
                        expected_error_kind);
             }
         }
+
+        log!("=== assert_parse_err PASSED ===================================");
     }
 
     fn simple_assert_parse_err<P, I>(production: &'static str,
