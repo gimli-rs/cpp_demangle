@@ -3161,7 +3161,7 @@ mod tests {
             }
             Ok((value, tail)) => {
                 if value != expected {
-                    panic!("Parsing {:?} as {} produced {:?}, expected {:?}",
+                    panic!("Parsing {:?} as {} produced\n\n{:#?}\n\nbut we expected\n\n{:#?}",
                            String::from_utf8_lossy(input),
                            production,
                            value,
@@ -3227,7 +3227,7 @@ mod tests {
                        expected_error_kind);
             }
             Ok((value, tail)) => {
-                panic!("Parsing {:?} as {} produced value {:?} and tail {:?}, but we expected error kind {:?}",
+                panic!("Parsing {:?} as {} produced value\n\n{:#?}\n\nand tail {:?}, but we expected error kind {:?}",
                        String::from_utf8_lossy(input),
                        production,
                        value,
