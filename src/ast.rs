@@ -276,7 +276,16 @@ impl Parse for Name {
         }
 
         if let Ok((name, tail)) = UnscopedName::parse(subs, input) {
-            return Ok((Name::Unscoped(name), tail));
+            if tail.peek() == Some(b'I') {
+                let name = UnscopedTemplateName(name);
+                let idx = subs.insert(Substitutable::UnscopedTemplateName(name));
+                let handle = UnscopedTemplateNameHandle::BackReference(idx);
+
+                let (args, tail) = try!(TemplateArgs::parse(subs, tail));
+                return Ok((Name::UnscopedTemplate(handle, args), tail));
+            } else {
+                return Ok((Name::Unscoped(name), tail));
+            }
         }
 
         if let Ok((name, tail)) = UnscopedTemplateNameHandle::parse(subs, input) {
@@ -284,12 +293,10 @@ impl Parse for Name {
             return Ok((Name::UnscopedTemplate(name, args), tail));
         }
 
-        if let Ok((name, tail)) = LocalName::parse(subs, input) {
-            return Ok((Name::Local(name), tail));
-        }
-
         // TODO: the `std` variant
-        Err(ErrorKind::UnexpectedText.into())
+
+        let (name, tail) = try!(LocalName::parse(subs, input));
+        Ok((Name::Local(name), tail))
     }
 }
 
@@ -3125,7 +3132,7 @@ mod tests {
                 CallOffset, ClosureTypeName, CtorDtorName, CvQualifiers,
                 DataMemberPrefix, Decltype, DestructorName, Discriminator, ExprPrimary,
                 Expression, FunctionParam, FunctionType, Identifier, Initializer,
-                LambdaSig, NestedName, Number, NvOffset, OperatorName, Parse,
+                LambdaSig, Name, NestedName, Number, NvOffset, OperatorName, Parse,
                 PointerToMemberType, Prefix, PrefixHandle, RefQualifier, SeqId,
                 SimpleId, SourceName, StandardBuiltinType, Substitution, TemplateArg,
                 TemplateArgs, TemplateParam, TemplateTemplateParam,
@@ -3324,9 +3331,68 @@ mod tests {
     }
 
     #[test]
-    #[should_panic]
     fn parse_name() {
-        unimplemented!()
+        // <name> ::= <nested-name>
+        //        ::= <unscoped-name>
+        //        ::= <unscoped-template-name> <template-args>
+        //        ::= <local-name>
+        //        ::= St <unqualified-name> # ::std::
+        assert_parse!(Name {
+            with subs [
+                Substitutable::Prefix(
+                    Prefix::Unqualified(
+                        UnqualifiedName::Operator(OperatorName::New))),
+                Substitutable::Prefix(
+                    Prefix::Nested(PrefixHandle::BackReference(0),
+                                   UnqualifiedName::Operator(OperatorName::New))),
+            ] => {
+                Ok => {
+                    b"NS0_E..." => {
+                        Name::Nested(NestedName(CvQualifiers::default(),
+                                                None,
+                                                PrefixHandle::BackReference(1))),
+                        b"...",
+                        []
+                    }
+                    b"3abc..." => {
+                        Name::Unscoped(
+                            UnscopedName::Unqualified(
+                                UnqualifiedName::Source(
+                                    SourceName(Identifier {
+                                        start: 1,
+                                        end: 4,
+                                    })))),
+                        b"...",
+                        []
+                    }
+                    b"dlIcE..." => {
+                        Name::UnscopedTemplate(
+                            UnscopedTemplateNameHandle::BackReference(2),
+                            TemplateArgs(vec![
+                                TemplateArg::Type(TypeHandle::BackReference(3)),
+                            ])),
+                        b"...",
+                        [
+                            Substitutable::UnscopedTemplateName(
+                                UnscopedTemplateName(
+                                    UnscopedName::Unqualified(
+                                        UnqualifiedName::Operator(
+                                            OperatorName::Delete)))),
+                            Substitutable::Type(
+                                Type::Builtin(
+                                    BuiltinType::Standard(
+                                        StandardBuiltinType::Char))),
+                        ]
+                    }
+                    // TODO: <local-name>
+                    // TODO: St <unqualified-name>
+                }
+                Err => {
+                    b"zzz" => ErrorKind::UnexpectedText,
+                    b"" => ErrorKind::UnexpectedEnd,
+                }
+            }
+        });
     }
 
     #[test]
