@@ -489,7 +489,7 @@ impl Parse for PrefixHandle {
                         }
                         Substitution::BackReference(idx) => {
                             // TODO: do we need to check that the idx actually points to
-                            // a Prefix or TemplatePrefix?
+                            // a Prefix?
                             PrefixHandle::BackReference(idx)
                         }
                     });
@@ -522,7 +522,8 @@ impl Parse for PrefixHandle {
                         tail = tail_tail;
                     }
                 }
-                Some(b'I') if current.is_some() => {
+                Some(b'I') if current.is_some() &&
+                              current.as_ref().unwrap().is_template_prefix(subs) => {
                     // <prefix> ::= <template-prefix> <template-args>
                     let (args, tail_tail) = try!(TemplateArgs::parse(subs, tail));
                     let prefix = Prefix::Template(current.unwrap(), args);
@@ -580,72 +581,28 @@ impl Parse for PrefixHandle {
     }
 }
 
-/// The `<template-prefix>` production.
-///
-/// ```text
-/// <template-prefix> ::= <template unqualified-name>            # global template
-///                   ::= <prefix> <template unqualified-name>   # nested template
-///                   ::= <template-param>                       # template template parameter
-///                   ::= <substitution>
-/// ```
-#[derive(Clone, Debug, Hash, PartialEq, Eq)]
-pub enum TemplatePrefix {
-    /// A template name.
-    UnqualifiedName(UnqualifiedName),
-
-    /// A nested template name.
-    Nested(PrefixHandle, UnqualifiedName),
-
-    /// A template template parameter.
-    TemplateTemplate(TemplateParam),
+impl Prefix {
+    fn is_template_prefix(&self) -> bool {
+        match *self {
+            Prefix::Unqualified(..) |
+            Prefix::Nested(..) |
+            Prefix::TemplateParam(..) => true,
+            _ => false,
+        }
+    }
 }
 
-define_handle! {
-    /// A reference to a parsed `TemplatePrefix`.
-    pub enum TemplatePrefixHandle
-}
-
-impl Parse for TemplatePrefixHandle {
-    fn parse<'a, 'b>(subs: &'a mut SubstitutionTable,
-                     input: IndexStr<'b>)
-                     -> Result<(TemplatePrefixHandle, IndexStr<'b>)> {
-        log_parse!("TemplatePrefixHandle", input);
-
-        if let Ok((name, tail)) = UnqualifiedName::parse(subs, input) {
-            let prefix = TemplatePrefix::UnqualifiedName(name);
-            let prefix = Substitutable::TemplatePrefix(prefix);
-            let idx = subs.insert(prefix);
-            let handle = TemplatePrefixHandle::BackReference(idx);
-            return Ok((handle, tail));
-        }
-
-        if let Ok((prefix, tail)) = PrefixHandle::parse(subs, input) {
-            let (name, tail) = try!(UnqualifiedName::parse(subs, tail));
-            let nested = TemplatePrefix::Nested(prefix, name);
-            let prefix = Substitutable::TemplatePrefix(nested);
-            let idx = subs.insert(prefix);
-            let handle = TemplatePrefixHandle::BackReference(idx);
-            return Ok((handle, tail));
-        }
-
-        if let Ok((param, tail)) = TemplateParam::parse(subs, input) {
-            let prefix = TemplatePrefix::TemplateTemplate(param);
-            let prefix = Substitutable::TemplatePrefix(prefix);
-            let idx = subs.insert(prefix);
-            let handle = TemplatePrefixHandle::BackReference(idx);
-            return Ok((handle, tail));
-        }
-
-        let (sub, tail) = try!(Substitution::parse(subs, input));
-        match sub {
-            Substitution::WellKnown(component) => {
-                Ok((TemplatePrefixHandle::WellKnown(component), tail))
+impl PrefixHandle {
+    fn is_template_prefix(&self, subs: &SubstitutionTable) -> bool {
+        match *self {
+            PrefixHandle::BackReference(idx) => {
+                if let Some(&Substitutable::Prefix(ref p)) = subs.get(idx) {
+                    p.is_template_prefix()
+                } else {
+                    false
+                }
             }
-            Substitution::BackReference(idx) => {
-                // TODO: should this check if the back reference actually points
-                // to a <template-prefix> ?
-                Ok((TemplatePrefixHandle::BackReference(idx), tail))
-            }
+            _ => false,
         }
     }
 }
@@ -3801,12 +3758,6 @@ mod tests {
                 }
             }
         });
-    }
-
-    #[test]
-    #[should_panic]
-    fn parse_template_prefix_handle() {
-        unimplemented!()
     }
 
     #[test]
