@@ -18,8 +18,15 @@ impl AutoLogParse {
     #[cfg(feature = "logging")]
     fn new<'a>(production: &'static str, input: IndexStr<'a>) -> AutoLogParse {
         PARSE_DEPTH.with(|depth| {
+            if *depth.borrow() == 0 {
+                println!("");
+            }
+
             let indent: String = (0..*depth.borrow() * 4).map(|_| ' ').collect();
-            log!("{}({}::parse: {:?}", indent, production, input);
+            log!("{}({} \"{}\"",
+                 indent,
+                 production,
+                 String::from_utf8_lossy(input.as_ref()));
             *depth.borrow_mut() += 1;
         });
         AutoLogParse
@@ -67,6 +74,12 @@ pub trait Parse: Sized {
     fn parse<'a, 'b>(subs: &'a mut SubstitutionTable,
                      input: IndexStr<'b>)
                      -> Result<(Self, IndexStr<'b>)>;
+}
+
+/// A trait to abstract looking ahead one byte.
+trait StartsWith {
+    /// Does this production start with the given byte?
+    fn starts_with(byte: u8) -> bool;
 }
 
 /// Define a handle to a AST type that lives inside the substitution table. A
@@ -140,6 +153,19 @@ macro_rules! define_vocabulary {
                         $typename::$variant => $printable
                     ),*
                 })
+            }
+        }
+
+        impl StartsWith for $typename {
+            #[inline]
+            fn starts_with(byte: u8) -> bool {
+                $(
+                    if $mangled[0] == byte {
+                        return true;
+                    }
+                )*
+
+                false
             }
         }
     }
@@ -343,13 +369,7 @@ impl Parse for UnscopedTemplateNameHandle {
 ///               ::= N [<CV-qualifiers>] [<ref-qualifier>] <template-prefix> <template-args> E
 /// ```
 #[derive(Clone, Debug, Hash, PartialEq, Eq)]
-pub enum NestedName {
-    /// An unqualified name.
-    Unqualified(CvQualifiers, Option<RefQualifier>, PrefixHandle, UnqualifiedName),
-
-    /// A template name.
-    Template(CvQualifiers, Option<RefQualifier>, TemplatePrefixHandle, TemplateArgs),
-}
+pub struct NestedName(CvQualifiers, Option<RefQualifier>, PrefixHandle);
 
 impl Parse for NestedName {
     fn parse<'a, 'b>(subs: &'a mut SubstitutionTable,
@@ -373,20 +393,19 @@ impl Parse for NestedName {
             (None, tail)
         };
 
-        if let Ok((prefix, tail)) = PrefixHandle::parse(subs, tail) {
-            let (name, tail) = try!(UnqualifiedName::parse(subs, tail));
-            let tail = try!(consume(b"E", tail));
-            return Ok((NestedName::Unqualified(cv_qualifiers,
-                                               ref_qualifier,
-                                               prefix,
-                                               name),
-                       tail));
+        let (prefix, tail) = try!(PrefixHandle::parse(subs, tail));
+        if let PrefixHandle::BackReference(idx) = prefix {
+            match (*subs)[idx] {
+                // The <nested-name> must end with one of these kinds of prefix
+                // components.
+                Substitutable::Prefix(Prefix::Nested(..)) |
+                Substitutable::Prefix(Prefix::Template(..)) => {}
+                _ => return Err(ErrorKind::UnexpectedText.into()),
+            }
         }
 
-        let (prefix, tail) = try!(TemplatePrefixHandle::parse(subs, tail));
-        let (args, tail) = try!(TemplateArgs::parse(subs, tail));
         let tail = try!(consume(b"E", tail));
-        Ok((NestedName::Template(cv_qualifiers, ref_qualifier, prefix, args), tail))
+        Ok((NestedName(cv_qualifiers, ref_qualifier, prefix), tail))
     }
 }
 
@@ -436,90 +455,122 @@ impl Parse for PrefixHandle {
     fn parse<'a, 'b>(subs: &'a mut SubstitutionTable,
                      input: IndexStr<'b>)
                      -> Result<(PrefixHandle, IndexStr<'b>)> {
+        log_parse!("PrefixHandle", input);
+
+        fn add_to_subs(subs: &mut SubstitutionTable, prefix: Prefix) -> PrefixHandle {
+            let idx = subs.insert(Substitutable::Prefix(prefix));
+            PrefixHandle::BackReference(idx)
+        }
+
         let mut tail = input;
         let mut current = None;
 
         loop {
-            log_parse!("PrefixHandle", tail);
+            log_parse!("PrefixHandle iteration", tail);
 
-            if let Ok((name, tail_tail)) = UnqualifiedName::parse(subs, tail) {
-                if let Some(handle) = current {
-                    match tail_tail.peek() {
-                        Some(b'E') => {
-                            // This is the end of a <nested-name>, and the last
-                            // part of the prefix was actually the
-                            // <nested-name>'s final <unqualified-name>.
-                            return Ok((handle, tail));
-                        }
-                        Some(b'I') => {
-                            // This is a <template-prefix>.
-                            let (args, tail_tail) = try!(TemplateArgs::parse(subs,
-                                                                             tail_tail));
-                            let prefix = Prefix::Template(handle, args);
-                            let idx = subs.insert(Substitutable::Prefix(prefix));
-                            current = Some(PrefixHandle::BackReference(idx));
-                            tail = tail_tail;
-                        }
-                        // TODO: ...
-                        // Some(b'M') => {
-                        //     // This is a <data-member-prefix>.
-                        //     tail = consume(b"M", tail_tail).unwrap();
-                        //     let prefix = Prefix::DataMember(handle)
-                        // }
-                        _ => {
-                            // This is a nested prefix.
-                            let prefix = Prefix::Nested(handle, name);
-                            let idx = subs.insert(Substitutable::Prefix(prefix));
-                            current = Some(PrefixHandle::BackReference(idx));
-                            tail = tail_tail;
-                        }
+            match tail.peek() {
+                None => {
+                    if let Some(handle) = current {
+                        return Ok((handle, tail));
+                    } else {
+                        return Err(ErrorKind::UnexpectedEnd.into());
                     }
-                } else {
-                    let prefix = Prefix::Unqualified(name);
-                    let idx = subs.insert(Substitutable::Prefix(prefix));
-                    current = Some(PrefixHandle::BackReference(idx));
+                }
+                Some(b'S') => {
+                    // <prefix> ::= <substitution>
+                    let (sub, tail_tail) = try!(Substitution::parse(subs, tail));
+                    current = Some(match sub {
+                        Substitution::WellKnown(component) => {
+                            PrefixHandle::WellKnown(component)
+                        }
+                        Substitution::BackReference(idx) => {
+                            // TODO: do we need to check that the idx actually points to
+                            // a Prefix or TemplatePrefix?
+                            PrefixHandle::BackReference(idx)
+                        }
+                    });
                     tail = tail_tail;
                 }
-
-                continue;
-            }
-
-            if let Ok((param, tail_tail)) = TemplateParam::parse(subs, tail) {
-                let prefix = Prefix::TemplateParam(param);
-                let idx = subs.insert(Substitutable::Prefix(prefix));
-                current = Some(PrefixHandle::BackReference(idx));
-                tail = tail_tail;
-                continue;
-            }
-
-            if let Ok((decltype, tail_tail)) = Decltype::parse(subs, tail) {
-                let prefix = Prefix::Decltype(decltype);
-                let idx = subs.insert(Substitutable::Prefix(prefix));
-                current = Some(PrefixHandle::BackReference(idx));
-                tail = tail_tail;
-                continue;
-            }
-
-            if let Ok((sub, tail_tail)) = Substitution::parse(subs, tail) {
-                current = Some(match sub {
-                    Substitution::WellKnown(component) => {
-                        PrefixHandle::WellKnown(component)
+                Some(b'T') => {
+                    // <prefix> ::= <template-param>
+                    let (param, tail_tail) = try!(TemplateParam::parse(subs, tail));
+                    current = Some(add_to_subs(subs, Prefix::TemplateParam(param)));
+                    tail = tail_tail;
+                }
+                Some(b'D') => {
+                    // Either
+                    //
+                    //     <prefix> ::= <decltype>
+                    //
+                    // or
+                    //
+                    //     <prefix> ::= <unqualified-name> ::= <ctor-dtor-name>
+                    if let Ok((decltype, tail_tail)) = Decltype::parse(subs, tail) {
+                        current = Some(add_to_subs(subs, Prefix::Decltype(decltype)));
+                        tail = tail_tail;
+                    } else {
+                        let (name, tail_tail) = try!(UnqualifiedName::parse(subs, tail));
+                        let prefix = match current {
+                            None => Prefix::Unqualified(name),
+                            Some(handle) => Prefix::Nested(handle, name),
+                        };
+                        current = Some(add_to_subs(subs, prefix));
+                        tail = tail_tail;
                     }
-                    Substitution::BackReference(idx) => {
-                        // TODO: do we need to check that the idx actually points to
-                        // a Prefix or TemplatePrefix?
-                        PrefixHandle::BackReference(idx)
-                    }
-                });
-                tail = tail_tail;
-                continue;
-            }
+                }
+                Some(b'I') if current.is_some() => {
+                    // <prefix> ::= <template-prefix> <template-args>
+                    let (args, tail_tail) = try!(TemplateArgs::parse(subs, tail));
+                    let prefix = Prefix::Template(current.unwrap(), args);
+                    current = Some(add_to_subs(subs, prefix));
+                    tail = tail_tail;
+                }
+                Some(c) if current.is_some() && SourceName::starts_with(c) => {
+                    // Either
+                    //
+                    //     <prefix> ::= <unqualified-name> ::= <source-name>
+                    //
+                    // or
+                    //
+                    //     <prefix> ::= <data-member-prefix> ::= <prefix> <source-name> M
+                    debug_assert!(UnqualifiedName::starts_with(c));
+                    debug_assert!(DataMemberPrefix::starts_with(c));
 
-            if let Some(handle) = current {
-                return Ok((handle, tail));
-            } else {
-                // TODO: or UnexpectedEnd if EOF...
-                return Err(ErrorKind::UnexpectedText.into());
+                    let (name, tail_tail) = try!(SourceName::parse(subs, tail));
+                    if tail_tail.peek() == Some(b'M') {
+                        let prefix = Prefix::DataMember(current.unwrap(),
+                                                        DataMemberPrefix(name));
+                        current = Some(add_to_subs(subs, prefix));
+                        tail = consume(b"M", tail_tail).unwrap();
+                    } else {
+                        let name = UnqualifiedName::Source(name);
+                        let prefix = match current {
+                            None => Prefix::Unqualified(name),
+                            Some(handle) => Prefix::Nested(handle, name),
+                        };
+                        current = Some(add_to_subs(subs, prefix));
+                        tail = tail_tail;
+                    }
+                }
+                Some(c) if UnqualifiedName::starts_with(c) => {
+                    // <prefix> ::= <unqualified-name>
+                    let (name, tail_tail) = try!(UnqualifiedName::parse(subs, tail));
+                    let prefix = match current {
+                        None => Prefix::Unqualified(name),
+                        Some(handle) => Prefix::Nested(handle, name),
+                    };
+                    current = Some(add_to_subs(subs, prefix));
+                    tail = tail_tail;
+                }
+                Some(_) => {
+                    if let Some(handle) = current {
+                        return Ok((handle, tail));
+                    } else if tail.is_empty() {
+                        return Err(ErrorKind::UnexpectedEnd.into());
+                    } else {
+                        return Err(ErrorKind::UnexpectedText.into());
+                    }
+                }
             }
         }
     }
@@ -638,6 +689,14 @@ impl Parse for UnqualifiedName {
     }
 }
 
+impl StartsWith for UnqualifiedName {
+    #[inline]
+    fn starts_with(byte: u8) -> bool {
+        OperatorName::starts_with(byte) || CtorDtorName::starts_with(byte) ||
+        SourceName::starts_with(byte) || UnnamedTypeName::starts_with(byte)
+    }
+}
+
 /// The `<source-name>` non-terminal.
 ///
 /// ```text
@@ -670,6 +729,13 @@ impl Parse for SourceName {
 
         let source_name = SourceName(identifier);
         Ok((source_name, tail))
+    }
+}
+
+impl StartsWith for SourceName {
+    #[inline]
+    fn starts_with(byte: u8) -> bool {
+        byte == b'0' || (b'0' <= byte && byte <= b'9')
     }
 }
 
@@ -1490,6 +1556,13 @@ impl Parse for UnnamedTypeName {
         };
         let input = try!(consume(b"_", input));
         Ok((UnnamedTypeName(number), input))
+    }
+}
+
+impl StartsWith for UnnamedTypeName {
+    #[inline]
+    fn starts_with(byte: u8) -> bool {
+        byte == b'U'
     }
 }
 
@@ -2727,6 +2800,12 @@ impl Parse for DataMemberPrefix {
     }
 }
 
+impl StartsWith for DataMemberPrefix {
+    fn starts_with(byte: u8) -> bool {
+        SourceName::starts_with(byte)
+    }
+}
+
 /// The `<substitution>` form: a back-reference to some component we've already
 /// parsed.
 ///
@@ -3042,13 +3121,14 @@ mod tests {
                 CallOffset, ClosureTypeName, CtorDtorName, CvQualifiers,
                 DataMemberPrefix, Decltype, DestructorName, Discriminator, ExprPrimary,
                 Expression, FunctionParam, FunctionType, Identifier, Initializer,
-                LambdaSig, Number, NvOffset, OperatorName, Parse, PointerToMemberType,
-                RefQualifier, SeqId, SimpleId, SourceName, StandardBuiltinType,
-                Substitution, TemplateArg, TemplateArgs, TemplateParam,
-                TemplateTemplateParam, TemplateTemplateParamHandle, Type, TypeHandle,
-                UnnamedTypeName, UnqualifiedName, UnresolvedName,
-                UnresolvedQualifierLevel, UnresolvedType, UnresolvedTypeHandle,
-                UnscopedName, UnscopedTemplateName, UnscopedTemplateNameHandle, VOffset,
+                LambdaSig, NestedName, Number, NvOffset, OperatorName, Parse,
+                PointerToMemberType, Prefix, PrefixHandle, RefQualifier, SeqId,
+                SimpleId, SourceName, StandardBuiltinType, Substitution, TemplateArg,
+                TemplateArgs, TemplateParam, TemplateTemplateParam,
+                TemplateTemplateParamHandle, Type, TypeHandle, UnnamedTypeName,
+                UnqualifiedName, UnresolvedName, UnresolvedQualifierLevel,
+                UnresolvedType, UnresolvedTypeHandle, UnscopedName,
+                UnscopedTemplateName, UnscopedTemplateNameHandle, VOffset,
                 WellKnownComponent};
 
     fn assert_parse_ok<P, S1, S2, I1, I2>(production: &'static str,
@@ -3081,7 +3161,7 @@ mod tests {
             }
             Ok((value, tail)) => {
                 if value != expected {
-                    panic!("Parsing {:?} as {} produced {:?}, expected {:?}",
+                    panic!("Parsing {:?} as {} produced\n\n{:#?}\n\nbut we expected\n\n{:#?}",
                            String::from_utf8_lossy(input),
                            production,
                            value,
@@ -3106,6 +3186,8 @@ mod tests {
                 }
             }
         }
+
+        log!("=== assert_parse_ok PASSED ====================================");
     }
 
     fn simple_assert_parse_ok<P, I1, I2>(production: &'static str,
@@ -3136,9 +3218,7 @@ mod tests {
         let mut subs = SubstitutionTable::from_iter(subs.as_ref().iter().cloned());
 
         match P::parse(&mut subs, IndexStr::from(input)) {
-            Err(ref error) if *error.kind() == expected_error_kind => {
-                return;
-            }
+            Err(ref error) if *error.kind() == expected_error_kind => {}
             Err(ref error) => {
                 panic!("Parsing {:?} as {} produced an error of kind {:?}, but we expected kind {:?}",
                        String::from_utf8_lossy(input),
@@ -3147,7 +3227,7 @@ mod tests {
                        expected_error_kind);
             }
             Ok((value, tail)) => {
-                panic!("Parsing {:?} as {} produced value {:?} and tail {:?}, but we expected error kind {:?}",
+                panic!("Parsing {:?} as {} produced value\n\n{:#?}\n\nand tail {:?}, but we expected error kind {:?}",
                        String::from_utf8_lossy(input),
                        production,
                        value,
@@ -3155,6 +3235,8 @@ mod tests {
                        expected_error_kind);
             }
         }
+
+        log!("=== assert_parse_err PASSED ===================================");
     }
 
     fn simple_assert_parse_err<P, I>(production: &'static str,
@@ -3280,15 +3362,318 @@ mod tests {
     }
 
     #[test]
-    #[should_panic]
     fn parse_nested_name() {
-        unimplemented!()
+        // <nested-name> ::= N [<CV-qualifiers>] [<ref-qualifier>] <prefix> <unqualified-name> E
+        //               ::= N [<CV-qualifiers>] [<ref-qualifier>] <template-prefix> <template-args> E
+        assert_parse!(NestedName {
+            with subs [
+                Substitutable::Prefix(
+                    Prefix::Unqualified(
+                        UnqualifiedName::Operator(
+                            OperatorName::New))),
+            ] => {
+                Ok => {
+                    b"NKOS_3abcE..." => {
+                        NestedName(
+                            CvQualifiers {
+                                restrict: false,
+                                volatile: false,
+                                const_: true,
+                            },
+                            Some(RefQualifier::RValueRef),
+                            PrefixHandle::BackReference(1)),
+                        b"...",
+                        [
+                            Substitutable::Prefix(
+                                Prefix::Nested(
+                                    PrefixHandle::BackReference(0),
+                                    UnqualifiedName::Source(
+                                        SourceName(Identifier {
+                                            start: 6,
+                                            end: 9,
+                                        }))))
+                        ]
+                    }
+                    b"NOS_3abcE..." => {
+                        NestedName(
+                            CvQualifiers {
+                                restrict: false,
+                                volatile: false,
+                                const_: false,
+                            },
+                            Some(RefQualifier::RValueRef),
+                            PrefixHandle::BackReference(1)),
+                        b"...",
+                        [
+                            Substitutable::Prefix(
+                                Prefix::Nested(
+                                    PrefixHandle::BackReference(0),
+                                    UnqualifiedName::Source(
+                                        SourceName(Identifier {
+                                            start: 5,
+                                            end: 8,
+                                        }))))
+                        ]
+                    }
+                    b"NS_3abcE..." => {
+                        NestedName(
+                            CvQualifiers {
+                                restrict: false,
+                                volatile: false,
+                                const_: false,
+                            },
+                            None,
+                            PrefixHandle::BackReference(1)),
+                        b"...",
+                        [
+                            Substitutable::Prefix(
+                                Prefix::Nested(
+                                    PrefixHandle::BackReference(0),
+                                    UnqualifiedName::Source(
+                                        SourceName(Identifier {
+                                            start: 4,
+                                            end: 7,
+                                        }))))
+                        ]
+                    }
+                    b"NKOS_3abcIJEEE..." => {
+                        NestedName(
+                            CvQualifiers {
+                                restrict: false,
+                                volatile: false,
+                                const_: true,
+                            },
+                            Some(RefQualifier::RValueRef),
+                            PrefixHandle::BackReference(2)),
+                        b"...",
+                        [
+                            Substitutable::Prefix(
+                                Prefix::Nested(
+                                    PrefixHandle::BackReference(0),
+                                    UnqualifiedName::Source(
+                                        SourceName(Identifier {
+                                            start: 6,
+                                            end: 9,
+                                        })))),
+                            Substitutable::Prefix(
+                                Prefix::Template(
+                                    PrefixHandle::BackReference(1),
+                                    TemplateArgs(vec![TemplateArg::ArgPack(vec![])]))),
+                        ]
+                    }
+                    b"NOS_3abcIJEEE..." => {
+                        NestedName(
+                            CvQualifiers {
+                                restrict: false,
+                                volatile: false,
+                                const_: false,
+                            },
+                            Some(RefQualifier::RValueRef),
+                            PrefixHandle::BackReference(2)),
+                        b"...",
+                        [
+                            Substitutable::Prefix(
+                                Prefix::Nested(
+                                    PrefixHandle::BackReference(0),
+                                    UnqualifiedName::Source(
+                                        SourceName(Identifier {
+                                            start: 5,
+                                            end: 8,
+                                        })))),
+                            Substitutable::Prefix(
+                                Prefix::Template(
+                                    PrefixHandle::BackReference(1),
+                                    TemplateArgs(vec![TemplateArg::ArgPack(vec![])]))),
+                        ]
+                    }
+                    b"NS_3abcIJEEE..." => {
+                        NestedName(
+                            CvQualifiers {
+                                restrict: false,
+                                volatile: false,
+                                const_: false,
+                            },
+                            None,
+                            PrefixHandle::BackReference(2)),
+                        b"...",
+                        [
+                            Substitutable::Prefix(
+                                Prefix::Nested(
+                                    PrefixHandle::BackReference(0),
+                                    UnqualifiedName::Source(
+                                        SourceName(Identifier {
+                                            start: 4,
+                                            end: 7,
+                                        })))),
+                            Substitutable::Prefix(
+                                Prefix::Template(
+                                    PrefixHandle::BackReference(1),
+                                    TemplateArgs(vec![TemplateArg::ArgPack(vec![])]))),
+                        ]
+                    }
+                }
+                Err => {
+                    // Ends with a prefix that is not a name or template.
+                    b"NS_E..." => ErrorKind::UnexpectedText,
+                    b"NS_DttrEE..." => ErrorKind::UnexpectedText,
+
+                    b"zzz" => ErrorKind::UnexpectedText,
+                    b"Nzzz" => ErrorKind::UnexpectedText,
+                    b"NKzzz" => ErrorKind::UnexpectedText,
+                    b"NKOzzz" => ErrorKind::UnexpectedText,
+                    b"NKO3abczzz" => ErrorKind::UnexpectedText,
+                    b"NKO3abc3abczzz" => ErrorKind::UnexpectedText,
+                    b"" => ErrorKind::UnexpectedEnd,
+                    b"N" => ErrorKind::UnexpectedEnd,
+                    b"NK" => ErrorKind::UnexpectedEnd,
+                    b"NKO" => ErrorKind::UnexpectedEnd,
+                    b"NKO3abc" => ErrorKind::UnexpectedText,
+                    b"NKO3abc3abc" => ErrorKind::UnexpectedEnd,
+                }
+            }
+        });
     }
 
     #[test]
-    #[should_panic]
     fn parse_prefix_handle() {
-        unimplemented!()
+        // <prefix> ::= <unqualified-name>
+        //          ::= <prefix> <unqualified-name>
+        //          ::= <template-prefix> <template-args>
+        //          ::= <template-param>
+        //          ::= <decltype>
+        //          ::= <prefix> <data-member-prefix>
+        //          ::= <substitution>
+        assert_parse!(PrefixHandle {
+            with subs [
+                Substitutable::Prefix(
+                    Prefix::Unqualified(
+                        UnqualifiedName::Operator(
+                            OperatorName::New))),
+            ] => {
+                Ok => {
+                    b"3foo..." => {
+                        PrefixHandle::BackReference(1),
+                        b"...",
+                        [
+                            Substitutable::Prefix(
+                                Prefix::Unqualified(
+                                    UnqualifiedName::Source(
+                                        SourceName(Identifier {
+                                            start: 1,
+                                            end: 4,
+                                        }))))
+                        ]
+                    }
+                    b"3abc3def..." => {
+                        PrefixHandle::BackReference(2),
+                        b"...",
+                        [
+                            Substitutable::Prefix(
+                                Prefix::Unqualified(
+                                    UnqualifiedName::Source(
+                                        SourceName(Identifier {
+                                            start: 1,
+                                            end: 4,
+                                        })))),
+                            Substitutable::Prefix(
+                                Prefix::Nested(
+                                    PrefixHandle::BackReference(1),
+                                    UnqualifiedName::Source(
+                                        SourceName(Identifier {
+                                            start: 5,
+                                            end: 8,
+                                        })))),
+                        ]
+                    }
+                    b"3fooIJEE..." => {
+                        PrefixHandle::BackReference(2),
+                        b"...",
+                        [
+                            Substitutable::Prefix(
+                                Prefix::Unqualified(
+                                    UnqualifiedName::Source(
+                                        SourceName(Identifier {
+                                            start: 1,
+                                            end: 4,
+                                        })))),
+                            Substitutable::Prefix(
+                                Prefix::Template(PrefixHandle::BackReference(1),
+                                                 TemplateArgs(vec![
+                                                     TemplateArg::ArgPack(vec![]),
+                                                 ])))
+                        ]
+                    }
+                    b"T_..." => {
+                        PrefixHandle::BackReference(1),
+                        b"...",
+                        [
+                            Substitutable::Prefix(Prefix::TemplateParam(TemplateParam(0))),
+                        ]
+                    }
+                    b"DTtrE..." => {
+                        PrefixHandle::BackReference(1),
+                        b"...",
+                        [
+                            Substitutable::Prefix(
+                                Prefix::Decltype(
+                                    Decltype::Expression(Expression::Rethrow))),
+                        ]
+                    }
+                    b"3abc3defM..." => {
+                        PrefixHandle::BackReference(2),
+                        b"...",
+                        [
+                            Substitutable::Prefix(
+                                Prefix::Unqualified(
+                                    UnqualifiedName::Source(
+                                        SourceName(Identifier {
+                                            start: 1,
+                                            end: 4,
+                                        })))),
+                            Substitutable::Prefix(
+                                Prefix::DataMember(
+                                    PrefixHandle::BackReference(1),
+                                    DataMemberPrefix(
+                                        SourceName(Identifier {
+                                            start: 5,
+                                            end: 8,
+                                        })))),
+                        ]
+                    }
+                    b"S_..." => {
+                        PrefixHandle::BackReference(0),
+                        b"...",
+                        []
+                    }
+                    // The trailing E and <nested-name> case...
+                    b"3abc3defE..." => {
+                        PrefixHandle::BackReference(2),
+                        b"E...",
+                        [
+                            Substitutable::Prefix(
+                                Prefix::Unqualified(
+                                    UnqualifiedName::Source(
+                                        SourceName(Identifier {
+                                            start: 1,
+                                            end: 4,
+                                        })))),
+                            Substitutable::Prefix(
+                                Prefix::Nested(
+                                    PrefixHandle::BackReference(1),
+                                    UnqualifiedName::Source(
+                                        SourceName(Identifier {
+                                            start: 5,
+                                            end: 8,
+                                        })))),
+                        ]
+                    }
+                }
+                Err => {
+                    b"zzz" => ErrorKind::UnexpectedText,
+                    b"" => ErrorKind::UnexpectedEnd,
+                }
+            }
+        });
     }
 
     #[test]

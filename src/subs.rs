@@ -2,6 +2,7 @@
 
 use ast;
 use std::iter::FromIterator;
+use std::ops::Deref;
 
 /// An enumeration of all of the types that can end up in the substitution
 /// table.
@@ -57,5 +58,13 @@ impl SubstitutionTable {
 impl FromIterator<Substitutable> for SubstitutionTable {
     fn from_iter<I: IntoIterator<Item = Substitutable>>(iter: I) -> Self {
         SubstitutionTable(Vec::from_iter(iter))
+    }
+}
+
+impl Deref for SubstitutionTable {
+    type Target = [Substitutable];
+
+    fn deref(&self) -> &Self::Target {
+        &self.0[..]
     }
 }
