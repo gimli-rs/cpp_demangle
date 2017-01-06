@@ -221,10 +221,6 @@ impl Parse for Encoding {
                      -> Result<(Encoding, IndexStr<'b>)> {
         log_parse!("Encoding", input);
 
-        if input.is_empty() {
-            return Err(ErrorKind::UnexpectedEnd.into());
-        }
-
         if let Ok((name, tail)) = Name::parse(subs, input) {
             if let Ok((ty, tail)) = BareFunctionType::parse(subs, tail) {
                 return Ok((Encoding::Function(name, ty), tail));
@@ -233,11 +229,8 @@ impl Parse for Encoding {
             }
         }
 
-        if let Ok((name, tail)) = SpecialName::parse(subs, input) {
-            return Ok((Encoding::Special(name), tail));
-        }
-
-        Err(ErrorKind::UnexpectedText.into())
+        let (name, tail) = try!(SpecialName::parse(subs, input));
+        Ok((Encoding::Special(name), tail))
     }
 }
 
@@ -3130,16 +3123,16 @@ mod tests {
     use subs::{Substitutable, SubstitutionTable};
     use super::{ArrayType, BareFunctionType, BaseUnresolvedName, BuiltinType,
                 CallOffset, ClosureTypeName, CtorDtorName, CvQualifiers,
-                DataMemberPrefix, Decltype, DestructorName, Discriminator, ExprPrimary,
-                Expression, FunctionParam, FunctionType, Identifier, Initializer,
-                LambdaSig, Name, NestedName, Number, NvOffset, OperatorName, Parse,
-                PointerToMemberType, Prefix, PrefixHandle, RefQualifier, SeqId,
-                SimpleId, SourceName, StandardBuiltinType, Substitution, TemplateArg,
-                TemplateArgs, TemplateParam, TemplateTemplateParam,
-                TemplateTemplateParamHandle, Type, TypeHandle, UnnamedTypeName,
-                UnqualifiedName, UnresolvedName, UnresolvedQualifierLevel,
-                UnresolvedType, UnresolvedTypeHandle, UnscopedName,
-                UnscopedTemplateName, UnscopedTemplateNameHandle, VOffset,
+                DataMemberPrefix, Decltype, DestructorName, Discriminator, Encoding,
+                ExprPrimary, Expression, FunctionParam, FunctionType, Identifier,
+                Initializer, LambdaSig, Name, NestedName, Number, NvOffset,
+                OperatorName, Parse, PointerToMemberType, Prefix, PrefixHandle,
+                RefQualifier, SeqId, SimpleId, SourceName, StandardBuiltinType,
+                Substitution, TemplateArg, TemplateArgs, TemplateParam,
+                TemplateTemplateParam, TemplateTemplateParamHandle, Type, TypeHandle,
+                UnnamedTypeName, UnqualifiedName, UnresolvedName,
+                UnresolvedQualifierLevel, UnresolvedType, UnresolvedTypeHandle,
+                UnscopedName, UnscopedTemplateName, UnscopedTemplateNameHandle, VOffset,
                 WellKnownComponent};
 
     fn assert_parse_ok<P, S1, S2, I1, I2>(production: &'static str,
@@ -3325,9 +3318,54 @@ mod tests {
     }
 
     #[test]
-    #[should_panic]
     fn parse_encoding() {
-        unimplemented!()
+        // <encoding> ::= <function name> <bare-function-type>
+        //            ::= <data name>
+        //            ::= <special-name>
+        assert_parse!(Encoding {
+            with subs [
+            ] => {
+                Ok => {
+                    b"3fooi..." => {
+                        Encoding::Function(
+                            Name::Unscoped(
+                                UnscopedName::Unqualified(
+                                    UnqualifiedName::Source(
+                                        SourceName(Identifier {
+                                            start: 1,
+                                            end: 4,
+                                        })))),
+                            BareFunctionType(vec![
+                                TypeHandle::BackReference(0)
+                            ])),
+                        b"...",
+                        [
+                            Substitutable::Type(
+                                Type::Builtin(
+                                    BuiltinType::Standard(
+                                        StandardBuiltinType::Int))),
+                        ]
+                    }
+                    b"3foo..." => {
+                        Encoding::Data(
+                            Name::Unscoped(
+                                UnscopedName::Unqualified(
+                                    UnqualifiedName::Source(
+                                        SourceName(Identifier {
+                                            start: 1,
+                                            end: 4,
+                                        }))))),
+                        b"...",
+                        []
+                    }
+                    // TODO: <special-name>
+                }
+                Err => {
+                    b"zzz" => ErrorKind::UnexpectedText,
+                    b"" => ErrorKind::UnexpectedEnd,
+                }
+            }
+        });
     }
 
     #[test]
