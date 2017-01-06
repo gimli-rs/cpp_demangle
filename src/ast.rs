@@ -76,6 +76,12 @@ pub trait Parse: Sized {
                      -> Result<(Self, IndexStr<'b>)>;
 }
 
+/// A trait to abstract looking ahead one byte.
+trait StartsWith {
+    /// Does this production start with the given byte?
+    fn starts_with(byte: u8) -> bool;
+}
+
 /// Define a handle to a AST type that lives inside the substitution table. A
 /// handle is always either an index into the substitution table, or it is a
 /// reference to a "well-known" component.
@@ -147,6 +153,19 @@ macro_rules! define_vocabulary {
                         $typename::$variant => $printable
                     ),*
                 })
+            }
+        }
+
+        impl StartsWith for $typename {
+            #[inline]
+            fn starts_with(byte: u8) -> bool {
+                $(
+                    if $mangled[0] == byte {
+                        return true;
+                    }
+                )*
+
+                false
             }
         }
     }
@@ -645,6 +664,14 @@ impl Parse for UnqualifiedName {
     }
 }
 
+impl StartsWith for UnqualifiedName {
+    #[inline]
+    fn starts_with(byte: u8) -> bool {
+        OperatorName::starts_with(byte) || CtorDtorName::starts_with(byte) ||
+        SourceName::starts_with(byte) || UnnamedTypeName::starts_with(byte)
+    }
+}
+
 /// The `<source-name>` non-terminal.
 ///
 /// ```text
@@ -677,6 +704,13 @@ impl Parse for SourceName {
 
         let source_name = SourceName(identifier);
         Ok((source_name, tail))
+    }
+}
+
+impl StartsWith for SourceName {
+    #[inline]
+    fn starts_with(byte: u8) -> bool {
+        byte == b'0' || (b'0' <= byte && byte <= b'9')
     }
 }
 
@@ -1497,6 +1531,13 @@ impl Parse for UnnamedTypeName {
         };
         let input = try!(consume(b"_", input));
         Ok((UnnamedTypeName(number), input))
+    }
+}
+
+impl StartsWith for UnnamedTypeName {
+    #[inline]
+    fn starts_with(byte: u8) -> bool {
+        byte == b'U'
     }
 }
 
@@ -2731,6 +2772,12 @@ impl Parse for DataMemberPrefix {
         let (name, tail) = try!(SourceName::parse(subs, input));
         let tail = try!(consume(b"M", tail));
         Ok((DataMemberPrefix(name), tail))
+    }
+}
+
+impl StartsWith for DataMemberPrefix {
+    fn starts_with(byte: u8) -> bool {
+        SourceName::starts_with(byte)
     }
 }
 
