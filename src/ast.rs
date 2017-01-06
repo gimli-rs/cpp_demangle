@@ -369,13 +369,7 @@ impl Parse for UnscopedTemplateNameHandle {
 ///               ::= N [<CV-qualifiers>] [<ref-qualifier>] <template-prefix> <template-args> E
 /// ```
 #[derive(Clone, Debug, Hash, PartialEq, Eq)]
-pub enum NestedName {
-    /// An unqualified name.
-    Unqualified(CvQualifiers, Option<RefQualifier>, PrefixHandle, UnqualifiedName),
-
-    /// A template name.
-    Template(CvQualifiers, Option<RefQualifier>, TemplatePrefixHandle, TemplateArgs),
-}
+pub struct NestedName(CvQualifiers, Option<RefQualifier>, PrefixHandle);
 
 impl Parse for NestedName {
     fn parse<'a, 'b>(subs: &'a mut SubstitutionTable,
@@ -399,20 +393,19 @@ impl Parse for NestedName {
             (None, tail)
         };
 
-        if let Ok((prefix, tail)) = PrefixHandle::parse(subs, tail) {
-            let (name, tail) = try!(UnqualifiedName::parse(subs, tail));
-            let tail = try!(consume(b"E", tail));
-            return Ok((NestedName::Unqualified(cv_qualifiers,
-                                               ref_qualifier,
-                                               prefix,
-                                               name),
-                       tail));
+        let (prefix, tail) = try!(PrefixHandle::parse(subs, tail));
+        if let PrefixHandle::BackReference(idx) = prefix {
+            match (*subs)[idx] {
+                // The <nested-name> must end with one of these kinds of prefix
+                // components.
+                Substitutable::Prefix(Prefix::Nested(..)) |
+                Substitutable::Prefix(Prefix::Template(..)) => {}
+                _ => return Err(ErrorKind::UnexpectedText.into()),
+            }
         }
 
-        let (prefix, tail) = try!(TemplatePrefixHandle::parse(subs, tail));
-        let (args, tail) = try!(TemplateArgs::parse(subs, tail));
         let tail = try!(consume(b"E", tail));
-        Ok((NestedName::Template(cv_qualifiers, ref_qualifier, prefix, args), tail))
+        Ok((NestedName(cv_qualifiers, ref_qualifier, prefix), tail))
     }
 }
 
@@ -498,13 +491,6 @@ impl Parse for PrefixHandle {
                     });
                     tail = tail_tail;
                 }
-                Some(b'I') if current.is_some() => {
-                    // <prefix> ::= <template-prefix> <template-args>
-                    let (args, tail_tail) = try!(TemplateArgs::parse(subs, tail));
-                    current = Some(add_to_subs(subs,
-                                               Prefix::Template(current.unwrap(), args)));
-                    tail = tail_tail;
-                }
                 Some(b'T') => {
                     // <prefix> ::= <template-param>
                     let (param, tail_tail) = try!(TemplateParam::parse(subs, tail));
@@ -524,23 +510,20 @@ impl Parse for PrefixHandle {
                         tail = tail_tail;
                     } else {
                         let (name, tail_tail) = try!(UnqualifiedName::parse(subs, tail));
-                        if current.is_some() && tail_tail.peek() == Some(b'E') {
-                            // This is the end of a <nested-name>, and the last
-                            // part of the prefix was actually the
-                            // <nested-name>'s final <unqualified-name>. Ideally
-                            // we wouldn't end up re-parsing this same
-                            // <unqualifed-name> in `NestedName::parse`, but I'm
-                            // unsure how to structure this code cleanly to
-                            // enable that. Maybe add a new variant to the error
-                            // type containing the parsed name, that
-                            // `NestedName::parse` can match against and re-use
-                            // this parse?
-                            return Ok((current.unwrap(), tail));
-                        } else {
-                            current = Some(add_to_subs(subs, Prefix::Unqualified(name)));
-                            tail = tail_tail;
-                        }
+                        let prefix = match current {
+                            None => Prefix::Unqualified(name),
+                            Some(handle) => Prefix::Nested(handle, name),
+                        };
+                        current = Some(add_to_subs(subs, prefix));
+                        tail = tail_tail;
                     }
+                }
+                Some(b'I') if current.is_some() => {
+                    // <prefix> ::= <template-prefix> <template-args>
+                    let (args, tail_tail) = try!(TemplateArgs::parse(subs, tail));
+                    let prefix = Prefix::Template(current.unwrap(), args);
+                    current = Some(add_to_subs(subs, prefix));
+                    tail = tail_tail;
                 }
                 Some(c) if current.is_some() && SourceName::starts_with(c) => {
                     // Either
@@ -554,35 +537,30 @@ impl Parse for PrefixHandle {
                     debug_assert!(DataMemberPrefix::starts_with(c));
 
                     let (name, tail_tail) = try!(SourceName::parse(subs, tail));
-                    match tail_tail.peek() {
-                        Some(b'E') => {
-                            // See the comment above regarding <nested-name>.
-                            return Ok((current.unwrap(), tail));
-                        }
-                        Some(b'M') => {
-                            let prefix = Prefix::DataMember(current.unwrap(),
-                                                            DataMemberPrefix(name));
-                            current = Some(add_to_subs(subs, prefix));
-                            tail = consume(b"M", tail_tail).unwrap();
-                        }
-                        _ => {
-                            let prefix =
-                                Prefix::Unqualified(UnqualifiedName::Source(name));
-                            current = Some(add_to_subs(subs, prefix));
-                            tail = tail_tail;
-                        }
+                    if tail_tail.peek() == Some(b'M') {
+                        let prefix = Prefix::DataMember(current.unwrap(),
+                                                        DataMemberPrefix(name));
+                        current = Some(add_to_subs(subs, prefix));
+                        tail = consume(b"M", tail_tail).unwrap();
+                    } else {
+                        let name = UnqualifiedName::Source(name);
+                        let prefix = match current {
+                            None => Prefix::Unqualified(name),
+                            Some(handle) => Prefix::Nested(handle, name),
+                        };
+                        current = Some(add_to_subs(subs, prefix));
+                        tail = tail_tail;
                     }
                 }
                 Some(c) if UnqualifiedName::starts_with(c) => {
                     // <prefix> ::= <unqualified-name>
                     let (name, tail_tail) = try!(UnqualifiedName::parse(subs, tail));
-                    if current.is_some() && tail_tail.peek() == Some(b'E') {
-                        // See the comment above regarding <nested-name>.
-                        return Ok((current.unwrap(), tail));
-                    } else {
-                        current = Some(add_to_subs(subs, Prefix::Unqualified(name)));
-                        tail = tail_tail;
-                    }
+                    let prefix = match current {
+                        None => Prefix::Unqualified(name),
+                        Some(handle) => Prefix::Nested(handle, name),
+                    };
+                    current = Some(add_to_subs(subs, prefix));
+                    tail = tail_tail;
                 }
                 Some(_) => {
                     if let Some(handle) = current {
@@ -3143,13 +3121,14 @@ mod tests {
                 CallOffset, ClosureTypeName, CtorDtorName, CvQualifiers,
                 DataMemberPrefix, Decltype, DestructorName, Discriminator, ExprPrimary,
                 Expression, FunctionParam, FunctionType, Identifier, Initializer,
-                LambdaSig, Number, NvOffset, OperatorName, Parse, PointerToMemberType,
-                Prefix, PrefixHandle, RefQualifier, SeqId, SimpleId, SourceName,
-                StandardBuiltinType, Substitution, TemplateArg, TemplateArgs,
-                TemplateParam, TemplateTemplateParam, TemplateTemplateParamHandle, Type,
-                TypeHandle, UnnamedTypeName, UnqualifiedName, UnresolvedName,
-                UnresolvedQualifierLevel, UnresolvedType, UnresolvedTypeHandle,
-                UnscopedName, UnscopedTemplateName, UnscopedTemplateNameHandle, VOffset,
+                LambdaSig, NestedName, Number, NvOffset, OperatorName, Parse,
+                PointerToMemberType, Prefix, PrefixHandle, RefQualifier, SeqId,
+                SimpleId, SourceName, StandardBuiltinType, Substitution, TemplateArg,
+                TemplateArgs, TemplateParam, TemplateTemplateParam,
+                TemplateTemplateParamHandle, Type, TypeHandle, UnnamedTypeName,
+                UnqualifiedName, UnresolvedName, UnresolvedQualifierLevel,
+                UnresolvedType, UnresolvedTypeHandle, UnscopedName,
+                UnscopedTemplateName, UnscopedTemplateNameHandle, VOffset,
                 WellKnownComponent};
 
     fn assert_parse_ok<P, S1, S2, I1, I2>(production: &'static str,
@@ -3383,9 +3362,176 @@ mod tests {
     }
 
     #[test]
-    #[should_panic]
     fn parse_nested_name() {
-        unimplemented!()
+        // <nested-name> ::= N [<CV-qualifiers>] [<ref-qualifier>] <prefix> <unqualified-name> E
+        //               ::= N [<CV-qualifiers>] [<ref-qualifier>] <template-prefix> <template-args> E
+        assert_parse!(NestedName {
+            with subs [
+                Substitutable::Prefix(
+                    Prefix::Unqualified(
+                        UnqualifiedName::Operator(
+                            OperatorName::New))),
+            ] => {
+                Ok => {
+                    b"NKOS_3abcE..." => {
+                        NestedName(
+                            CvQualifiers {
+                                restrict: false,
+                                volatile: false,
+                                const_: true,
+                            },
+                            Some(RefQualifier::RValueRef),
+                            PrefixHandle::BackReference(1)),
+                        b"...",
+                        [
+                            Substitutable::Prefix(
+                                Prefix::Nested(
+                                    PrefixHandle::BackReference(0),
+                                    UnqualifiedName::Source(
+                                        SourceName(Identifier {
+                                            start: 6,
+                                            end: 9,
+                                        }))))
+                        ]
+                    }
+                    b"NOS_3abcE..." => {
+                        NestedName(
+                            CvQualifiers {
+                                restrict: false,
+                                volatile: false,
+                                const_: false,
+                            },
+                            Some(RefQualifier::RValueRef),
+                            PrefixHandle::BackReference(1)),
+                        b"...",
+                        [
+                            Substitutable::Prefix(
+                                Prefix::Nested(
+                                    PrefixHandle::BackReference(0),
+                                    UnqualifiedName::Source(
+                                        SourceName(Identifier {
+                                            start: 5,
+                                            end: 8,
+                                        }))))
+                        ]
+                    }
+                    b"NS_3abcE..." => {
+                        NestedName(
+                            CvQualifiers {
+                                restrict: false,
+                                volatile: false,
+                                const_: false,
+                            },
+                            None,
+                            PrefixHandle::BackReference(1)),
+                        b"...",
+                        [
+                            Substitutable::Prefix(
+                                Prefix::Nested(
+                                    PrefixHandle::BackReference(0),
+                                    UnqualifiedName::Source(
+                                        SourceName(Identifier {
+                                            start: 4,
+                                            end: 7,
+                                        }))))
+                        ]
+                    }
+                    b"NKOS_3abcIJEEE..." => {
+                        NestedName(
+                            CvQualifiers {
+                                restrict: false,
+                                volatile: false,
+                                const_: true,
+                            },
+                            Some(RefQualifier::RValueRef),
+                            PrefixHandle::BackReference(2)),
+                        b"...",
+                        [
+                            Substitutable::Prefix(
+                                Prefix::Nested(
+                                    PrefixHandle::BackReference(0),
+                                    UnqualifiedName::Source(
+                                        SourceName(Identifier {
+                                            start: 6,
+                                            end: 9,
+                                        })))),
+                            Substitutable::Prefix(
+                                Prefix::Template(
+                                    PrefixHandle::BackReference(1),
+                                    TemplateArgs(vec![TemplateArg::ArgPack(vec![])]))),
+                        ]
+                    }
+                    b"NOS_3abcIJEEE..." => {
+                        NestedName(
+                            CvQualifiers {
+                                restrict: false,
+                                volatile: false,
+                                const_: false,
+                            },
+                            Some(RefQualifier::RValueRef),
+                            PrefixHandle::BackReference(2)),
+                        b"...",
+                        [
+                            Substitutable::Prefix(
+                                Prefix::Nested(
+                                    PrefixHandle::BackReference(0),
+                                    UnqualifiedName::Source(
+                                        SourceName(Identifier {
+                                            start: 5,
+                                            end: 8,
+                                        })))),
+                            Substitutable::Prefix(
+                                Prefix::Template(
+                                    PrefixHandle::BackReference(1),
+                                    TemplateArgs(vec![TemplateArg::ArgPack(vec![])]))),
+                        ]
+                    }
+                    b"NS_3abcIJEEE..." => {
+                        NestedName(
+                            CvQualifiers {
+                                restrict: false,
+                                volatile: false,
+                                const_: false,
+                            },
+                            None,
+                            PrefixHandle::BackReference(2)),
+                        b"...",
+                        [
+                            Substitutable::Prefix(
+                                Prefix::Nested(
+                                    PrefixHandle::BackReference(0),
+                                    UnqualifiedName::Source(
+                                        SourceName(Identifier {
+                                            start: 4,
+                                            end: 7,
+                                        })))),
+                            Substitutable::Prefix(
+                                Prefix::Template(
+                                    PrefixHandle::BackReference(1),
+                                    TemplateArgs(vec![TemplateArg::ArgPack(vec![])]))),
+                        ]
+                    }
+                }
+                Err => {
+                    // Ends with a prefix that is not a name or template.
+                    b"NS_E..." => ErrorKind::UnexpectedText,
+                    b"NS_DttrEE..." => ErrorKind::UnexpectedText,
+
+                    b"zzz" => ErrorKind::UnexpectedText,
+                    b"Nzzz" => ErrorKind::UnexpectedText,
+                    b"NKzzz" => ErrorKind::UnexpectedText,
+                    b"NKOzzz" => ErrorKind::UnexpectedText,
+                    b"NKO3abczzz" => ErrorKind::UnexpectedText,
+                    b"NKO3abc3abczzz" => ErrorKind::UnexpectedText,
+                    b"" => ErrorKind::UnexpectedEnd,
+                    b"N" => ErrorKind::UnexpectedEnd,
+                    b"NK" => ErrorKind::UnexpectedEnd,
+                    b"NKO" => ErrorKind::UnexpectedEnd,
+                    b"NKO3abc" => ErrorKind::UnexpectedText,
+                    b"NKO3abc3abc" => ErrorKind::UnexpectedEnd,
+                }
+            }
+        });
     }
 
     #[test]
@@ -3430,7 +3576,8 @@ mod tests {
                                             end: 4,
                                         })))),
                             Substitutable::Prefix(
-                                Prefix::Unqualified(
+                                Prefix::Nested(
+                                    PrefixHandle::BackReference(1),
                                     UnqualifiedName::Source(
                                         SourceName(Identifier {
                                             start: 5,
@@ -3500,8 +3647,8 @@ mod tests {
                     }
                     // The trailing E and <nested-name> case...
                     b"3abc3defE..." => {
-                        PrefixHandle::BackReference(1),
-                        b"3defE...",
+                        PrefixHandle::BackReference(2),
+                        b"E...",
                         [
                             Substitutable::Prefix(
                                 Prefix::Unqualified(
@@ -3509,6 +3656,14 @@ mod tests {
                                         SourceName(Identifier {
                                             start: 1,
                                             end: 4,
+                                        })))),
+                            Substitutable::Prefix(
+                                Prefix::Nested(
+                                    PrefixHandle::BackReference(1),
+                                    UnqualifiedName::Source(
+                                        SourceName(Identifier {
+                                            start: 5,
+                                            end: 8,
                                         })))),
                         ]
                     }
