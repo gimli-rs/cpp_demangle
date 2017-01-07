@@ -3412,7 +3412,22 @@ mod tests {
                                         StandardBuiltinType::Char))),
                         ]
                     }
-                    // TODO: <local-name>
+                    b"Z3abcEs..." => {
+                        Name::Local(
+                            LocalName::Relative(
+                                Box::new(Encoding::Data(
+                                    Name::Unscoped(
+                                        UnscopedName::Unqualified(
+                                            UnqualifiedName::Source(
+                                                SourceName(Identifier {
+                                                    start: 2,
+                                                    end: 5,
+                                                })))))),
+                                None,
+                                None)),
+                        b"...",
+                        []
+                    }
                     // TODO: St <unqualified-name>
                 }
                 Err => {
