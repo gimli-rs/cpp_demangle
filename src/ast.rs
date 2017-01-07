@@ -2958,6 +2958,7 @@ impl Parse for SpecialName {
                     (0, tail)
                 } else {
                     let (idx, tail) = try!(SeqId::parse(subs, tail));
+                    let tail = try!(consume(b"_", tail));
                     (idx.0 + 1, tail)
                 };
                 Ok((SpecialName::GuardTemporary(name, idx), tail))
@@ -3090,7 +3091,7 @@ mod tests {
                 ExprPrimary, Expression, FunctionParam, FunctionType, Identifier,
                 Initializer, LambdaSig, LocalName, MangledName, Name, NestedName,
                 Number, NvOffset, OperatorName, Parse, PointerToMemberType, Prefix,
-                PrefixHandle, RefQualifier, SeqId, SimpleId, SourceName,
+                PrefixHandle, RefQualifier, SeqId, SimpleId, SourceName, SpecialName,
                 StandardBuiltinType, Substitution, TemplateArg, TemplateArgs,
                 TemplateParam, TemplateTemplateParam, TemplateTemplateParamHandle, Type,
                 TypeHandle, UnnamedTypeName, UnqualifiedName, UnresolvedName,
@@ -4960,9 +4961,131 @@ mod tests {
     }
 
     #[test]
-    #[should_panic]
     fn parse_special_name() {
-        unimplemented!()
+        assert_parse!(SpecialName {
+            with subs [] => {
+                Ok => {
+                    b"TVi..." => {
+                        SpecialName::VirtualTable(TypeHandle::BackReference(0)),
+                        b"...",
+                        [
+                            Substitutable::Type(
+                                Type::Builtin(
+                                    BuiltinType::Standard(
+                                        StandardBuiltinType::Int)))
+                        ]
+                    }
+                    b"TTi..." => {
+                        SpecialName::Vtt(TypeHandle::BackReference(0)),
+                        b"...",
+                        [
+                            Substitutable::Type(
+                                Type::Builtin(
+                                    BuiltinType::Standard(
+                                        StandardBuiltinType::Int)))
+                        ]
+                    }
+                    b"TIi..." => {
+                        SpecialName::Typeinfo(TypeHandle::BackReference(0)),
+                        b"...",
+                        [
+                            Substitutable::Type(
+                                Type::Builtin(
+                                    BuiltinType::Standard(
+                                        StandardBuiltinType::Int)))
+                        ]
+                    }
+                    b"TSi..." => {
+                        SpecialName::TypeinfoName(TypeHandle::BackReference(0)),
+                        b"...",
+                        [
+                            Substitutable::Type(
+                                Type::Builtin(
+                                    BuiltinType::Standard(
+                                        StandardBuiltinType::Int)))
+                        ]
+                    }
+                    b"Tv42_36_3abc..." => {
+                        SpecialName::VirtualOverrideThunk(
+                            CallOffset::Virtual(VOffset(42, 36)),
+                            Box::new(Encoding::Data(
+                                Name::Unscoped(
+                                    UnscopedName::Unqualified(
+                                        UnqualifiedName::Source(
+                                            SourceName(Identifier {
+                                                start: 9,
+                                                end: 12,
+                                            }))))))),
+                        b"...",
+                        []
+                    }
+                    b"Tcv42_36_v42_36_3abc..." => {
+                        SpecialName::VirtualOverrideThunkCovariant(
+                            CallOffset::Virtual(VOffset(42, 36)),
+                            CallOffset::Virtual(VOffset(42, 36)),
+                            Box::new(Encoding::Data(
+                                Name::Unscoped(
+                                    UnscopedName::Unqualified(
+                                        UnqualifiedName::Source(
+                                            SourceName(Identifier {
+                                                start: 17,
+                                                end: 20,
+                                            }))))))),
+                        b"...",
+                        []
+                    }
+                    b"GV3abc..." => {
+                        SpecialName::Guard(
+                            Name::Unscoped(
+                                UnscopedName::Unqualified(
+                                    UnqualifiedName::Source(
+                                        SourceName(Identifier {
+                                            start: 3,
+                                            end: 6,
+                                        }))))),
+                        b"...",
+                        []
+                    }
+                    b"GR3abc_..." => {
+                        SpecialName::GuardTemporary(
+                            Name::Unscoped(
+                                UnscopedName::Unqualified(
+                                    UnqualifiedName::Source(
+                                        SourceName(Identifier {
+                                            start: 3,
+                                            end: 6,
+                                        })))),
+                        0),
+                        b"...",
+                        []
+                    }
+                    b"GR3abc0_..." => {
+                        SpecialName::GuardTemporary(
+                            Name::Unscoped(
+                                UnscopedName::Unqualified(
+                                    UnqualifiedName::Source(
+                                        SourceName(Identifier {
+                                            start: 3,
+                                            end: 6,
+                                        })))),
+                            1),
+                        b"...",
+                        []
+                    }
+                }
+                Err => {
+                    b"TZ" => ErrorKind::UnexpectedText,
+                    b"GZ" => ErrorKind::UnexpectedText,
+                    b"GR3abcz" => ErrorKind::UnexpectedText,
+                    b"GR3abc0z" => ErrorKind::UnexpectedText,
+                    b"T" => ErrorKind::UnexpectedEnd,
+                    b"G" => ErrorKind::UnexpectedEnd,
+                    b"" => ErrorKind::UnexpectedEnd,
+                    b"GR3abc" => ErrorKind::UnexpectedEnd,
+                    b"GR3abc0" => ErrorKind::UnexpectedEnd,
+                }
+            }
+        });
     }
 
     #[test]
