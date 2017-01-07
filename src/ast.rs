@@ -3341,7 +3341,19 @@ mod tests {
                         b"...",
                         []
                     }
-                    // TODO: <special-name>
+                    b"GV3abc..." => {
+                        Encoding::Special(
+                            SpecialName::Guard(
+                                Name::Unscoped(
+                                    UnscopedName::Unqualified(
+                                        UnqualifiedName::Source(
+                                            SourceName(Identifier {
+                                                start: 3,
+                                                end: 6,
+                                            })))))),
+                        b"...",
+                        []
+                    }
                 }
                 Err => {
                     b"zzz" => ErrorKind::UnexpectedText,
