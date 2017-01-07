@@ -256,6 +256,9 @@ pub enum Name {
 
     /// A local name.
     Local(LocalName),
+
+    /// A name in `::std::`.
+    Std(UnqualifiedName),
 }
 
 impl Parse for Name {
@@ -266,6 +269,11 @@ impl Parse for Name {
 
         if let Ok((name, tail)) = NestedName::parse(subs, input) {
             return Ok((Name::Nested(name), tail));
+        }
+
+        if let Ok(tail) = consume(b"St", input) {
+            let (name, tail) = try!(UnqualifiedName::parse(subs, tail));
+            return Ok((Name::Std(name), tail));
         }
 
         if let Ok((name, tail)) = UnscopedName::parse(subs, input) {
@@ -285,8 +293,6 @@ impl Parse for Name {
             let (args, tail) = try!(TemplateArgs::parse(subs, tail));
             return Ok((Name::UnscopedTemplate(name, args), tail));
         }
-
-        // TODO: the `std` variant
 
         let (name, tail) = try!(LocalName::parse(subs, input));
         Ok((Name::Local(name), tail))
@@ -3428,7 +3434,14 @@ mod tests {
                         b"...",
                         []
                     }
-                    // TODO: St <unqualified-name>
+                    b"St3abc..." => {
+                        Name::Std(UnqualifiedName::Source(SourceName(Identifier {
+                            start: 3,
+                            end: 6,
+                        }))),
+                        b"...",
+                        []
+                    }
                 }
                 Err => {
                     b"zzz" => ErrorKind::UnexpectedText,
