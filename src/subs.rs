@@ -1,4 +1,4 @@
-//! TODO FITZGEN
+//! Types dealing with the substitutions table.
 
 use ast;
 use std::iter::FromIterator;

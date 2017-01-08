@@ -1,9 +1,11 @@
-//! TODO FITZGEN
+//! Provides the `IndexStr` type to keep track of a substring's index into its
+//! original string is.
 
 use std::fmt;
 use std::ops::{Range, RangeFrom, RangeTo};
 
-/// TODO FITZGEN
+/// The `IndexStr` type allows us to take substrings from an original input and
+/// keep track of what index the substring is at in the original input.
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub struct IndexStr<'a> {
     idx: usize,
@@ -12,7 +14,7 @@ pub struct IndexStr<'a> {
 
 #[allow(dead_code)]
 impl<'a> IndexStr<'a> {
-    /// TODO FITZGEN
+    /// Construct a new `IndexStr` (with `index == 0`) from the given input.
     #[inline]
     pub fn new(string: &'a [u8]) -> IndexStr<'a> {
         IndexStr {
@@ -33,13 +35,13 @@ impl<'a> IndexStr<'a> {
         self.string.is_empty()
     }
 
-    /// TODO FITZGEN
+    /// Get the index into the original input that this `IndexStr` is at.
     #[inline]
     pub fn index(&self) -> usize {
         self.idx
     }
 
-    /// TODO FITZGEN
+    /// Peek at the next byte in this `IndexStr`.
     #[inline]
     pub fn peek(&self) -> Option<u8> {
         self.as_ref().get(0).cloned()
