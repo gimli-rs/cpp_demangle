@@ -3972,7 +3972,22 @@ mod tests {
                                 Type::PackExpansion(TypeHandle::BackReference(0))),
                         ]
                     }
-                    // TODO: <class-enum-type>
+                    b"3abc..." => {
+                        TypeHandle::BackReference(1),
+                        b"...",
+                        [
+                            Substitutable::Type(
+                                Type::ClassEnum(
+                                    ClassEnumType::Named(
+                                        Name::Unscoped(
+                                            UnscopedName::Unqualified(
+                                                UnqualifiedName::Source(
+                                                    SourceName(Identifier {
+                                                        start: 1,
+                                                        end: 4,
+                                                    })))))))
+                        ]
+                    }
                 }
                 Err => {
                     b"P" => ErrorKind::UnexpectedEnd,
