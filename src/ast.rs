@@ -2569,6 +2569,7 @@ impl Parse for ExprPrimary {
         // -fabi-version=3, so we should detect and work around that...
 
         let (name, tail) = try!(MangledName::parse(subs, tail));
+        let tail = try!(consume(b"E", tail));
         let expr = ExprPrimary::External(name);
         Ok((expr, tail))
     }
@@ -4723,7 +4724,20 @@ mod tests {
                         b"...",
                         []
                     }
-                    // TODO: L <mangled-name> E
+                    b"L_Z3abcE..." => {
+                        ExprPrimary::External(
+                            MangledName(
+                                Encoding::Data(
+                                    Name::Unscoped(
+                                        UnscopedName::Unqualified(
+                                            UnqualifiedName::Source(
+                                                SourceName(Identifier {
+                                                    start: 4,
+                                                    end: 7,
+                                                }))))))),
+                        b"...",
+                        []
+                    }
                 }
                 Err => {
                     b"zzz" => ErrorKind::UnexpectedText,
