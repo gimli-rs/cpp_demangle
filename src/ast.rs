@@ -256,6 +256,9 @@ pub enum Name {
 
     /// A local name.
     Local(LocalName),
+
+    /// A name in `::std::`.
+    Std(UnqualifiedName),
 }
 
 impl Parse for Name {
@@ -266,6 +269,11 @@ impl Parse for Name {
 
         if let Ok((name, tail)) = NestedName::parse(subs, input) {
             return Ok((Name::Nested(name), tail));
+        }
+
+        if let Ok(tail) = consume(b"St", input) {
+            let (name, tail) = try!(UnqualifiedName::parse(subs, tail));
+            return Ok((Name::Std(name), tail));
         }
 
         if let Ok((name, tail)) = UnscopedName::parse(subs, input) {
@@ -285,8 +293,6 @@ impl Parse for Name {
             let (args, tail) = try!(TemplateArgs::parse(subs, tail));
             return Ok((Name::UnscopedTemplate(name, args), tail));
         }
-
-        // TODO: the `std` variant
 
         let (name, tail) = try!(LocalName::parse(subs, input));
         Ok((Name::Local(name), tail))
@@ -2563,6 +2569,7 @@ impl Parse for ExprPrimary {
         // -fabi-version=3, so we should detect and work around that...
 
         let (name, tail) = try!(MangledName::parse(subs, tail));
+        let tail = try!(consume(b"E", tail));
         let expr = ExprPrimary::External(name);
         Ok((expr, tail))
     }
@@ -2958,6 +2965,7 @@ impl Parse for SpecialName {
                     (0, tail)
                 } else {
                     let (idx, tail) = try!(SeqId::parse(subs, tail));
+                    let tail = try!(consume(b"_", tail));
                     (idx.0 + 1, tail)
                 };
                 Ok((SpecialName::GuardTemporary(name, idx), tail))
@@ -3090,7 +3098,7 @@ mod tests {
                 ExprPrimary, Expression, FunctionParam, FunctionType, Identifier,
                 Initializer, LambdaSig, LocalName, MangledName, Name, NestedName,
                 Number, NvOffset, OperatorName, Parse, PointerToMemberType, Prefix,
-                PrefixHandle, RefQualifier, SeqId, SimpleId, SourceName,
+                PrefixHandle, RefQualifier, SeqId, SimpleId, SourceName, SpecialName,
                 StandardBuiltinType, Substitution, TemplateArg, TemplateArgs,
                 TemplateParam, TemplateTemplateParam, TemplateTemplateParamHandle, Type,
                 TypeHandle, UnnamedTypeName, UnqualifiedName, UnresolvedName,
@@ -3340,7 +3348,19 @@ mod tests {
                         b"...",
                         []
                     }
-                    // TODO: <special-name>
+                    b"GV3abc..." => {
+                        Encoding::Special(
+                            SpecialName::Guard(
+                                Name::Unscoped(
+                                    UnscopedName::Unqualified(
+                                        UnqualifiedName::Source(
+                                            SourceName(Identifier {
+                                                start: 3,
+                                                end: 6,
+                                            })))))),
+                        b"...",
+                        []
+                    }
                 }
                 Err => {
                     b"zzz" => ErrorKind::UnexpectedText,
@@ -3399,8 +3419,30 @@ mod tests {
                                         StandardBuiltinType::Char))),
                         ]
                     }
-                    // TODO: <local-name>
-                    // TODO: St <unqualified-name>
+                    b"Z3abcEs..." => {
+                        Name::Local(
+                            LocalName::Relative(
+                                Box::new(Encoding::Data(
+                                    Name::Unscoped(
+                                        UnscopedName::Unqualified(
+                                            UnqualifiedName::Source(
+                                                SourceName(Identifier {
+                                                    start: 2,
+                                                    end: 5,
+                                                })))))),
+                                None,
+                                None)),
+                        b"...",
+                        []
+                    }
+                    b"St3abc..." => {
+                        Name::Std(UnqualifiedName::Source(SourceName(Identifier {
+                            start: 3,
+                            end: 6,
+                        }))),
+                        b"...",
+                        []
+                    }
                 }
                 Err => {
                     b"zzz" => ErrorKind::UnexpectedText,
@@ -3931,7 +3973,22 @@ mod tests {
                                 Type::PackExpansion(TypeHandle::BackReference(0))),
                         ]
                     }
-                    // TODO: <class-enum-type>
+                    b"3abc..." => {
+                        TypeHandle::BackReference(1),
+                        b"...",
+                        [
+                            Substitutable::Type(
+                                Type::ClassEnum(
+                                    ClassEnumType::Named(
+                                        Name::Unscoped(
+                                            UnscopedName::Unqualified(
+                                                UnqualifiedName::Source(
+                                                    SourceName(Identifier {
+                                                        start: 1,
+                                                        end: 4,
+                                                    })))))))
+                        ]
+                    }
                 }
                 Err => {
                     b"P" => ErrorKind::UnexpectedEnd,
@@ -4667,7 +4724,20 @@ mod tests {
                         b"...",
                         []
                     }
-                    // TODO: L <mangled-name> E
+                    b"L_Z3abcE..." => {
+                        ExprPrimary::External(
+                            MangledName(
+                                Encoding::Data(
+                                    Name::Unscoped(
+                                        UnscopedName::Unqualified(
+                                            UnqualifiedName::Source(
+                                                SourceName(Identifier {
+                                                    start: 4,
+                                                    end: 7,
+                                                }))))))),
+                        b"...",
+                        []
+                    }
                 }
                 Err => {
                     b"zzz" => ErrorKind::UnexpectedText,
@@ -4960,9 +5030,131 @@ mod tests {
     }
 
     #[test]
-    #[should_panic]
     fn parse_special_name() {
-        unimplemented!()
+        assert_parse!(SpecialName {
+            with subs [] => {
+                Ok => {
+                    b"TVi..." => {
+                        SpecialName::VirtualTable(TypeHandle::BackReference(0)),
+                        b"...",
+                        [
+                            Substitutable::Type(
+                                Type::Builtin(
+                                    BuiltinType::Standard(
+                                        StandardBuiltinType::Int)))
+                        ]
+                    }
+                    b"TTi..." => {
+                        SpecialName::Vtt(TypeHandle::BackReference(0)),
+                        b"...",
+                        [
+                            Substitutable::Type(
+                                Type::Builtin(
+                                    BuiltinType::Standard(
+                                        StandardBuiltinType::Int)))
+                        ]
+                    }
+                    b"TIi..." => {
+                        SpecialName::Typeinfo(TypeHandle::BackReference(0)),
+                        b"...",
+                        [
+                            Substitutable::Type(
+                                Type::Builtin(
+                                    BuiltinType::Standard(
+                                        StandardBuiltinType::Int)))
+                        ]
+                    }
+                    b"TSi..." => {
+                        SpecialName::TypeinfoName(TypeHandle::BackReference(0)),
+                        b"...",
+                        [
+                            Substitutable::Type(
+                                Type::Builtin(
+                                    BuiltinType::Standard(
+                                        StandardBuiltinType::Int)))
+                        ]
+                    }
+                    b"Tv42_36_3abc..." => {
+                        SpecialName::VirtualOverrideThunk(
+                            CallOffset::Virtual(VOffset(42, 36)),
+                            Box::new(Encoding::Data(
+                                Name::Unscoped(
+                                    UnscopedName::Unqualified(
+                                        UnqualifiedName::Source(
+                                            SourceName(Identifier {
+                                                start: 9,
+                                                end: 12,
+                                            }))))))),
+                        b"...",
+                        []
+                    }
+                    b"Tcv42_36_v42_36_3abc..." => {
+                        SpecialName::VirtualOverrideThunkCovariant(
+                            CallOffset::Virtual(VOffset(42, 36)),
+                            CallOffset::Virtual(VOffset(42, 36)),
+                            Box::new(Encoding::Data(
+                                Name::Unscoped(
+                                    UnscopedName::Unqualified(
+                                        UnqualifiedName::Source(
+                                            SourceName(Identifier {
+                                                start: 17,
+                                                end: 20,
+                                            }))))))),
+                        b"...",
+                        []
+                    }
+                    b"GV3abc..." => {
+                        SpecialName::Guard(
+                            Name::Unscoped(
+                                UnscopedName::Unqualified(
+                                    UnqualifiedName::Source(
+                                        SourceName(Identifier {
+                                            start: 3,
+                                            end: 6,
+                                        }))))),
+                        b"...",
+                        []
+                    }
+                    b"GR3abc_..." => {
+                        SpecialName::GuardTemporary(
+                            Name::Unscoped(
+                                UnscopedName::Unqualified(
+                                    UnqualifiedName::Source(
+                                        SourceName(Identifier {
+                                            start: 3,
+                                            end: 6,
+                                        })))),
+                        0),
+                        b"...",
+                        []
+                    }
+                    b"GR3abc0_..." => {
+                        SpecialName::GuardTemporary(
+                            Name::Unscoped(
+                                UnscopedName::Unqualified(
+                                    UnqualifiedName::Source(
+                                        SourceName(Identifier {
+                                            start: 3,
+                                            end: 6,
+                                        })))),
+                            1),
+                        b"...",
+                        []
+                    }
+                }
+                Err => {
+                    b"TZ" => ErrorKind::UnexpectedText,
+                    b"GZ" => ErrorKind::UnexpectedText,
+                    b"GR3abcz" => ErrorKind::UnexpectedText,
+                    b"GR3abc0z" => ErrorKind::UnexpectedText,
+                    b"T" => ErrorKind::UnexpectedEnd,
+                    b"G" => ErrorKind::UnexpectedEnd,
+                    b"" => ErrorKind::UnexpectedEnd,
+                    b"GR3abc" => ErrorKind::UnexpectedEnd,
+                    b"GR3abc0" => ErrorKind::UnexpectedEnd,
+                }
+            }
+        });
     }
 
     #[test]
