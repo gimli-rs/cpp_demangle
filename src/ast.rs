@@ -2011,6 +2011,7 @@ impl Parse for Expression {
                     let (ty, tail) = try!(TypeHandle::parse(subs, tail));
                     let (exprs, tail) = try!(zero_or_more::<Expression>(subs, tail));
                     let expr = Expression::ConversionBraced(ty, exprs);
+                    let tail = try!(consume(b"E", tail));
                     return Ok((expr, tail));
                 }
                 b"il" => {
@@ -2110,6 +2111,7 @@ impl Parse for Expression {
                 b"sP" => {
                     let (args, tail) = try!(zero_or_more::<TemplateArg>(subs, tail));
                     let expr = Expression::SizeofCapturedTemplatePack(args);
+                    let tail = try!(consume(b"E", tail));
                     return Ok((expr, tail));
                 }
                 b"sp" => {
@@ -4404,9 +4406,513 @@ mod tests {
     }
 
     #[test]
-    #[should_panic]
     fn parse_expression() {
-        unimplemented!()
+        assert_parse!(Expression {
+            with subs [
+                Substitutable::Type(
+                    Type::Builtin(
+                        BuiltinType::Standard(StandardBuiltinType::Int))),
+            ] => {
+                Ok => {
+                    b"psLS_1E..." => {
+                        Expression::Unary(OperatorName::UnaryPlus,
+                                          Box::new(Expression::Primary(
+                                              ExprPrimary::Literal(
+                                                  TypeHandle::BackReference(0),
+                                                  5,
+                                                  6)))),
+                        b"...",
+                        []
+                    }
+                    b"rsLS_1ELS_1E..." => {
+                        Expression::Binary(OperatorName::Shr,
+                                           Box::new(Expression::Primary(
+                                               ExprPrimary::Literal(
+                                                   TypeHandle::BackReference(0),
+                                                   5,
+                                                   6))),
+                                           Box::new(Expression::Primary(
+                                               ExprPrimary::Literal(
+                                                   TypeHandle::BackReference(0),
+                                                   10,
+                                                   11)))),
+                        b"...",
+                        []
+                    }
+                    b"quLS_1ELS_2ELS_3E..." => {
+                        Expression::Ternary(OperatorName::Question,
+                                            Box::new(Expression::Primary(
+                                                ExprPrimary::Literal(
+                                                    TypeHandle::BackReference(0),
+                                                    5,
+                                                    6))),
+                                            Box::new(Expression::Primary(
+                                                ExprPrimary::Literal(
+                                                    TypeHandle::BackReference(0),
+                                                    10,
+                                                    11))),
+                                            Box::new(Expression::Primary(
+                                                ExprPrimary::Literal(
+                                                    TypeHandle::BackReference(0),
+                                                    15,
+                                                    16)))),
+                        b"...",
+                        []
+                    }
+                    b"pp_LS_1E..." => {
+                        Expression::PrefixInc(
+                            Box::new(Expression::Primary(
+                                ExprPrimary::Literal(
+                                    TypeHandle::BackReference(0),
+                                    6,
+                                    7)))),
+                        b"...",
+                        []
+                    }
+                    b"mm_LS_1E..." => {
+                        Expression::PrefixDec(
+                            Box::new(Expression::Primary(
+                                ExprPrimary::Literal(
+                                    TypeHandle::BackReference(0),
+                                    6,
+                                    7)))),
+                        b"...",
+                        []
+                    }
+                    b"clLS_1E..." => {
+                        Expression::Call(
+                            Box::new(Expression::Primary(
+                                ExprPrimary::Literal(
+                                    TypeHandle::BackReference(0),
+                                    5,
+                                    6))),
+                            vec![]),
+                        b"...",
+                        []
+                    }
+                    //               ::= cv <type> <expression>                       # type (expression), conversion with one argument
+                    b"cvS_LS_1E..." => {
+                        Expression::ConversionOne(
+                            TypeHandle::BackReference(0),
+                            Box::new(Expression::Primary(
+                                ExprPrimary::Literal(
+                                    TypeHandle::BackReference(0),
+                                    7,
+                                    8)))),
+                        b"...",
+                        []
+                    }
+                    b"cvS__LS_1ELS_1EE..." => {
+                        Expression::ConversionMany(
+                            TypeHandle::BackReference(0),
+                            vec![
+                                Expression::Primary(
+                                    ExprPrimary::Literal(
+                                        TypeHandle::BackReference(0),
+                                        8,
+                                        9)),
+                                Expression::Primary(
+                                    ExprPrimary::Literal(
+                                        TypeHandle::BackReference(0),
+                                        13,
+                                        14)),
+                            ]),
+                        b"...",
+                        []
+                    }
+                    b"tlS_LS_1ELS_1EE..." => {
+                        Expression::ConversionBraced(
+                            TypeHandle::BackReference(0),
+                            vec![
+                                Expression::Primary(
+                                    ExprPrimary::Literal(
+                                        TypeHandle::BackReference(0),
+                                        7,
+                                        8)),
+                                Expression::Primary(
+                                    ExprPrimary::Literal(
+                                        TypeHandle::BackReference(0),
+                                        12,
+                                        13)),
+                            ]),
+                        b"...",
+                        []
+                    }
+                    b"ilLS_1EE..." => {
+                        Expression::BracedInitList(
+                            Box::new(Expression::Primary(
+                                ExprPrimary::Literal(
+                                    TypeHandle::BackReference(0),
+                                    5,
+                                    6)))),
+                        b"...",
+                        []
+                    }
+                    b"gsnwLS_1E_S_E..." => {
+                        Expression::GlobalNew(
+                            vec![
+                                Expression::Primary(
+                                    ExprPrimary::Literal(
+                                        TypeHandle::BackReference(0),
+                                        7,
+                                        8))
+                            ],
+                            TypeHandle::BackReference(0),
+                            None),
+                        b"...",
+                        []
+                    }
+                    b"nwLS_1E_S_E..." => {
+                        Expression::New(
+                            vec![
+                                Expression::Primary(
+                                    ExprPrimary::Literal(
+                                        TypeHandle::BackReference(0),
+                                        5,
+                                        6))
+                            ],
+                            TypeHandle::BackReference(0),
+                            None),
+                        b"...",
+                        []
+                    }
+                    b"gsnwLS_1E_S_piE..." => {
+                        Expression::GlobalNew(
+                            vec![
+                                Expression::Primary(
+                                    ExprPrimary::Literal(
+                                        TypeHandle::BackReference(0),
+                                        7,
+                                        8))
+                            ],
+                            TypeHandle::BackReference(0),
+                            Some(Initializer(vec![]))),
+                        b"...",
+                        []
+                    }
+                    b"nwLS_1E_S_piE..." => {
+                        Expression::New(
+                            vec![
+                                Expression::Primary(
+                                    ExprPrimary::Literal(
+                                        TypeHandle::BackReference(0),
+                                        5,
+                                        6))
+                            ],
+                            TypeHandle::BackReference(0),
+                            Some(Initializer(vec![]))),
+                        b"...",
+                        []
+                    }
+                    b"gsnaLS_1E_S_E..." => {
+                        Expression::GlobalNewArray(
+                            vec![
+                                Expression::Primary(
+                                    ExprPrimary::Literal(
+                                        TypeHandle::BackReference(0),
+                                        7,
+                                        8))
+                            ],
+                            TypeHandle::BackReference(0),
+                            None),
+                        b"...",
+                        []
+                    }
+                    b"naLS_1E_S_E..." => {
+                        Expression::NewArray(
+                            vec![
+                                Expression::Primary(
+                                    ExprPrimary::Literal(
+                                        TypeHandle::BackReference(0),
+                                        5,
+                                        6))
+                            ],
+                            TypeHandle::BackReference(0),
+                            None),
+                        b"...",
+                        []
+                    }
+                    b"gsnaLS_1E_S_piE..." => {
+                        Expression::GlobalNewArray(
+                            vec![
+                                Expression::Primary(
+                                    ExprPrimary::Literal(
+                                        TypeHandle::BackReference(0),
+                                        7,
+                                        8))
+                            ],
+                            TypeHandle::BackReference(0),
+                            Some(Initializer(vec![]))),
+                        b"...",
+                        []
+                    }
+                    b"naLS_1E_S_piE..." => {
+                        Expression::NewArray(
+                            vec![
+                                Expression::Primary(
+                                    ExprPrimary::Literal(
+                                        TypeHandle::BackReference(0),
+                                        5,
+                                        6))
+                            ],
+                            TypeHandle::BackReference(0),
+                            Some(Initializer(vec![]))),
+                        b"...",
+                        []
+                    }
+                    b"gsdlLS_1E..." => {
+                        Expression::GlobalDelete(
+                            Box::new(Expression::Primary(
+                                ExprPrimary::Literal(
+                                    TypeHandle::BackReference(0),
+                                    7,
+                                    8)))),
+                        b"...",
+                        []
+                    }
+                    b"dlLS_1E..." => {
+                        Expression::Delete(
+                            Box::new(Expression::Primary(
+                                ExprPrimary::Literal(
+                                    TypeHandle::BackReference(0),
+                                    5,
+                                    6)))),
+                        b"...",
+                        []
+                    }
+                    //               ::= [gs] da <expression>                         # delete[] expression
+                    b"gsdaLS_1E..." => {
+                        Expression::GlobalDeleteArray(
+                            Box::new(Expression::Primary(
+                                ExprPrimary::Literal(
+                                    TypeHandle::BackReference(0),
+                                    7,
+                                    8)))),
+                        b"...",
+                        []
+                    }
+                    b"daLS_1E..." => {
+                        Expression::DeleteArray(
+                            Box::new(Expression::Primary(
+                                ExprPrimary::Literal(
+                                    TypeHandle::BackReference(0),
+                                    5,
+                                    6)))),
+                        b"...",
+                        []
+                    }
+                    b"dcS_LS_1E..." => {
+                        Expression::DynamicCast(
+                            TypeHandle::BackReference(0),
+                            Box::new(Expression::Primary(
+                                ExprPrimary::Literal(
+                                    TypeHandle::BackReference(0),
+                                    7,
+                                    8)))),
+                        b"...",
+                        []
+                    }
+                    b"scS_LS_1E..." => {
+                        Expression::StaticCast(
+                            TypeHandle::BackReference(0),
+                            Box::new(Expression::Primary(
+                                ExprPrimary::Literal(
+                                    TypeHandle::BackReference(0),
+                                    7,
+                                    8)))),
+                        b"...",
+                        []
+                    }
+                    b"ccS_LS_1E..." => {
+                        Expression::ConstCast(
+                            TypeHandle::BackReference(0),
+                            Box::new(Expression::Primary(
+                                ExprPrimary::Literal(
+                                    TypeHandle::BackReference(0),
+                                    7,
+                                    8)))),
+                        b"...",
+                        []
+                    }
+                    b"rcS_LS_1E..." => {
+                        Expression::ReinterpretCast(
+                            TypeHandle::BackReference(0),
+                            Box::new(Expression::Primary(
+                                ExprPrimary::Literal(
+                                    TypeHandle::BackReference(0),
+                                    7,
+                                    8)))),
+                        b"...",
+                        []
+                    }
+                    b"tiS_..." => {
+                        Expression::TypeidType(TypeHandle::BackReference(0)),
+                        b"...",
+                        []
+                    }
+                    b"teLS_1E..." => {
+                        Expression::TypeidExpr(
+                            Box::new(Expression::Primary(
+                                ExprPrimary::Literal(
+                                    TypeHandle::BackReference(0),
+                                    5,
+                                    6)))),
+                        b"...",
+                        []
+                    }
+                    b"stS_..." => {
+                        Expression::SizeofType(TypeHandle::BackReference(0)),
+                        b"...",
+                        []
+                    }
+                    b"szLS_1E..." => {
+                        Expression::SizeofExpr(
+                            Box::new(Expression::Primary(
+                                ExprPrimary::Literal(
+                                    TypeHandle::BackReference(0),
+                                    5,
+                                    6)))),
+                        b"...",
+                        []
+                    }
+                    b"atS_..." => {
+                        Expression::AlignofType(TypeHandle::BackReference(0)),
+                        b"...",
+                        []
+                    }
+                    b"azLS_1E..." => {
+                        Expression::AlignofExpr(
+                            Box::new(Expression::Primary(
+                                ExprPrimary::Literal(
+                                    TypeHandle::BackReference(0),
+                                    5,
+                                    6)))),
+                        b"...",
+                        []
+                    }
+                    b"nxLS_1E..." => {
+                        Expression::Noexcept(
+                            Box::new(Expression::Primary(
+                                ExprPrimary::Literal(
+                                    TypeHandle::BackReference(0),
+                                    5,
+                                    6)))),
+                        b"...",
+                        []
+                    }
+                    b"T_..." => {
+                        Expression::TemplateParam(TemplateParam(0)),
+                        b"...",
+                        []
+                    }
+                    b"fp_..." => {
+                        Expression::FunctionParam(FunctionParam(0, CvQualifiers::default(), None)),
+                        b"...",
+                        []
+                    }
+                    b"dtT_3abc..." => {
+                        Expression::Member(
+                            Box::new(Expression::TemplateParam(TemplateParam(0))),
+                            UnresolvedName::Name(
+                                BaseUnresolvedName::Name(
+                                    SimpleId(
+                                        SourceName(
+                                            Identifier {
+                                                start: 5,
+                                                end: 8,
+                                            }),
+                                        None)))),
+                        b"...",
+                        []
+                    }
+                    b"ptT_3abc..." => {
+                        Expression::DerefMember(
+                            Box::new(Expression::TemplateParam(TemplateParam(0))),
+                            UnresolvedName::Name(
+                                BaseUnresolvedName::Name(
+                                    SimpleId(
+                                        SourceName(
+                                            Identifier {
+                                                start: 5,
+                                                end: 8,
+                                            }),
+                                        None)))),
+                        b"...",
+                        []
+                    }
+                    //               ::= ds <expression> <expression>                 # expr.*expr
+                    b"dsT_T_..." => {
+                        Expression::PointerToMember(
+                            Box::new(Expression::TemplateParam(TemplateParam(0))),
+                            Box::new(Expression::TemplateParam(TemplateParam(0)))),
+                        b"...",
+                        []
+                    }
+                    b"sZT_..." => {
+                        Expression::SizeofTemplatePack(TemplateParam(0)),
+                        b"...",
+                        []
+                    }
+                    b"sZfp_..." => {
+                        Expression::SizeofFunctionPack(
+                            FunctionParam(0, CvQualifiers::default(), None)),
+                        b"...",
+                        []
+                    }
+                    b"sPE..." => {
+                        Expression::SizeofCapturedTemplatePack(vec![]),
+                        b"...",
+                        []
+                    }
+                    b"spT_..." => {
+                        Expression::PackExpansion(
+                            Box::new(Expression::TemplateParam(TemplateParam(0)))),
+                        b"...",
+                        []
+                    }
+                    b"twT_..." => {
+                        Expression::Throw(Box::new(Expression::TemplateParam(TemplateParam(0)))),
+                        b"...",
+                        []
+                    }
+                    b"tr..." => {
+                        Expression::Rethrow,
+                        b"...",
+                        []
+                    }
+                    b"3abc..." => {
+                        Expression::UnresolvedName(
+                            UnresolvedName::Name(
+                                BaseUnresolvedName::Name(
+                                    SimpleId(
+                                        SourceName(Identifier {
+                                            start: 1,
+                                            end: 4,
+                                        }),
+                                        None)))),
+                        b"...",
+                        []
+                    }
+                    b"L_Z3abcE..." => {
+                        Expression::Primary(
+                            ExprPrimary::External(
+                                MangledName(
+                                    Encoding::Data(
+                                        Name::Unscoped(
+                                            UnscopedName::Unqualified(
+                                                UnqualifiedName::Source(
+                                                    SourceName(Identifier {
+                                                        start: 4,
+                                                        end: 7,
+                                                    })))))))),
+                        b"...",
+                        []
+                    }
+                }
+                Err => {
+                }
+            }
+        });
     }
 
     #[test]
