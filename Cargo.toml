@@ -12,6 +12,20 @@ version = "0.1.0"
 [dependencies]
 error-chain = "0.7.1"
 
+[dependencies.afl]
+optional = true
+version = "0.1.5"
+
+[dependencies.afl-plugin]
+optional = true
+version = "0.1.5"
+
 [features]
+fuzz = ["afl", "afl-plugin"]
 logging = []
 nightly = []
+
+[profile]
+
+[profile.release]
+debug = true
