@@ -1203,6 +1203,22 @@ impl Parse for CallOffset {
     }
 }
 
+impl Demangle for CallOffset {
+    fn demangle<W>(&self, ctx: &mut DemangleContext<W>) -> io::Result<()>
+        where W: io::Write
+    {
+        match *self {
+            CallOffset::NonVirtual(NvOffset(offset)) => {
+                try!(write!(ctx, "{{offset({})}}", offset));
+            }
+            CallOffset::Virtual(VOffset(vbase, vcall)) => {
+                try!(write!(ctx, "{{virtual offset({}, {})}}", vbase, vcall));
+            }
+        }
+        Ok(())
+    }
+}
+
 /// A non-virtual offset, as described by the <nv-offset> production.
 ///
 /// ```text
