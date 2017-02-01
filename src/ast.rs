@@ -3829,7 +3829,64 @@ impl Demangle for SpecialName {
     fn demangle<W>(&self, ctx: &mut DemangleContext<W>) -> io::Result<()>
         where W: io::Write
     {
-        unimplemented!()
+        match *self {
+            SpecialName::VirtualTable(ref ty) => {
+                try!(write!(ctx, "{{vtable("));
+                try!(ty.demangle(ctx));
+                try!(write!(ctx, ")}}"));
+                Ok(())
+            }
+            SpecialName::Vtt(ref ty) => {
+                try!(write!(ctx, "{{vtt("));
+                try!(ty.demangle(ctx));
+                try!(write!(ctx, ")}}"));
+                Ok(())
+            }
+            SpecialName::Typeinfo(ref ty) => {
+                try!(write!(ctx, "{{typeinfo("));
+                try!(ty.demangle(ctx));
+                try!(write!(ctx, ")}}"));
+                Ok(())
+            }
+            SpecialName::TypeinfoName(ref ty) => {
+                try!(write!(ctx, "{{typeinfo name("));
+                try!(ty.demangle(ctx));
+                try!(write!(ctx, ")}}"));
+                Ok(())
+            }
+            SpecialName::VirtualOverrideThunk(ref offset, ref encoding) => {
+                try!(write!(ctx, "{{virtual override thunk("));
+                try!(offset.demangle(ctx));
+                try!(write!(ctx, ", "));
+                try!(encoding.demangle(ctx));
+                try!(write!(ctx, ")}}"));
+                Ok(())
+            }
+            SpecialName::VirtualOverrideThunkCovariant(ref this_offset,
+                                                       ref result_offset,
+                                                       ref encoding) => {
+                try!(write!(ctx, "{{virtual override thunk("));
+                try!(this_offset.demangle(ctx));
+                try!(write!(ctx, ", "));
+                try!(result_offset.demangle(ctx));
+                try!(write!(ctx, ", "));
+                try!(encoding.demangle(ctx));
+                try!(write!(ctx, ")}}"));
+                Ok(())
+            }
+            SpecialName::Guard(ref name) => {
+                try!(write!(ctx, "{{static initialization guard("));
+                try!(name.demangle(ctx));
+                try!(write!(ctx, ")}}"));
+                Ok(())
+            }
+            SpecialName::GuardTemporary(ref name, n) => {
+                try!(write!(ctx, "{{static initialization guard temporary("));
+                try!(name.demangle(ctx));
+                try!(write!(ctx, ", {})}}", n));
+                Ok(())
+            }
+        }
     }
 }
 
