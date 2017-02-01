@@ -102,7 +102,7 @@ impl<T> Symbol<T>
         })
     }
 
-    // TODO FITZGEN: new_with_tail
+    // TODO: new_with_tail
 }
 
 impl<T> fmt::Display for Symbol<T>

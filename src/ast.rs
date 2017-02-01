@@ -135,9 +135,9 @@ pub struct DemangleContext<'a, W>
     // entered a substitutions reference cycle and will go into a infinite
     // recursion and blow the stack.
     //
-    // TODO FITZGEN: is this really needed? Shouldn't the check that back
-    // references are always backwards mean that there can't be cycles? Or is
-    // that check too strict?
+    // TODO: is this really needed? Shouldn't the check that back references are
+    // always backwards mean that there can't be cycles? Alternatively, is that
+    // check too strict, and should it be relaxed?
     mark_bits: FixedBitSet,
 }
 
@@ -237,7 +237,7 @@ macro_rules! define_handle {
                     $typename::WellKnown(ref comp) => comp.demangle(ctx),
                     $typename::BackReference(idx) => {
                         if ctx.mark_bit_is_set(idx) {
-                            // TODO FITZGEN: should this be an error?
+                            // TODO: should this be an error?
                             return Ok(());
                         }
 
