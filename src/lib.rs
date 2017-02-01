@@ -28,6 +28,7 @@
 
 #![deny(missing_docs)]
 #![deny(missing_debug_implementations)]
+#![deny(unsafe_code)]
 
 // The `error_chain!` macro can recurse deeply.
 #![recursion_limit = "1024"]
@@ -43,7 +44,7 @@ pub mod error;
 mod index_str;
 mod subs;
 
-use ast::Parse;
+use ast::{Demangle, Parse};
 use error::{ErrorKind, Result};
 use index_str::IndexStr;
 use std::fmt;
@@ -73,13 +74,13 @@ impl<T> Symbol<T>
     /// ```
     /// use cpp_demangle::Symbol;
     ///
-    /// let mangled = b"_ZN5space3fooEii";
+    /// let mangled = b"_ZN5space3fooEibc";
     ///
     /// let sym = Symbol::new(mangled)
     ///     .expect("Could not parse mangled symbol!");
     ///
-    /// println!("The demangled symbol is '{}'", sym);
-    /// // Prints "The demangled symbol is 'space::foo(int, int)'""
+    /// let demangled = format!("{}", sym);
+    /// assert_eq!(demangled, "int space::foo(bool, char)");
     /// ```
     pub fn new(raw: T) -> Result<Symbol<T>> {
         let mut substitutions = subs::SubstitutionTable::new();
@@ -100,12 +101,21 @@ impl<T> Symbol<T>
             parsed: parsed,
         })
     }
+
+    // TODO FITZGEN: new_with_tail
 }
 
 impl<T> fmt::Display for Symbol<T>
     where T: AsRef<[u8]>
 {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "unimplemented!")
+        let mut out = vec![];
+        {
+            let mut ctx = ast::DemangleContext::new(&self.substitutions,
+                                                    self.raw.as_ref(),
+                                                    &mut out);
+            try!(self.parsed.demangle(&mut ctx).map_err(|_| fmt::Error));
+        }
+        write!(f, "{}", String::from_utf8_lossy(&out))
     }
 }

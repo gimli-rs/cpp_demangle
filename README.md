@@ -23,10 +23,10 @@ For example, suppose a C++ compilation unit has the definition:
     }
 
 The Itanium C++ ABI specifies that the linker symbol for that function must be
-named `_ZN5space3fooEii`. This crate can parse that name into a Rust value
+named `_ZN5space3fooEiii`. This crate can parse that name into a Rust value
 representing its structure. Formatting the value with `format!` or `to_string`
-would yield the string `"space::foo(int, int)"`, which is more meaningful to the
-C++ developer.
+would yield the string `"int space::foo(int, int)"`, which is more meaningful to
+the C++ developer.
 
 ## Documentation
 
