@@ -1,6 +1,7 @@
 //! Types dealing with the substitutions table.
 
 use ast;
+use std::io;
 use std::iter::FromIterator;
 use std::ops::Deref;
 
@@ -23,6 +24,20 @@ pub enum Substitutable {
 
     /// A `<prefix>` production.
     Prefix(ast::Prefix),
+}
+
+impl ast::Demangle for Substitutable {
+    fn demangle<W>(&self, ctx: &mut ast::DemangleContext<W>) -> io::Result<()>
+        where W: io::Write
+    {
+        match *self {
+            Substitutable::UnscopedTemplateName(ref name) => name.demangle(ctx),
+            Substitutable::Type(ref ty) => ty.demangle(ctx),
+            Substitutable::TemplateTemplateParam(ref ttp) => ttp.demangle(ctx),
+            Substitutable::UnresolvedType(ref ty) => ty.demangle(ctx),
+            Substitutable::Prefix(ref prefix) => prefix.demangle(ctx),
+        }
+    }
 }
 
 /// The table of substitutable components that we have parsed thus far, and for
