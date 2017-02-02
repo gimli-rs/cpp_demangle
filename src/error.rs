@@ -1,32 +1,43 @@
 //! Custom `Error` and `Result` types for the `cpp_demangle` crate.
 
-error_chain! {
-    errors {
-        /// The mangled symbol ends abruptly.
-        UnexpectedEnd {
-            display("mangled symbol ends abruptly")
-        }
+use std::error;
+use std::fmt;
 
-        /// The mangled symbol is not well-formed.
-        UnexpectedText {
-            display("mangled symbol is not well-formed")
-        }
+/// Errors that can occur while demangling a symbol.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum Error {
+    /// The mangled symbol ends abruptly.
+    UnexpectedEnd,
 
-        /// Found a back reference that is out-of-bounds of the substitution
-        /// table.
-        BadBackReference {
-            display("back reference that is out-of-bounds of the substitution table")
+    /// The mangled symbol is not well-formed.
+    UnexpectedText,
+
+    /// Found a back reference that is out-of-bounds of the substitution
+    /// table.
+    BadBackReference,
+}
+
+impl fmt::Display for Error {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match *self {
+            Error::UnexpectedEnd => write!(f, "mangled symbol ends abruptly"),
+            Error::UnexpectedText => write!(f, "mangled symbol is not well-formed"),
+            Error::BadBackReference => {
+                write!(f, "back reference that is out-of-bounds of the substitution table")
+            }
         }
     }
 }
 
-impl PartialEq<ErrorKind> for ErrorKind {
-    fn eq(&self, rhs: &ErrorKind) -> bool {
-        match (self, rhs) {
-            (&ErrorKind::UnexpectedEnd, &ErrorKind::UnexpectedEnd) |
-            (&ErrorKind::UnexpectedText, &ErrorKind::UnexpectedText) |
-            (&ErrorKind::BadBackReference, &ErrorKind::BadBackReference) => true,
-            _ => false,
+impl error::Error for Error {
+    fn description(&self) -> &str {
+        match *self {
+            Error::UnexpectedEnd => "mangled symbol ends abruptly",
+            Error::UnexpectedText => "mangled symbol is not well-formed",
+            Error::BadBackReference => "back reference that is out-of-bounds of the substitution table",
         }
     }
 }
+
+/// A demangling result of `T` or a `cpp_demangle::error::Error`.
+pub type Result<T> = ::std::result::Result<T, Error>;

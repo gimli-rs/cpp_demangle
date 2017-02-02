@@ -10,7 +10,6 @@ repository = "https://github.com/fitzgen/cpp_demangle"
 version = "0.1.0"
 
 [dependencies]
-error-chain = "0.7.1"
 fixedbitset = "0.1.5"
 
 [dependencies.afl]

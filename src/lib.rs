@@ -30,12 +30,6 @@
 #![deny(missing_debug_implementations)]
 #![deny(unsafe_code)]
 
-// The `error_chain!` macro can recurse deeply.
-#![recursion_limit = "1024"]
-
-#[macro_use]
-extern crate error_chain;
-
 #[macro_use]
 mod logging;
 
@@ -45,7 +39,7 @@ mod index_str;
 mod subs;
 
 use ast::{Demangle, Parse};
-use error::{ErrorKind, Result};
+use error::{Error, Result};
 use index_str::IndexStr;
 use std::fmt;
 
@@ -91,7 +85,7 @@ impl<T> Symbol<T>
             if tail.is_empty() {
                 parsed
             } else {
-                return Err(ErrorKind::UnexpectedText.into());
+                return Err(Error::UnexpectedText.into());
             }
         };
 
