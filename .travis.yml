@@ -52,6 +52,8 @@ env:
 
 matrix:
   exclude:
+    - rust: nightly
+      env: FUZZ = "true"
     - rust: beta
       env: FUZZ = "true"
     - rust: stable
