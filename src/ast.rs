@@ -346,7 +346,11 @@ impl Parse for MangledName {
                      -> Result<(MangledName, IndexStr<'b>)> {
         log_parse!("MangledName", input);
 
-        let tail = try!(consume(b"_Z", input));
+        let tail = if let Ok(tail) = consume(b"__Z", input) {
+            tail
+        } else {
+            try!(consume(b"_Z", input))
+        };
         let (encoding, tail) = try!(Encoding::parse(subs, tail));
 
         Ok((MangledName(encoding), tail))
