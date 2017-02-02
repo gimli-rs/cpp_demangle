@@ -4263,6 +4263,7 @@ fn zero_or_more<'a, 'b, P>(subs: &'a mut SubstitutionTable,
 
 /// Parse a number with the given `base`. Do not allow negative numbers
 /// (prefixed with an 'n' instead of a '-') if `allow_signed` is false.
+#[allow(unsafe_code)]
 fn parse_number(base: u32,
                 allow_signed: bool,
                 mut input: IndexStr)
@@ -4301,7 +4302,6 @@ fn parse_number(base: u32,
         return Err(Error::UnexpectedText);
     }
 
-    #[allow(unsafe_code)]
     let head = unsafe {
         // Safe because we know we only have valid numeric chars in this
         // slice, which are valid UTF-8.
