@@ -11,7 +11,7 @@ rust:
 - stable
 # This is the version AFL.rs is stuck at. If we want to have fuzzing, we need to
 # compile on this rustc.
-- 1.11.0
+- nightly-2016-07-30
 
 addons:
   apt:
