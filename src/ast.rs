@@ -2,7 +2,7 @@
 
 extern crate fixedbitset;
 
-use error::{ErrorKind, Result};
+use error::{Error, Result};
 use index_str::IndexStr;
 use self::fixedbitset::FixedBitSet;
 #[cfg(feature = "logging")]
@@ -296,9 +296,9 @@ macro_rules! define_vocabulary {
                 )*
 
                 if input.is_empty() || found_prefix {
-                    Err(ErrorKind::UnexpectedEnd.into())
+                    Err(Error::UnexpectedEnd)
                 } else {
-                    Err(ErrorKind::UnexpectedText.into())
+                    Err(Error::UnexpectedText)
                 }
             }
         }
@@ -346,7 +346,11 @@ impl Parse for MangledName {
                      -> Result<(MangledName, IndexStr<'b>)> {
         log_parse!("MangledName", input);
 
-        let tail = try!(consume(b"_Z", input));
+        let tail = if let Ok(tail) = consume(b"__Z", input) {
+            tail
+        } else {
+            try!(consume(b"_Z", input))
+        };
         let (encoding, tail) = try!(Encoding::parse(subs, tail));
 
         Ok((MangledName(encoding), tail))
@@ -647,7 +651,7 @@ impl Parse for NestedName {
                 // components.
                 Substitutable::Prefix(Prefix::Nested(..)) |
                 Substitutable::Prefix(Prefix::Template(..)) => {}
-                _ => return Err(ErrorKind::UnexpectedText.into()),
+                _ => return Err(Error::UnexpectedText),
             }
         }
 
@@ -738,7 +742,7 @@ impl Parse for PrefixHandle {
                     if let Some(handle) = current {
                         return Ok((handle, tail));
                     } else {
-                        return Err(ErrorKind::UnexpectedEnd.into());
+                        return Err(Error::UnexpectedEnd);
                     }
                 }
                 Some(b'S') => {
@@ -832,9 +836,9 @@ impl Parse for PrefixHandle {
                     if let Some(handle) = current {
                         return Ok((handle, tail));
                     } else if tail.is_empty() {
-                        return Err(ErrorKind::UnexpectedEnd.into());
+                        return Err(Error::UnexpectedEnd);
                     } else {
-                        return Err(ErrorKind::UnexpectedText.into());
+                        return Err(Error::UnexpectedText);
                     }
                 }
             }
@@ -978,17 +982,17 @@ impl Parse for SourceName {
         let (source_name_len, input) = try!(parse_number(10, false, input));
         debug_assert!(source_name_len >= 0);
         if source_name_len == 0 {
-            return Err(ErrorKind::UnexpectedText.into());
+            return Err(Error::UnexpectedText);
         }
 
         let (head, tail) = match input.try_split_at(source_name_len as _) {
             Some((head, tail)) => (head, tail),
-            None => return Err(ErrorKind::UnexpectedEnd.into()),
+            None => return Err(Error::UnexpectedEnd),
         };
 
         let (identifier, empty) = try!(Identifier::parse(subs, head));
         if !empty.is_empty() {
-            return Err(ErrorKind::UnexpectedText.into());
+            return Err(Error::UnexpectedText);
         }
 
         let source_name = SourceName(identifier);
@@ -1035,7 +1039,7 @@ impl Parse for Identifier {
         log_parse!("Identifier", input);
 
         if input.is_empty() {
-            return Err(ErrorKind::UnexpectedEnd.into());
+            return Err(Error::UnexpectedEnd);
         }
 
         let end = input.as_ref()
@@ -1045,7 +1049,7 @@ impl Parse for Identifier {
             .count();
 
         if end == 0 {
-            return Err(ErrorKind::UnexpectedText.into());
+            return Err(Error::UnexpectedText);
         }
 
         let tail = input.range_from(end..);
@@ -1184,7 +1188,7 @@ impl Parse for CallOffset {
         log_parse!("CallOffset", input);
 
         if input.is_empty() {
-            return Err(ErrorKind::UnexpectedEnd.into());
+            return Err(Error::UnexpectedEnd);
         }
 
         if let Ok(tail) = consume(b"h", input) {
@@ -1199,7 +1203,7 @@ impl Parse for CallOffset {
             return Ok((CallOffset::Virtual(offset), tail));
         }
 
-        Err(ErrorKind::UnexpectedText.into())
+        Err(Error::UnexpectedText)
     }
 }
 
@@ -2266,7 +2270,7 @@ impl Parse for FunctionParam {
 
         let tail = try!(consume(b"f", input));
         if tail.is_empty() {
-            return Err(ErrorKind::UnexpectedEnd.into());
+            return Err(Error::UnexpectedEnd);
         }
 
         let (scope, tail) = if let Ok(tail) = consume(b"L", tail) {
@@ -2819,7 +2823,7 @@ impl Parse for Expression {
                                  input: IndexStr<'b>)
                                  -> Result<(Expression, IndexStr<'b>)> {
             match input.try_split_at(2) {
-                None => Err(ErrorKind::UnexpectedEnd.into()),
+                None => Err(Error::UnexpectedEnd),
                 Some((head, tail)) => {
                     match head.as_ref() {
                         b"nw" => {
@@ -2884,7 +2888,7 @@ impl Parse for Expression {
                             };
                             Ok((expr, tail))
                         }
-                        _ => Err(ErrorKind::UnexpectedText.into()),
+                        _ => Err(Error::UnexpectedText),
                     }
                 }
             }
@@ -3803,14 +3807,14 @@ impl Parse for Discriminator {
             let (num, tail) = try!(parse_number(10, false, tail));
             debug_assert!(num >= 0);
             if num < 10 {
-                return Err(ErrorKind::UnexpectedText.into());
+                return Err(Error::UnexpectedText);
             }
             let tail = try!(consume(b"_", tail));
             return Ok((Discriminator(num as _), tail));
         }
 
         match tail.try_split_at(1) {
-            None => Err(ErrorKind::UnexpectedEnd.into()),
+            None => Err(Error::UnexpectedEnd),
             Some((head, tail)) => {
                 match head.as_ref()[0] {
                     b'0' => Ok((Discriminator(0), tail)),
@@ -3823,7 +3827,7 @@ impl Parse for Discriminator {
                     b'7' => Ok((Discriminator(7), tail)),
                     b'8' => Ok((Discriminator(8), tail)),
                     b'9' => Ok((Discriminator(9), tail)),
-                    _ => Err(ErrorKind::UnexpectedText.into()),
+                    _ => Err(Error::UnexpectedText),
                 }
             }
         }
@@ -3988,7 +3992,7 @@ impl Parse for Substitution {
         };
 
         if !subs.contains(idx) {
-            return Err(ErrorKind::BadBackReference.into());
+            return Err(Error::BadBackReference);
         }
 
         let tail = try!(consume(b"_", tail));
@@ -4087,7 +4091,7 @@ impl Parse for SpecialName {
         log_parse!("SpecialName", input);
 
         let (head, tail) = match input.try_split_at(2) {
-            None => return Err(ErrorKind::UnexpectedEnd.into()),
+            None => return Err(Error::UnexpectedEnd),
             Some((head, tail)) => (head, tail),
         };
 
@@ -4138,7 +4142,7 @@ impl Parse for SpecialName {
                     let (base, tail) = try!(Encoding::parse(subs, tail));
                     Ok((SpecialName::VirtualOverrideThunk(offset, Box::new(base)), tail))
                 } else {
-                    Err(ErrorKind::UnexpectedText.into())
+                    Err(Error::UnexpectedText)
                 }
             }
         }
@@ -4212,14 +4216,14 @@ impl Demangle for SpecialName {
 
 /// Expect and consume the given byte str, and return the advanced `IndexStr` if
 /// we saw the expectation. Otherwise return an error of kind
-/// `ErrorKind::UnexpectedText` if the input doesn't match, or
-/// `ErrorKind::UnexpectedEnd` if it isn't long enough.
+/// `Error::UnexpectedText` if the input doesn't match, or
+/// `Error::UnexpectedEnd` if it isn't long enough.
 #[inline]
 fn consume<'a>(expected: &[u8], input: IndexStr<'a>) -> Result<IndexStr<'a>> {
     match input.try_split_at(expected.len()) {
         Some((head, tail)) if head == expected => Ok(tail),
-        Some(_) => Err(ErrorKind::UnexpectedText.into()),
-        None => Err(ErrorKind::UnexpectedEnd.into()),
+        Some(_) => Err(Error::UnexpectedText),
+        None => Err(Error::UnexpectedEnd),
     }
 }
 
@@ -4259,19 +4263,20 @@ fn zero_or_more<'a, 'b, P>(subs: &'a mut SubstitutionTable,
 
 /// Parse a number with the given `base`. Do not allow negative numbers
 /// (prefixed with an 'n' instead of a '-') if `allow_signed` is false.
+#[allow(unsafe_code)]
 fn parse_number(base: u32,
                 allow_signed: bool,
                 mut input: IndexStr)
                 -> Result<(isize, IndexStr)> {
     if input.is_empty() {
-        return Err(ErrorKind::UnexpectedEnd.into());
+        return Err(Error::UnexpectedEnd);
     }
 
     let num_is_negative = if allow_signed && input.as_ref()[0] == b'n' {
         input = input.range_from(1..);
 
         if input.is_empty() {
-            return Err(ErrorKind::UnexpectedEnd.into());
+            return Err(Error::UnexpectedEnd);
         }
 
         true
@@ -4285,7 +4290,7 @@ fn parse_number(base: u32,
         .take_while(|c| c.is_digit(base) && (c.is_numeric() || c.is_uppercase()))
         .count();
     if num_numeric == 0 {
-        return Err(ErrorKind::UnexpectedText.into());
+        return Err(Error::UnexpectedText);
     }
 
     let (head, tail) = input.split_at(num_numeric);
@@ -4294,10 +4299,9 @@ fn parse_number(base: u32,
     if num_numeric > 1 && head[0] == b'0' {
         // "<number>s appearing in mangled names never have leading zeroes,
         // except for the value zero, represented as '0'."
-        return Err(ErrorKind::UnexpectedText.into());
+        return Err(Error::UnexpectedText);
     }
 
-    #[allow(unsafe_code)]
     let head = unsafe {
         // Safe because we know we only have valid numeric chars in this
         // slice, which are valid UTF-8.
@@ -4315,7 +4319,7 @@ fn parse_number(base: u32,
 
 #[cfg(test)]
 mod tests {
-    use error::ErrorKind;
+    use error::Error;
     use index_str::IndexStr;
     use std::fmt::Debug;
     use std::iter::FromIterator;
@@ -4414,7 +4418,7 @@ mod tests {
     fn assert_parse_err<P, S, I>(production: &'static str,
                                  subs: S,
                                  input: I,
-                                 expected_error_kind: ErrorKind)
+                                 expected_error: Error)
         where P: Debug + Parse + PartialEq,
               S: AsRef<[Substitutable]>,
               I: AsRef<[u8]>
@@ -4423,13 +4427,13 @@ mod tests {
         let mut subs = SubstitutionTable::from_iter(subs.as_ref().iter().cloned());
 
         match P::parse(&mut subs, IndexStr::from(input)) {
-            Err(ref error) if *error.kind() == expected_error_kind => {}
+            Err(ref error) if *error == expected_error => {}
             Err(ref error) => {
                 panic!("Parsing {:?} as {} produced an error of kind {:?}, but we expected kind {:?}",
                        String::from_utf8_lossy(input),
                        production,
-                       error.kind(),
-                       expected_error_kind);
+                       error,
+                       expected_error);
             }
             Ok((value, tail)) => {
                 panic!("Parsing {:?} as {} produced value\n\n{:#?}\n\nand tail {:?}, but we expected error kind {:?}",
@@ -4437,7 +4441,7 @@ mod tests {
                        production,
                        value,
                        tail,
-                       expected_error_kind);
+                       expected_error);
             }
         }
 
@@ -4446,11 +4450,11 @@ mod tests {
 
     fn simple_assert_parse_err<P, I>(production: &'static str,
                                      input: I,
-                                     expected_error_kind: ErrorKind)
+                                     expected_error: Error)
         where P: Debug + Parse + PartialEq,
               I: AsRef<[u8]>
     {
-        assert_parse_err::<P, _, _>(production, [], input, expected_error_kind);
+        assert_parse_err::<P, _, _>(production, [], input, expected_error);
     }
 
     macro_rules! assert_parse {
@@ -4464,7 +4468,7 @@ mod tests {
                     } )*
                 }
                 Err => {
-                    $( $error_input:expr => $error_kind:expr , )*
+                    $( $error_input:expr => $error:expr , )*
                 }
             } )*
         } ) => {
@@ -4481,7 +4485,7 @@ mod tests {
                 assert_parse_err::<$production, _, _>(stringify!($production),
                                                       $subs,
                                                       $error_input,
-                                                      $error_kind);
+                                                      $error);
             )* )*
         };
 
@@ -4493,7 +4497,7 @@ mod tests {
                 } )*
             }
             Err => {
-                $( $error_input:expr => $error_kind:expr , )*
+                $( $error_input:expr => $error:expr , )*
             }
         } ) => {
             $(
@@ -4507,7 +4511,7 @@ mod tests {
             $(
                 simple_assert_parse_err::<$production, _>(stringify!($production),
                                                           $error_input,
-                                                          $error_kind);
+                                                          $error);
             )*
         };
     }
@@ -4532,10 +4536,10 @@ mod tests {
                     }
                 }
                 Err => {
-                    b"_Y" => ErrorKind::UnexpectedText,
-                    b"_Z" => ErrorKind::UnexpectedEnd,
-                    b"_" => ErrorKind::UnexpectedEnd,
-                    b"" => ErrorKind::UnexpectedEnd,
+                    b"_Y" => Error::UnexpectedText,
+                    b"_Z" => Error::UnexpectedEnd,
+                    b"_" => Error::UnexpectedEnd,
+                    b"" => Error::UnexpectedEnd,
                 }
             }
         });
@@ -4593,8 +4597,8 @@ mod tests {
                     }
                 }
                 Err => {
-                    b"zzz" => ErrorKind::UnexpectedText,
-                    b"" => ErrorKind::UnexpectedEnd,
+                    b"zzz" => Error::UnexpectedText,
+                    b"" => Error::UnexpectedEnd,
                 }
             }
         });
@@ -4675,8 +4679,8 @@ mod tests {
                     }
                 }
                 Err => {
-                    b"zzz" => ErrorKind::UnexpectedText,
-                    b"" => ErrorKind::UnexpectedEnd,
+                    b"zzz" => Error::UnexpectedText,
+                    b"" => Error::UnexpectedEnd,
                 }
             }
         });
@@ -4711,8 +4715,8 @@ mod tests {
                     }
                 }
                 Err => {
-                    b"zzzz" => ErrorKind::UnexpectedText,
-                    b"" => ErrorKind::UnexpectedEnd,
+                    b"zzzz" => Error::UnexpectedText,
+                    b"" => Error::UnexpectedEnd,
                 }
             }
         });
@@ -4871,21 +4875,21 @@ mod tests {
                 }
                 Err => {
                     // Ends with a prefix that is not a name or template.
-                    b"NS_E..." => ErrorKind::UnexpectedText,
-                    b"NS_DttrEE..." => ErrorKind::UnexpectedText,
+                    b"NS_E..." => Error::UnexpectedText,
+                    b"NS_DttrEE..." => Error::UnexpectedText,
 
-                    b"zzz" => ErrorKind::UnexpectedText,
-                    b"Nzzz" => ErrorKind::UnexpectedText,
-                    b"NKzzz" => ErrorKind::UnexpectedText,
-                    b"NKOzzz" => ErrorKind::UnexpectedText,
-                    b"NKO3abczzz" => ErrorKind::UnexpectedText,
-                    b"NKO3abc3abczzz" => ErrorKind::UnexpectedText,
-                    b"" => ErrorKind::UnexpectedEnd,
-                    b"N" => ErrorKind::UnexpectedEnd,
-                    b"NK" => ErrorKind::UnexpectedEnd,
-                    b"NKO" => ErrorKind::UnexpectedEnd,
-                    b"NKO3abc" => ErrorKind::UnexpectedText,
-                    b"NKO3abc3abc" => ErrorKind::UnexpectedEnd,
+                    b"zzz" => Error::UnexpectedText,
+                    b"Nzzz" => Error::UnexpectedText,
+                    b"NKzzz" => Error::UnexpectedText,
+                    b"NKOzzz" => Error::UnexpectedText,
+                    b"NKO3abczzz" => Error::UnexpectedText,
+                    b"NKO3abc3abczzz" => Error::UnexpectedText,
+                    b"" => Error::UnexpectedEnd,
+                    b"N" => Error::UnexpectedEnd,
+                    b"NK" => Error::UnexpectedEnd,
+                    b"NKO" => Error::UnexpectedEnd,
+                    b"NKO3abc" => Error::UnexpectedText,
+                    b"NKO3abc3abc" => Error::UnexpectedEnd,
                 }
             }
         });
@@ -5026,8 +5030,8 @@ mod tests {
                     }
                 }
                 Err => {
-                    b"zzz" => ErrorKind::UnexpectedText,
-                    b"" => ErrorKind::UnexpectedEnd,
+                    b"zzz" => Error::UnexpectedText,
+                    b"" => Error::UnexpectedEnd,
                 }
             }
         });
@@ -5221,15 +5225,15 @@ mod tests {
                     }
                 }
                 Err => {
-                    b"P" => ErrorKind::UnexpectedEnd,
-                    b"R" => ErrorKind::UnexpectedEnd,
-                    b"O" => ErrorKind::UnexpectedEnd,
-                    b"C" => ErrorKind::UnexpectedEnd,
-                    b"G" => ErrorKind::UnexpectedEnd,
-                    b"Dp" => ErrorKind::UnexpectedEnd,
-                    b"D" => ErrorKind::UnexpectedEnd,
-                    b"P" => ErrorKind::UnexpectedEnd,
-                    b"" => ErrorKind::UnexpectedEnd,
+                    b"P" => Error::UnexpectedEnd,
+                    b"R" => Error::UnexpectedEnd,
+                    b"O" => Error::UnexpectedEnd,
+                    b"C" => Error::UnexpectedEnd,
+                    b"G" => Error::UnexpectedEnd,
+                    b"Dp" => Error::UnexpectedEnd,
+                    b"D" => Error::UnexpectedEnd,
+                    b"P" => Error::UnexpectedEnd,
+                    b"" => Error::UnexpectedEnd,
                 }
             }
         });
@@ -5320,12 +5324,12 @@ mod tests {
                     }
                 }
                 Err => {
-                    b"DFYS_E" => ErrorKind::UnexpectedText,
-                    b"KKFS_E" => ErrorKind::UnexpectedText,
-                    b"FYS_..." => ErrorKind::UnexpectedText,
-                    b"FYS_" => ErrorKind::UnexpectedEnd,
-                    b"F" => ErrorKind::UnexpectedEnd,
-                    b"" => ErrorKind::UnexpectedEnd,
+                    b"DFYS_E" => Error::UnexpectedText,
+                    b"KKFS_E" => Error::UnexpectedText,
+                    b"FYS_..." => Error::UnexpectedText,
+                    b"FYS_" => Error::UnexpectedEnd,
+                    b"F" => Error::UnexpectedEnd,
+                    b"" => Error::UnexpectedEnd,
                 }
             }
         });
@@ -5349,7 +5353,7 @@ mod tests {
                     }
                 }
                 Err => {
-                    b"" => ErrorKind::UnexpectedEnd,
+                    b"" => Error::UnexpectedEnd,
                 }
             }
         });
@@ -5369,15 +5373,15 @@ mod tests {
                 }
             }
             Err => {
-                b"Dtrtz" => ErrorKind::UnexpectedText,
-                b"DTrtz" => ErrorKind::UnexpectedText,
-                b"Dz" => ErrorKind::UnexpectedText,
-                b"Dtrt" => ErrorKind::UnexpectedText,
-                b"DTrt" => ErrorKind::UnexpectedText,
-                b"Dt" => ErrorKind::UnexpectedEnd,
-                b"DT" => ErrorKind::UnexpectedEnd,
-                b"D" => ErrorKind::UnexpectedEnd,
-                b"" => ErrorKind::UnexpectedEnd,
+                b"Dtrtz" => Error::UnexpectedText,
+                b"DTrtz" => Error::UnexpectedText,
+                b"Dz" => Error::UnexpectedText,
+                b"Dtrt" => Error::UnexpectedText,
+                b"DTrt" => Error::UnexpectedText,
+                b"Dt" => Error::UnexpectedEnd,
+                b"DT" => Error::UnexpectedEnd,
+                b"D" => Error::UnexpectedEnd,
+                b"" => Error::UnexpectedEnd,
             }
         });
     }
@@ -5432,10 +5436,10 @@ mod tests {
                 }
             }
             Err => {
-                b"zzz" => ErrorKind::UnexpectedText,
-                b"Tzzz" => ErrorKind::UnexpectedText,
-                b"T" => ErrorKind::UnexpectedEnd,
-                b"" => ErrorKind::UnexpectedEnd,
+                b"zzz" => Error::UnexpectedText,
+                b"Tzzz" => Error::UnexpectedText,
+                b"T" => Error::UnexpectedEnd,
+                b"" => Error::UnexpectedEnd,
             }
         });
     }
@@ -5472,14 +5476,14 @@ mod tests {
                     }
                 }
                 Err => {
-                    b"A10_" => ErrorKind::UnexpectedEnd,
-                    b"A10" => ErrorKind::UnexpectedEnd,
-                    b"A" => ErrorKind::UnexpectedEnd,
-                    b"" => ErrorKind::UnexpectedEnd,
-                    b"A10_..." => ErrorKind::UnexpectedText,
-                    b"A10..." => ErrorKind::UnexpectedText,
-                    b"A..." => ErrorKind::UnexpectedText,
-                    b"..." => ErrorKind::UnexpectedText,
+                    b"A10_" => Error::UnexpectedEnd,
+                    b"A10" => Error::UnexpectedEnd,
+                    b"A" => Error::UnexpectedEnd,
+                    b"" => Error::UnexpectedEnd,
+                    b"A10_..." => Error::UnexpectedText,
+                    b"A10..." => Error::UnexpectedText,
+                    b"A..." => Error::UnexpectedText,
+                    b"..." => Error::UnexpectedText,
                 }
             }
         });
@@ -5500,14 +5504,14 @@ mod tests {
                     }
                 }
                 Err => {
-                    b"MS_S" => ErrorKind::UnexpectedEnd,
-                    b"MS_" => ErrorKind::UnexpectedEnd,
-                    b"MS" => ErrorKind::UnexpectedEnd,
-                    b"M" => ErrorKind::UnexpectedEnd,
-                    b"" => ErrorKind::UnexpectedEnd,
-                    b"MS_..." => ErrorKind::UnexpectedText,
-                    b"M..." => ErrorKind::UnexpectedText,
-                    b"..." => ErrorKind::UnexpectedText,
+                    b"MS_S" => Error::UnexpectedEnd,
+                    b"MS_" => Error::UnexpectedEnd,
+                    b"MS" => Error::UnexpectedEnd,
+                    b"M" => Error::UnexpectedEnd,
+                    b"" => Error::UnexpectedEnd,
+                    b"MS_..." => Error::UnexpectedText,
+                    b"M..." => Error::UnexpectedText,
+                    b"..." => Error::UnexpectedText,
                 }
             }
         });
@@ -5534,12 +5538,12 @@ mod tests {
                     }
                 }
                 Err => {
-                    b"S" => ErrorKind::UnexpectedText,
-                    b"T" => ErrorKind::UnexpectedEnd,
-                    b"" => ErrorKind::UnexpectedEnd,
-                    b"S..." => ErrorKind::UnexpectedText,
-                    b"T..." => ErrorKind::UnexpectedText,
-                    b"..." => ErrorKind::UnexpectedText,
+                    b"S" => Error::UnexpectedText,
+                    b"T" => Error::UnexpectedEnd,
+                    b"" => Error::UnexpectedEnd,
+                    b"S..." => Error::UnexpectedText,
+                    b"T..." => Error::UnexpectedText,
+                    b"..." => Error::UnexpectedText,
                 }
             }
         });
@@ -5569,11 +5573,11 @@ mod tests {
                     }
                 }
                 Err => {
-                    b"zzz" => ErrorKind::UnexpectedText,
-                    b"IE" => ErrorKind::UnexpectedText,
-                    b"IS_" => ErrorKind::UnexpectedEnd,
-                    b"I" => ErrorKind::UnexpectedEnd,
-                    b"" => ErrorKind::UnexpectedEnd,
+                    b"zzz" => Error::UnexpectedText,
+                    b"IE" => Error::UnexpectedText,
+                    b"IS_" => Error::UnexpectedEnd,
+                    b"I" => Error::UnexpectedEnd,
+                    b"" => Error::UnexpectedEnd,
                 }
             }
         });
@@ -5620,14 +5624,14 @@ mod tests {
                     }
                 }
                 Err => {
-                    b"..." => ErrorKind::UnexpectedText,
-                    b"X..." => ErrorKind::UnexpectedText,
-                    b"J..." => ErrorKind::UnexpectedText,
-                    b"JS_..." => ErrorKind::UnexpectedText,
-                    b"JS_" => ErrorKind::UnexpectedEnd,
-                    b"X" => ErrorKind::UnexpectedEnd,
-                    b"J" => ErrorKind::UnexpectedEnd,
-                    b"" => ErrorKind::UnexpectedEnd,
+                    b"..." => Error::UnexpectedText,
+                    b"X..." => Error::UnexpectedText,
+                    b"J..." => Error::UnexpectedText,
+                    b"JS_..." => Error::UnexpectedText,
+                    b"JS_" => Error::UnexpectedEnd,
+                    b"X" => Error::UnexpectedEnd,
+                    b"J" => Error::UnexpectedEnd,
+                    b"" => Error::UnexpectedEnd,
                 }
             }
         });
@@ -6229,19 +6233,19 @@ mod tests {
                     }
                 }
                 Err => {
-                    b"zzzzzz" => ErrorKind::UnexpectedText,
-                    b"gszzz" => ErrorKind::UnexpectedText,
-                    b"gssrzzz" => ErrorKind::UnexpectedText,
-                    b"srNzzz" => ErrorKind::UnexpectedText,
-                    b"srzzz" => ErrorKind::UnexpectedText,
-                    b"srN3abczzzz" => ErrorKind::UnexpectedText,
-                    b"srN3abcE" => ErrorKind::UnexpectedText,
-                    b"srN3abc" => ErrorKind::UnexpectedText,
-                    b"srN" => ErrorKind::UnexpectedEnd,
-                    b"sr" => ErrorKind::UnexpectedEnd,
-                    b"gssr" => ErrorKind::UnexpectedEnd,
-                    b"gs" => ErrorKind::UnexpectedEnd,
-                    b"" => ErrorKind::UnexpectedEnd,
+                    b"zzzzzz" => Error::UnexpectedText,
+                    b"gszzz" => Error::UnexpectedText,
+                    b"gssrzzz" => Error::UnexpectedText,
+                    b"srNzzz" => Error::UnexpectedText,
+                    b"srzzz" => Error::UnexpectedText,
+                    b"srN3abczzzz" => Error::UnexpectedText,
+                    b"srN3abcE" => Error::UnexpectedText,
+                    b"srN3abc" => Error::UnexpectedText,
+                    b"srN" => Error::UnexpectedEnd,
+                    b"sr" => Error::UnexpectedEnd,
+                    b"gssr" => Error::UnexpectedEnd,
+                    b"gs" => Error::UnexpectedEnd,
+                    b"" => Error::UnexpectedEnd,
                 }
             }
         });
@@ -6289,8 +6293,8 @@ mod tests {
                     }
                 }
                 Err => {
-                    b"zzzzzzz" => ErrorKind::UnexpectedText,
-                    b"" => ErrorKind::UnexpectedEnd,
+                    b"zzzzzzz" => Error::UnexpectedText,
+                    b"" => Error::UnexpectedEnd,
                 }
             }
         });
@@ -6323,8 +6327,8 @@ mod tests {
                     }
                 }
                 Err => {
-                    b"zzz" => ErrorKind::UnexpectedText,
-                    b"" => ErrorKind::UnexpectedEnd,
+                    b"zzz" => Error::UnexpectedText,
+                    b"" => Error::UnexpectedEnd,
                 }
             }
         });
@@ -6357,8 +6361,8 @@ mod tests {
                     }
                 }
                 Err => {
-                    b"zzz" => ErrorKind::UnexpectedText,
-                    b"" => ErrorKind::UnexpectedEnd,
+                    b"zzz" => Error::UnexpectedText,
+                    b"" => Error::UnexpectedEnd,
                 }
             }
         });
@@ -6401,11 +6405,11 @@ mod tests {
                     }
                 }
                 Err => {
-                    b"ozzz" => ErrorKind::UnexpectedText,
-                    b"dzzz" => ErrorKind::UnexpectedText,
-                    b"dn" => ErrorKind::UnexpectedEnd,
-                    b"on" => ErrorKind::UnexpectedEnd,
-                    b"" => ErrorKind::UnexpectedEnd,
+                    b"ozzz" => Error::UnexpectedText,
+                    b"dzzz" => Error::UnexpectedText,
+                    b"dn" => Error::UnexpectedEnd,
+                    b"on" => Error::UnexpectedEnd,
+                    b"" => Error::UnexpectedEnd,
                 }
             }
         });
@@ -6434,8 +6438,8 @@ mod tests {
                     }
                 }
                 Err => {
-                    b"zzz" => ErrorKind::UnexpectedText,
-                    b"" => ErrorKind::UnexpectedEnd,
+                    b"zzz" => Error::UnexpectedText,
+                    b"" => Error::UnexpectedEnd,
                 }
             }
         });
@@ -6474,12 +6478,12 @@ mod tests {
                     }
                 }
                 Err => {
-                    b"zzz" => ErrorKind::UnexpectedText,
-                    b"LS_zzz" => ErrorKind::UnexpectedEnd,
-                    b"LS_12345" => ErrorKind::UnexpectedEnd,
-                    b"LS_" => ErrorKind::UnexpectedEnd,
-                    b"L" => ErrorKind::UnexpectedEnd,
-                    b"" => ErrorKind::UnexpectedEnd,
+                    b"zzz" => Error::UnexpectedText,
+                    b"LS_zzz" => Error::UnexpectedEnd,
+                    b"LS_12345" => Error::UnexpectedEnd,
+                    b"LS_" => Error::UnexpectedEnd,
+                    b"L" => Error::UnexpectedEnd,
+                    b"" => Error::UnexpectedEnd,
                 }
             }
         });
@@ -6503,13 +6507,13 @@ mod tests {
                 }
             }
             Err => {
-                b"pirtrtrt..." => ErrorKind::UnexpectedText,
-                b"pi..." => ErrorKind::UnexpectedText,
-                b"..." => ErrorKind::UnexpectedText,
-                b"pirt" => ErrorKind::UnexpectedText,
-                b"pi" => ErrorKind::UnexpectedEnd,
-                b"p" => ErrorKind::UnexpectedEnd,
-                b"" => ErrorKind::UnexpectedEnd,
+                b"pirtrtrt..." => Error::UnexpectedText,
+                b"pi..." => Error::UnexpectedText,
+                b"..." => Error::UnexpectedText,
+                b"pirt" => Error::UnexpectedText,
+                b"pi" => Error::UnexpectedEnd,
+                b"p" => Error::UnexpectedEnd,
+                b"" => Error::UnexpectedEnd,
             }
         });
     }
@@ -6628,11 +6632,11 @@ mod tests {
                 }
             }
             Err => {
-                b"A" => ErrorKind::UnexpectedText,
-                b"Z1a" => ErrorKind::UnexpectedEnd,
-                b"Z1aE" => ErrorKind::UnexpectedEnd,
-                b"Z" => ErrorKind::UnexpectedEnd,
-                b"" => ErrorKind::UnexpectedEnd,
+                b"A" => Error::UnexpectedText,
+                b"Z1a" => Error::UnexpectedEnd,
+                b"Z1aE" => Error::UnexpectedEnd,
+                b"Z" => Error::UnexpectedEnd,
+                b"" => Error::UnexpectedEnd,
             }
         });
     }
@@ -6651,16 +6655,16 @@ mod tests {
                 }
             }
             Err => {
-                b"UlvE36zzz" => ErrorKind::UnexpectedText,
-                b"UlvEzzz" => ErrorKind::UnexpectedText,
-                b"Ulvzzz" => ErrorKind::UnexpectedText,
-                b"zzz" => ErrorKind::UnexpectedText,
-                b"UlvE10" => ErrorKind::UnexpectedEnd,
-                b"UlvE" => ErrorKind::UnexpectedEnd,
-                b"Ulv" => ErrorKind::UnexpectedEnd,
-                b"Ul" => ErrorKind::UnexpectedEnd,
-                b"U" => ErrorKind::UnexpectedEnd,
-                b"" => ErrorKind::UnexpectedEnd,
+                b"UlvE36zzz" => Error::UnexpectedText,
+                b"UlvEzzz" => Error::UnexpectedText,
+                b"Ulvzzz" => Error::UnexpectedText,
+                b"zzz" => Error::UnexpectedText,
+                b"UlvE10" => Error::UnexpectedEnd,
+                b"UlvE" => Error::UnexpectedEnd,
+                b"Ulv" => Error::UnexpectedEnd,
+                b"Ul" => Error::UnexpectedEnd,
+                b"U" => Error::UnexpectedEnd,
+                b"" => Error::UnexpectedEnd,
             }
         });
     }
@@ -6688,9 +6692,9 @@ mod tests {
                     }
                 }
                 Err => {
-                    b"..." => ErrorKind::UnexpectedText,
-                    b"S" => ErrorKind::UnexpectedEnd,
-                    b"" => ErrorKind::UnexpectedEnd,
+                    b"..." => Error::UnexpectedText,
+                    b"S" => Error::UnexpectedEnd,
+                    b"" => Error::UnexpectedEnd,
                 }
             }
         });
@@ -6752,12 +6756,12 @@ mod tests {
                     }
                 }
                 Err => {
-                    b"S999_" => ErrorKind::BadBackReference,
-                    b"Sz" => ErrorKind::UnexpectedText,
-                    b"zzz" => ErrorKind::UnexpectedText,
-                    b"S1" => ErrorKind::UnexpectedEnd,
-                    b"S" => ErrorKind::UnexpectedEnd,
-                    b"" => ErrorKind::UnexpectedEnd,
+                    b"S999_" => Error::BadBackReference,
+                    b"Sz" => Error::UnexpectedText,
+                    b"zzz" => Error::UnexpectedText,
+                    b"S1" => Error::UnexpectedEnd,
+                    b"S" => Error::UnexpectedEnd,
+                    b"" => Error::UnexpectedEnd,
                 }
             }
         });
@@ -6877,15 +6881,15 @@ mod tests {
                     }
                 }
                 Err => {
-                    b"TZ" => ErrorKind::UnexpectedText,
-                    b"GZ" => ErrorKind::UnexpectedText,
-                    b"GR3abcz" => ErrorKind::UnexpectedText,
-                    b"GR3abc0z" => ErrorKind::UnexpectedText,
-                    b"T" => ErrorKind::UnexpectedEnd,
-                    b"G" => ErrorKind::UnexpectedEnd,
-                    b"" => ErrorKind::UnexpectedEnd,
-                    b"GR3abc" => ErrorKind::UnexpectedEnd,
-                    b"GR3abc0" => ErrorKind::UnexpectedEnd,
+                    b"TZ" => Error::UnexpectedText,
+                    b"GZ" => Error::UnexpectedText,
+                    b"GR3abcz" => Error::UnexpectedText,
+                    b"GR3abc0z" => Error::UnexpectedText,
+                    b"T" => Error::UnexpectedEnd,
+                    b"G" => Error::UnexpectedEnd,
+                    b"" => Error::UnexpectedEnd,
+                    b"GR3abc" => Error::UnexpectedEnd,
+                    b"GR3abc0" => Error::UnexpectedEnd,
                 }
             }
         });
@@ -6937,16 +6941,16 @@ mod tests {
                 }
             }
             Err => {
-                b"fz" => ErrorKind::UnexpectedText,
-                b"fLp_" => ErrorKind::UnexpectedText,
-                b"fpL_" => ErrorKind::UnexpectedText,
-                b"fL1pK4z" => ErrorKind::UnexpectedText,
-                b"fL1pK4" => ErrorKind::UnexpectedEnd,
-                b"fL1p" => ErrorKind::UnexpectedEnd,
-                b"fL1" => ErrorKind::UnexpectedEnd,
-                b"fL" => ErrorKind::UnexpectedEnd,
-                b"f" => ErrorKind::UnexpectedEnd,
-                b"" => ErrorKind::UnexpectedEnd,
+                b"fz" => Error::UnexpectedText,
+                b"fLp_" => Error::UnexpectedText,
+                b"fpL_" => Error::UnexpectedText,
+                b"fL1pK4z" => Error::UnexpectedText,
+                b"fL1pK4" => Error::UnexpectedEnd,
+                b"fL1p" => Error::UnexpectedEnd,
+                b"fL1" => Error::UnexpectedEnd,
+                b"fL" => Error::UnexpectedEnd,
+                b"f" => Error::UnexpectedEnd,
+                b"" => Error::UnexpectedEnd,
             }
         });
     }
@@ -6969,10 +6973,10 @@ mod tests {
                 }
             }
             Err => {
-                b"_n1" => ErrorKind::UnexpectedText,
-                b"__99..." => ErrorKind::UnexpectedText,
-                b"__99" => ErrorKind::UnexpectedEnd,
-                b"..." => ErrorKind::UnexpectedText,
+                b"_n1" => Error::UnexpectedText,
+                b"__99..." => Error::UnexpectedText,
+                b"__99" => Error::UnexpectedEnd,
+                b"..." => Error::UnexpectedText,
             }
         });
     }
@@ -6990,9 +6994,9 @@ mod tests {
                 }
             }
             Err => {
-                b"zzz" => ErrorKind::UnexpectedText,
-                b"1" => ErrorKind::UnexpectedEnd,
-                b"" => ErrorKind::UnexpectedEnd,
+                b"zzz" => Error::UnexpectedText,
+                b"1" => Error::UnexpectedEnd,
+                b"" => Error::UnexpectedEnd,
             }
         });
     }
@@ -7011,8 +7015,8 @@ mod tests {
                 }
             }
             Err => {
-                b"..." => ErrorKind::UnexpectedText,
-                b"" => ErrorKind::UnexpectedEnd,
+                b"..." => Error::UnexpectedText,
+                b"" => Error::UnexpectedEnd,
             }
         });
     }
@@ -7081,8 +7085,8 @@ mod tests {
                 }
             }
             Err => {
-                b"." => ErrorKind::UnexpectedText,
-                b"" => ErrorKind::UnexpectedEnd,
+                b"." => Error::UnexpectedText,
+                b"" => Error::UnexpectedEnd,
             }
         });
     }
@@ -7101,12 +7105,12 @@ mod tests {
                 }
             }
             Err => {
-                b"wtf" => ErrorKind::UnexpectedText,
-                b"Twtf" => ErrorKind::UnexpectedText,
-                b"T3wtf" => ErrorKind::UnexpectedText,
-                b"T" => ErrorKind::UnexpectedEnd,
-                b"T3" => ErrorKind::UnexpectedEnd,
-                b"" => ErrorKind::UnexpectedEnd,
+                b"wtf" => Error::UnexpectedText,
+                b"Twtf" => Error::UnexpectedText,
+                b"T3wtf" => Error::UnexpectedText,
+                b"T" => Error::UnexpectedEnd,
+                b"T3" => Error::UnexpectedEnd,
+                b"" => Error::UnexpectedEnd,
             }
         });
     }
@@ -7131,9 +7135,9 @@ mod tests {
                 }
             }
             Err => {
-                b"St..." => ErrorKind::UnexpectedText,
-                b"..." => ErrorKind::UnexpectedText,
-                b"" => ErrorKind::UnexpectedEnd,
+                b"St..." => Error::UnexpectedText,
+                b"..." => Error::UnexpectedText,
+                b"" => Error::UnexpectedEnd,
             }
         });
     }
@@ -7163,9 +7167,9 @@ mod tests {
                 }
             }
             Err => {
-                b"zzz" => ErrorKind::UnexpectedText,
-                b"C" => ErrorKind::UnexpectedEnd,
-                b"" => ErrorKind::UnexpectedEnd,
+                b"zzz" => Error::UnexpectedText,
+                b"C" => Error::UnexpectedEnd,
+                b"" => Error::UnexpectedEnd,
             }
         });
     }
@@ -7188,11 +7192,11 @@ mod tests {
                 }
             }
             Err => {
-                b"ut_" => ErrorKind::UnexpectedText,
-                b"u" => ErrorKind::UnexpectedEnd,
-                b"Ut" => ErrorKind::UnexpectedEnd,
-                b"Ut._" => ErrorKind::UnexpectedText,
-                b"Ut42" => ErrorKind::UnexpectedEnd,
+                b"ut_" => Error::UnexpectedText,
+                b"u" => Error::UnexpectedEnd,
+                b"Ut" => Error::UnexpectedEnd,
+                b"Ut._" => Error::UnexpectedText,
+                b"Ut42" => Error::UnexpectedEnd,
             }
         });
     }
@@ -7211,8 +7215,8 @@ mod tests {
                 }
             }
             Err => {
-                b"..." => ErrorKind::UnexpectedText,
-                b"" => ErrorKind::UnexpectedEnd,
+                b"..." => Error::UnexpectedText,
+                b"" => Error::UnexpectedEnd,
             }
         });
     }
@@ -7231,10 +7235,10 @@ mod tests {
                 }
             }
             Err => {
-                b"0abc" => ErrorKind::UnexpectedText,
-                b"n1abc" => ErrorKind::UnexpectedText,
-                b"10abcdef" => ErrorKind::UnexpectedEnd,
-                b"" => ErrorKind::UnexpectedEnd,
+                b"0abc" => Error::UnexpectedText,
+                b"n1abc" => Error::UnexpectedText,
+                b"10abcdef" => Error::UnexpectedEnd,
+                b"" => Error::UnexpectedEnd,
             }
         });
     }
@@ -7261,10 +7265,10 @@ mod tests {
                 }
             }
             Err => {
-                b"001" => ErrorKind::UnexpectedText,
-                b"wutang" => ErrorKind::UnexpectedText,
-                b"n" => ErrorKind::UnexpectedEnd,
-                b"" => ErrorKind::UnexpectedEnd,
+                b"001" => Error::UnexpectedText,
+                b"wutang" => Error::UnexpectedText,
+                b"n" => Error::UnexpectedEnd,
+                b"" => Error::UnexpectedEnd,
             }
         });
     }
@@ -7283,12 +7287,12 @@ mod tests {
                 }
             }
             Err => {
-                b"h1..." => ErrorKind::UnexpectedText,
-                b"v1_1..." => ErrorKind::UnexpectedText,
-                b"hh" => ErrorKind::UnexpectedText,
-                b"vv" => ErrorKind::UnexpectedText,
-                b"z" => ErrorKind::UnexpectedText,
-                b"" => ErrorKind::UnexpectedEnd,
+                b"h1..." => Error::UnexpectedText,
+                b"v1_1..." => Error::UnexpectedText,
+                b"hh" => Error::UnexpectedText,
+                b"vv" => Error::UnexpectedText,
+                b"z" => Error::UnexpectedText,
+                b"" => Error::UnexpectedEnd,
             }
         });
     }
@@ -7315,14 +7319,14 @@ mod tests {
                 }
             }
             Err => {
-                b"001" => ErrorKind::UnexpectedText,
-                b"1_001" => ErrorKind::UnexpectedText,
-                b"wutang" => ErrorKind::UnexpectedText,
-                b"n_" => ErrorKind::UnexpectedText,
-                b"1_n" => ErrorKind::UnexpectedEnd,
-                b"1_" => ErrorKind::UnexpectedEnd,
-                b"n" => ErrorKind::UnexpectedEnd,
-                b"" => ErrorKind::UnexpectedEnd,
+                b"001" => Error::UnexpectedText,
+                b"1_001" => Error::UnexpectedText,
+                b"wutang" => Error::UnexpectedText,
+                b"n_" => Error::UnexpectedText,
+                b"1_n" => Error::UnexpectedEnd,
+                b"1_" => Error::UnexpectedEnd,
+                b"n" => Error::UnexpectedEnd,
+                b"" => Error::UnexpectedEnd,
             }
         });
     }
@@ -7349,9 +7353,9 @@ mod tests {
                 }
             }
             Err => {
-                b"001" => ErrorKind::UnexpectedText,
-                b"wutang" => ErrorKind::UnexpectedText,
-                b"" => ErrorKind::UnexpectedEnd,
+                b"001" => Error::UnexpectedText,
+                b"wutang" => Error::UnexpectedText,
+                b"" => Error::UnexpectedEnd,
             }
         });
     }
@@ -7374,10 +7378,10 @@ mod tests {
                 }
             }
             Err => {
-                b"abc" => ErrorKind::UnexpectedText,
-                b"001" => ErrorKind::UnexpectedText,
-                b"wutang" => ErrorKind::UnexpectedText,
-                b"" => ErrorKind::UnexpectedEnd,
+                b"abc" => Error::UnexpectedText,
+                b"001" => Error::UnexpectedText,
+                b"wutang" => Error::UnexpectedText,
+                b"" => Error::UnexpectedEnd,
             }
         });
     }
@@ -7396,9 +7400,9 @@ mod tests {
                 }
             }
             Err => {
-                b"gayagaya" => ErrorKind::UnexpectedText,
-                b"C" => ErrorKind::UnexpectedEnd,
-                b"" => ErrorKind::UnexpectedEnd,
+                b"gayagaya" => Error::UnexpectedText,
+                b"C" => Error::UnexpectedEnd,
+                b"" => Error::UnexpectedEnd,
             }
         });
     }
@@ -7417,9 +7421,9 @@ mod tests {
                 }
             }
             Err => {
-                b"bu-buuuu" => ErrorKind::UnexpectedText,
-                b"q" => ErrorKind::UnexpectedEnd,
-                b"" => ErrorKind::UnexpectedEnd,
+                b"bu-buuuu" => Error::UnexpectedText,
+                b"q" => Error::UnexpectedEnd,
+                b"" => Error::UnexpectedEnd,
             }
         });
     }

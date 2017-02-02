@@ -1,5 +1,6 @@
 [package]
 authors = ["Nick Fitzgerald <fitzgen@gmail.com>", "Jim Blandy <jimb@red-bean.com>"]
+categories = ["development-tools::debugging", "development-tools::ffi"]
 description = "A crate for demangling C++ symbols"
 documentation = "https://docs.rs/cpp_demangle"
 keywords = ["demangle", "symbolicate", "c-plus-plus", "itanium"]
@@ -9,8 +10,10 @@ readme = "./README.md"
 repository = "https://github.com/fitzgen/cpp_demangle"
 version = "0.1.0"
 
+[badges]
+travis-ci = { repository = "fitzgen/cpp_demangle" }
+
 [dependencies]
-error-chain = "0.7.1"
 fixedbitset = "0.1.5"
 
 [dependencies.afl]

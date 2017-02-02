@@ -9,6 +9,9 @@ rust:
 - nightly
 - beta
 - stable
+# This is the version AFL.rs is stuck at. If we want to have fuzzing, we need to
+# compile on this rustc.
+- nightly-2016-07-30
 
 addons:
   apt:
@@ -49,6 +52,8 @@ env:
 
 matrix:
   exclude:
+    - rust: nightly
+      env: FUZZ = "true"
     - rust: beta
       env: FUZZ = "true"
     - rust: stable
