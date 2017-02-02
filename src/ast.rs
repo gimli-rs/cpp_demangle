@@ -2896,7 +2896,327 @@ impl Demangle for Expression {
     fn demangle<W>(&self, ctx: &mut DemangleContext<W>) -> io::Result<()>
         where W: io::Write
     {
-        unimplemented!()
+        // TODO: do we need to actually understand operator precedence?
+        match *self {
+            Expression::Unary(ref op, ref expr) => {
+                try!(op.demangle(ctx));
+                try!(write!(ctx, " "));
+                expr.demangle(ctx)
+            }
+            Expression::Binary(ref op, ref lhs, ref rhs) => {
+                try!(lhs.demangle(ctx));
+                try!(write!(ctx, " "));
+                try!(op.demangle(ctx));
+                try!(write!(ctx, " "));
+                rhs.demangle(ctx)
+            }
+            Expression::Ternary(OperatorName::Question,
+                                ref condition,
+                                ref consequent,
+                                ref alternative) => {
+                try!(condition.demangle(ctx));
+                try!(write!(ctx, " ? "));
+                try!(consequent.demangle(ctx));
+                try!(write!(ctx, " : "));
+                alternative.demangle(ctx)
+            }
+            Expression::Ternary(ref op, ref e1, ref e2, ref e3) => {
+                // Nonsensical ternary operator? Just print it like a function call,
+                // I suppose...
+                //
+                // TODO: should we detect and reject this during parsing?
+                try!(op.demangle(ctx));
+                try!(write!(ctx, "("));
+                try!(e1.demangle(ctx));
+                try!(write!(ctx, ", "));
+                try!(e2.demangle(ctx));
+                try!(write!(ctx, ", "));
+                try!(e3.demangle(ctx));
+                try!(write!(ctx, ")"));
+                Ok(())
+            }
+            Expression::PrefixInc(ref expr) => {
+                try!(write!(ctx, "++"));
+                expr.demangle(ctx)
+            }
+            Expression::PrefixDec(ref expr) => {
+                try!(write!(ctx, "--"));
+                expr.demangle(ctx)
+            }
+            Expression::Call(ref functor_expr, ref args) => {
+                try!(write!(ctx, "("));
+                try!(functor_expr.demangle(ctx));
+                try!(write!(ctx, ")("));
+                let mut need_comma = false;
+                for arg in args {
+                    if need_comma {
+                        try!(write!(ctx, ", "));
+                    }
+                    try!(arg.demangle(ctx));
+                    need_comma = true;
+                }
+                try!(write!(ctx, ")"));
+                Ok(())
+            }
+            Expression::ConversionOne(ref ty, ref expr) => {
+                try!(ty.demangle(ctx));
+                try!(write!(ctx, "("));
+                try!(expr.demangle(ctx));
+                try!(write!(ctx, ")"));
+                Ok(())
+            }
+            Expression::ConversionMany(ref ty, ref exprs) => {
+                try!(ty.demangle(ctx));
+                try!(write!(ctx, "("));
+                let mut need_comma = false;
+                for expr in exprs {
+                    if need_comma {
+                        try!(write!(ctx, ", "));
+                    }
+                    try!(expr.demangle(ctx));
+                    need_comma = true;
+                }
+                try!(write!(ctx, ")"));
+                Ok(())
+            }
+            Expression::ConversionBraced(ref ty, ref exprs) => {
+                try!(ty.demangle(ctx));
+                try!(write!(ctx, "{{"));
+                let mut need_comma = false;
+                for expr in exprs {
+                    if need_comma {
+                        try!(write!(ctx, ", "));
+                    }
+                    try!(expr.demangle(ctx));
+                    need_comma = true;
+                }
+                try!(write!(ctx, "}}"));
+                Ok(())
+            }
+            Expression::BracedInitList(ref expr) => {
+                try!(write!(ctx, "{{"));
+                try!(expr.demangle(ctx));
+                try!(write!(ctx, "}}"));
+                Ok(())
+            }
+            // TODO: factor out all this duplication in the `new` variants.
+            Expression::New(ref exprs, ref ty, ref init) => {
+                try!(write!(ctx, "new ("));
+                let mut need_comma = false;
+                for expr in exprs {
+                    if need_comma {
+                        try!(write!(ctx, ", "));
+                    }
+                    try!(expr.demangle(ctx));
+                    need_comma = true;
+                }
+                try!(write!(ctx, ") "));
+                try!(ty.demangle(ctx));
+                if let Some(ref init) = *init {
+                    try!(init.demangle(ctx));
+                }
+                Ok(())
+            }
+            Expression::GlobalNew(ref exprs, ref ty, ref init) => {
+                try!(write!(ctx, "::new ("));
+                let mut need_comma = false;
+                for expr in exprs {
+                    if need_comma {
+                        try!(write!(ctx, ", "));
+                    }
+                    try!(expr.demangle(ctx));
+                    need_comma = true;
+                }
+                try!(write!(ctx, ") "));
+                try!(ty.demangle(ctx));
+                if let Some(ref init) = *init {
+                    try!(init.demangle(ctx));
+                }
+                Ok(())
+            }
+            Expression::NewArray(ref exprs, ref ty, ref init) => {
+                try!(write!(ctx, "new[] ("));
+                let mut need_comma = false;
+                for expr in exprs {
+                    if need_comma {
+                        try!(write!(ctx, ", "));
+                    }
+                    try!(expr.demangle(ctx));
+                    need_comma = true;
+                }
+                try!(write!(ctx, ") "));
+                try!(ty.demangle(ctx));
+                if let Some(ref init) = *init {
+                    try!(init.demangle(ctx));
+                }
+                Ok(())
+            }
+            Expression::GlobalNewArray(ref exprs, ref ty, ref init) => {
+                try!(write!(ctx, "::new[] ("));
+                let mut need_comma = false;
+                for expr in exprs {
+                    if need_comma {
+                        try!(write!(ctx, ", "));
+                    }
+                    try!(expr.demangle(ctx));
+                    need_comma = true;
+                }
+                try!(write!(ctx, ") "));
+                try!(ty.demangle(ctx));
+                if let Some(ref init) = *init {
+                    try!(init.demangle(ctx));
+                }
+                Ok(())
+            }
+            Expression::Delete(ref expr) => {
+                try!(write!(ctx, "delete "));
+                expr.demangle(ctx)
+            }
+            Expression::GlobalDelete(ref expr) => {
+                try!(write!(ctx, "::delete "));
+                expr.demangle(ctx)
+            }
+            Expression::DeleteArray(ref expr) => {
+                try!(write!(ctx, "delete[] "));
+                expr.demangle(ctx)
+            }
+            Expression::GlobalDeleteArray(ref expr) => {
+                try!(write!(ctx, "::delete[] "));
+                expr.demangle(ctx)
+            }
+            // TODO: factor out duplicated code from cast variants.
+            Expression::DynamicCast(ref ty, ref expr) => {
+                try!(write!(ctx, "dynamic_cast<"));
+                try!(ty.demangle(ctx));
+                try!(write!(ctx, ">("));
+                try!(expr.demangle(ctx));
+                try!(write!(ctx, ")"));
+                Ok(())
+            }
+            Expression::StaticCast(ref ty, ref expr) => {
+                try!(write!(ctx, "static_cast<"));
+                try!(ty.demangle(ctx));
+                try!(write!(ctx, ">("));
+                try!(expr.demangle(ctx));
+                try!(write!(ctx, ")"));
+                Ok(())
+            }
+            Expression::ConstCast(ref ty, ref expr) => {
+                try!(write!(ctx, "const_cast<"));
+                try!(ty.demangle(ctx));
+                try!(write!(ctx, ">("));
+                try!(expr.demangle(ctx));
+                try!(write!(ctx, ")"));
+                Ok(())
+            }
+            Expression::ReinterpretCast(ref ty, ref expr) => {
+                try!(write!(ctx, "reinterpret_cast<"));
+                try!(ty.demangle(ctx));
+                try!(write!(ctx, ">("));
+                try!(expr.demangle(ctx));
+                try!(write!(ctx, ")"));
+                Ok(())
+            }
+            Expression::TypeidType(ref ty) => {
+                try!(write!(ctx, "typeid ("));
+                try!(ty.demangle(ctx));
+                try!(write!(ctx, ")"));
+                Ok(())
+            }
+            Expression::TypeidExpr(ref expr) => {
+                try!(write!(ctx, "typeid ("));
+                try!(expr.demangle(ctx));
+                try!(write!(ctx, ")"));
+                Ok(())
+            }
+            Expression::SizeofType(ref ty) => {
+                try!(write!(ctx, "sizeof ("));
+                try!(ty.demangle(ctx));
+                try!(write!(ctx, ")"));
+                Ok(())
+            }
+            Expression::SizeofExpr(ref expr) => {
+                try!(write!(ctx, "sizeof ("));
+                try!(expr.demangle(ctx));
+                try!(write!(ctx, ")"));
+                Ok(())
+            }
+            Expression::AlignofType(ref ty) => {
+                try!(write!(ctx, "alignof ("));
+                try!(ty.demangle(ctx));
+                try!(write!(ctx, ")"));
+                Ok(())
+            }
+            Expression::AlignofExpr(ref expr) => {
+                try!(write!(ctx, "alignof ("));
+                try!(expr.demangle(ctx));
+                try!(write!(ctx, ")"));
+                Ok(())
+            }
+            Expression::Noexcept(ref expr) => {
+                try!(write!(ctx, "noexcept ("));
+                try!(expr.demangle(ctx));
+                try!(write!(ctx, ")"));
+                Ok(())
+            }
+            Expression::TemplateParam(ref param) => param.demangle(ctx),
+            Expression::FunctionParam(ref param) => param.demangle(ctx),
+            Expression::Member(ref expr, ref name) => {
+                try!(expr.demangle(ctx));
+                try!(write!(ctx, "."));
+                name.demangle(ctx)
+            }
+            Expression::DerefMember(ref expr, ref name) => {
+                try!(expr.demangle(ctx));
+                try!(write!(ctx, "->"));
+                name.demangle(ctx)
+            }
+            Expression::PointerToMember(ref e1, ref e2) => {
+                try!(e1.demangle(ctx));
+                try!(write!(ctx, ".*"));
+                e2.demangle(ctx)
+            }
+            Expression::SizeofTemplatePack(ref param) => {
+                try!(write!(ctx, "sizeof...("));
+                try!(param.demangle(ctx));
+                try!(write!(ctx, ")"));
+                Ok(())
+            }
+            Expression::SizeofFunctionPack(ref param) => {
+                try!(write!(ctx, "sizeof...("));
+                try!(param.demangle(ctx));
+                try!(write!(ctx, ")"));
+                Ok(())
+            }
+            Expression::SizeofCapturedTemplatePack(ref args) => {
+                try!(write!(ctx, "sizeof...("));
+                let mut need_comma = false;
+                for arg in args {
+                    if need_comma {
+                        try!(write!(ctx, ", "));
+                    }
+                    try!(arg.demangle(ctx));
+                    need_comma = true;
+                }
+                try!(write!(ctx, ")"));
+                Ok(())
+            }
+            Expression::PackExpansion(ref pack) => {
+                try!(pack.demangle(ctx));
+                try!(write!(ctx, "..."));
+                Ok(())
+            }
+            Expression::Throw(ref expr) => {
+                try!(write!(ctx, "throw "));
+                expr.demangle(ctx)
+            }
+            Expression::Rethrow => {
+                try!(write!(ctx, "throw"));
+                Ok(())
+            }
+            Expression::UnresolvedName(ref name) => name.demangle(ctx),
+            Expression::Primary(ref expr) => expr.demangle(ctx),
+        }
     }
 }
 
