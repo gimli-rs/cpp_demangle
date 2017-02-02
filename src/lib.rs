@@ -68,13 +68,29 @@ impl<T> Symbol<T>
     /// ```
     /// use cpp_demangle::Symbol;
     ///
+    /// // First, something easy :)
+    ///
     /// let mangled = b"_ZN5space3fooEibc";
     ///
-    /// let sym = Symbol::new(mangled)
+    /// let sym = Symbol::new(&mangled[..])
     ///     .expect("Could not parse mangled symbol!");
     ///
     /// let demangled = format!("{}", sym);
     /// assert_eq!(demangled, "int space::foo(bool, char)");
+    ///
+    /// // Now let's try something a little more complicated!
+    ///
+    /// let mangled =
+    ///     b"__Z28JS_GetPropertyDescriptorByIdP9JSContextN2JS6HandleIP8JSObjectEENS2_I4jsidEENS1_13MutableHandleINS1_18PropertyDescriptorEEE";
+    ///
+    /// let sym = Symbol::new(&mangled[..])
+    ///     .expect("Could not parse mangled symbol!");
+    ///
+    /// let demangled = format!("{}", sym);
+    /// assert_eq!(
+    ///     demangled,
+    ///     "JSContext* JS_GetPropertyDescriptorById(JS::Handle<JSObject*>, JS::Handle<jsid>, JS::MutableHandle<JS::PropertyDescriptor>)"
+    /// );
     /// ```
     pub fn new(raw: T) -> Result<Symbol<T>> {
         let mut substitutions = subs::SubstitutionTable::new();

@@ -23,7 +23,8 @@ impl fmt::Display for Error {
             Error::UnexpectedEnd => write!(f, "mangled symbol ends abruptly"),
             Error::UnexpectedText => write!(f, "mangled symbol is not well-formed"),
             Error::BadBackReference => {
-                write!(f, "back reference that is out-of-bounds of the substitution table")
+                write!(f,
+                       "back reference that is out-of-bounds of the substitution table")
             }
         }
     }
