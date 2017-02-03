@@ -1,5 +1,6 @@
 [package]
 authors = ["Nick Fitzgerald <fitzgen@gmail.com>", "Jim Blandy <jimb@red-bean.com>"]
+build = "build.rs"
 categories = ["development-tools::debugging", "development-tools::ffi"]
 description = "A crate for demangling C++ symbols"
 documentation = "https://docs.rs/cpp_demangle"
