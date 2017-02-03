@@ -15,6 +15,10 @@ pub enum Error {
     /// Found a back reference that is out-of-bounds of the substitution
     /// table.
     BadBackReference,
+
+    /// An overflow or underflow would occur when parsing an integer in a
+    /// mangled symbol.
+    Overflow,
 }
 
 impl fmt::Display for Error {
@@ -26,6 +30,10 @@ impl fmt::Display for Error {
                 write!(f,
                        "back reference that is out-of-bounds of the substitution table")
             }
+            Error::Overflow => {
+                write!(f,
+                       "an overflow or underflow would occur when parsing an integer in a mangled symbol")
+            }
         }
     }
 }
@@ -36,6 +44,7 @@ impl error::Error for Error {
             Error::UnexpectedEnd => "mangled symbol ends abruptly",
             Error::UnexpectedText => "mangled symbol is not well-formed",
             Error::BadBackReference => "back reference that is out-of-bounds of the substitution table",
+            Error::Overflow => "an overflow or underflow would occur when parsing an integer in a mangled symbol",
         }
     }
 }
