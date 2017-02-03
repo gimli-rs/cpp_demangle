@@ -4308,8 +4308,7 @@ fn parse_number(base: u32,
         ::std::str::from_utf8_unchecked(head)
     };
 
-    let mut number = isize::from_str_radix(head, base)
-        .expect("We should only have numeric characters");
+    let mut number = try!(isize::from_str_radix(head, base).map_err(|_| Error::Overflow));
     if num_is_negative {
         number = -number;
     }
