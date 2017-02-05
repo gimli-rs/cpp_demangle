@@ -3,3 +3,4 @@ Cargo.lock
 *.rs.bk
 out
 tests/afl_seeds.rs
+tests/libiberty.rs
