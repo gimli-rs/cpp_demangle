@@ -352,13 +352,21 @@ impl Parse for MangledName {
                      -> Result<(MangledName, IndexStr<'b>)> {
         log_parse!("MangledName", input);
 
+        // The _Z from the spec is really just a suggestion... Sometimes there
+        // is an extra leadin underscore (like what we get out of `nm`) and
+        // sometimes it appears to be completely missing, if libiberty tests are
+        // to be trusted...
         let tail = if let Ok(tail) = consume(b"__Z", input) {
             tail
         } else {
-            try!(consume(b"_Z", input))
+            if let Ok(tail) = consume(b"_Z", input) {
+                tail
+            } else {
+                input
+            }
         };
-        let (encoding, tail) = try!(Encoding::parse(subs, tail));
 
+        let (encoding, tail) = try!(Encoding::parse(subs, tail));
         Ok((MangledName(encoding), tail))
     }
 }
@@ -540,7 +548,7 @@ impl Demangle for Name {
             }
             Name::Local(ref local) => local.demangle(ctx),
             Name::Std(ref std) => {
-                try!(write!(ctx, "::std::"));
+                try!(write!(ctx, "std::"));
                 std.demangle(ctx)
             }
         }
@@ -596,7 +604,7 @@ impl Demangle for UnscopedName {
         match *self {
             UnscopedName::Unqualified(ref unqualified) => unqualified.demangle(ctx),
             UnscopedName::Std(ref std) => {
-                try!(write!(ctx, "::std::"));
+                try!(write!(ctx, "std::"));
                 std.demangle(ctx)
             }
         }
@@ -4093,13 +4101,13 @@ define_vocabulary! {
 /// table.
     #[derive(Clone, Debug, Hash, PartialEq, Eq)]
     pub enum WellKnownComponent {
-        Std          (b"St", "::std"),
-        StdAllocator (b"Sa", "::std::allocator"),
-        StdString1   (b"Sb", "::std::basic_string"),
-        StdString2   (b"Ss", "::std::basic_string<char, ::std::char_traits<char>, ::std::allocator<char> >"),
-        StdIstream   (b"Si", "::std::basic_istream<char, std::char_traits<char> >"),
-        StdOstream   (b"So", "::std::basic_ostream<char, std::char_traits<char> >"),
-        StdIostream  (b"Sd", "::std::basic_iostream<char, std::char_traits<char> >")
+        Std          (b"St", "std"),
+        StdAllocator (b"Sa", "std::allocator"),
+        StdString1   (b"Sb", "std::basic_string"),
+        StdString2   (b"Ss", "std::basic_string<char, std::char_traits<char>, std::allocator<char> >"),
+        StdIstream   (b"Si", "std::basic_istream<char, std::char_traits<char> >"),
+        StdOstream   (b"So", "std::basic_ostream<char, std::char_traits<char> >"),
+        StdIostream  (b"Sd", "std::basic_iostream<char, std::char_traits<char> >")
     }
 }
 

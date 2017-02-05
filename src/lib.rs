@@ -105,11 +105,19 @@ impl<T> Symbol<T>
             }
         };
 
-        Ok(Symbol {
+        let symbol = Symbol {
             raw: raw,
             substitutions: substitutions,
             parsed: parsed,
-        })
+        };
+
+        if cfg!(feature = "logging") {
+            println!("Successfully parsed '{}' as {:#?}",
+                     String::from_utf8_lossy(symbol.raw.as_ref()),
+                     symbol.parsed);
+        }
+
+        Ok(symbol)
     }
 
     // TODO: new_with_tail
