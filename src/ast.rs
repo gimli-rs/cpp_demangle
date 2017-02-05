@@ -1607,9 +1607,9 @@ impl Demangle for Type {
             }
             Type::Decltype(ref dt) => dt.demangle(ctx),
             Type::Qualified(ref quals, ref ty) => {
-                try!(quals.demangle(ctx));
+                try!(ty.demangle(ctx));
                 try!(write!(ctx, " "));
-                ty.demangle(ctx)
+                quals.demangle(ctx)
             }
             Type::PointerTo(ref ty) => {
                 try!(ty.demangle(ctx));
@@ -1707,15 +1707,15 @@ impl Demangle for CvQualifiers {
         where W: io::Write
     {
         if self.restrict {
-            try!(write!(ctx, "restrict "));
+            try!(write!(ctx, "restrict"));
         }
 
         if self.volatile {
-            try!(write!(ctx, "volatile "));
+            try!(write!(ctx, "volatile"));
         }
 
         if self.const_ {
-            try!(write!(ctx, "const "));
+            try!(write!(ctx, "const"));
         }
 
         Ok(())
