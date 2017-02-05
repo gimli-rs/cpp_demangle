@@ -75,16 +75,12 @@ fn test_afl_seed_{}() {{
 /// language symbol mangling.
 fn generate_compatibility_tests_from_libiberty() -> io::Result<()> {
     println!("cargo:rerun-if-changed=tests/libiberty-demangle-expected");
-    println!("cargo:rerun-if-changed=tests/libiberty.rs");
 
     let test_path = try!(get_test_path("libiberty.rs"));
     let _ = fs::remove_file(&test_path);
     let mut test_file = try!(fs::File::create(test_path));
 
-    try!(writeln!(&mut test_file,
-                  "
-extern crate cpp_demangle;
-"));
+    try!(writeln!(&mut test_file, "extern crate cpp_demangle;"));
 
     let libiberty_tests = try!(get_test_path("libiberty-demangle-expected"));
     let libiberty_tests = try!(fs::File::open(libiberty_tests));
@@ -152,14 +148,13 @@ extern crate cpp_demangle;
 #[cfg(feature = "run_libiberty_tests")]
 fn test_libiberty_demangle_{}_() {{
     let mangled = br#"{}"#;
-    let expected = r#"{}"#;
-
     println!("Parsing mangled symbol: {{}}", String::from_utf8_lossy(mangled));
-    println!("Expect demangled symbol: {{}}", expected);
 
     let sym = cpp_demangle::Symbol::new(&mangled[..])
         .expect("should parse mangled symbol");
 
+    let expected = r#"{}"#;
+    println!("     Expect demangled symbol: {{}}", expected);
     let actual = format!("{{}}", sym);
     println!("Actually demangled symbol as: {{}}", actual);
 

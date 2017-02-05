@@ -112,9 +112,14 @@ impl<T> Symbol<T>
         };
 
         if cfg!(feature = "logging") {
-            println!("Successfully parsed '{}' as {:#?}",
+            println!("Successfully parsed '{}' as
+
+AST = {:#?}
+
+substitutions = {:#?}",
                      String::from_utf8_lossy(symbol.raw.as_ref()),
-                     symbol.parsed);
+                     symbol.parsed,
+                     symbol.substitutions);
         }
 
         Ok(symbol)
