@@ -1045,7 +1045,7 @@ impl Demangle for UnqualifiedName {
     {
         match *self {
             UnqualifiedName::Operator(ref op_name) => {
-                try!(write!(ctx, "operator "));
+                try!(write!(ctx, "operator"));
                 op_name.demangle(ctx)
             }
             UnqualifiedName::CtorDtor(ref ctor_dtor) => ctor_dtor.demangle(ctx),
