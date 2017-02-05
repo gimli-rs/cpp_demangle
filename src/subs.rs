@@ -65,6 +65,19 @@ impl SubstitutionTable {
     pub fn contains(&self, idx: usize) -> bool {
         idx < self.0.len()
     }
+
+    /// Get the type referenced by the given handle, or None if there is no such
+    /// entry, or there is an entry that is not a type.
+    pub fn get_type(&self, handle: &ast::TypeHandle) -> Option<&ast::Type> {
+        if let ast::TypeHandle::BackReference(idx) = *handle {
+            self.0.get(idx).and_then(|s| match *s {
+                Substitutable::Type(ref ty) => Some(ty),
+                _ => None,
+            })
+        } else {
+            None
+        }
+    }
 }
 
 impl FromIterator<Substitutable> for SubstitutionTable {

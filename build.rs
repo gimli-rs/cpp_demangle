@@ -152,11 +152,17 @@ extern crate cpp_demangle;
 #[cfg(feature = "run_libiberty_tests")]
 fn test_libiberty_demangle_{}_() {{
     let mangled = br#"{}"#;
-    println!("Parsing symbol: {{}}", String::from_utf8_lossy(mangled));
+    let expected = r#"{}"#;
+
+    println!("Parsing mangled symbol: {{}}", String::from_utf8_lossy(mangled));
+    println!("Expect demangled symbol: {{}}", expected);
+
     let sym = cpp_demangle::Symbol::new(&mangled[..])
         .expect("should parse mangled symbol");
-    let expected = r#"{}"#;
+
     let actual = format!("{{}}", sym);
+    println!("Actually demangled symbol as: {{}}", actual);
+
     assert_eq!(expected, actual);
 }}
 "###,

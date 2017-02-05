@@ -451,8 +451,14 @@ impl Demangle for Encoding {
                 };
 
                 try!(name.demangle(ctx));
-
                 try!(write!(ctx, "("));
+
+                let void = Type::Builtin(BuiltinType::Standard(StandardBuiltinType::Void));
+                if args.len() == 1 && ctx.subs.get_type(&args[0]) == Some(&void) {
+                    try!(write!(ctx, ")"));
+                    return Ok(());
+                }
+
                 let mut need_comma = false;
                 for arg in args {
                     if need_comma {
