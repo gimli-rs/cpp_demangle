@@ -86,6 +86,12 @@ trait StartsWith {
     fn starts_with(byte: u8) -> bool;
 }
 
+/// Determine whether this AST node is a template function.
+trait IsTemplateFunction {
+    /// Returns true if this is a template function, false otherwise.
+    fn is_template_function(&self, subs: &SubstitutionTable) -> bool;
+}
+
 // /// TODO FITZGEN
 // trait WhatToNameThis {}
 
@@ -409,15 +415,38 @@ impl Demangle for Encoding {
     {
         match *self {
             Encoding::Function(ref name, ref fun_ty) => {
+                // Even if this function takes no args and doesn't have a return
+                // value (see below), it will have the void parameter.
                 debug_assert!(fun_ty.0.len() >= 1);
 
-                try!(fun_ty.ret().demangle(ctx));
-                try!(write!(ctx, " "));
+                // Whether the first type in the BareFunctionType is a return
+                // type or parameter depends on the context in which it
+                // appears.
+                //
+                // * Templates and functions in a type or parameter position
+                // always have return types.
+                //
+                // * Non-template functions that are not in a type or parameter
+                // position do not have a return type.
+                //
+                // We know we are not printing a type, so we only need to check
+                // whether this is a template.
+                //
+                // For the details, see
+                // http://mentorembedded.github.io/cxx-abi/abi.html#mangle.function-type
+                let args = if name.is_template_function(ctx.subs) {
+                    try!(fun_ty.0[0].demangle(ctx));
+                    try!(write!(ctx, " "));
+                    &fun_ty.0[1..]
+                } else {
+                    &fun_ty.0[..]
+                };
+
                 try!(name.demangle(ctx));
 
                 try!(write!(ctx, "("));
                 let mut need_comma = false;
-                for arg in fun_ty.args() {
+                for arg in args {
                     if need_comma {
                         try!(write!(ctx, ", "));
                     }
@@ -514,6 +543,17 @@ impl Demangle for Name {
                 try!(write!(ctx, "::std::"));
                 std.demangle(ctx)
             }
+        }
+    }
+}
+
+impl IsTemplateFunction for Name {
+    fn is_template_function(&self, subs: &SubstitutionTable) -> bool {
+        match *self {
+            Name::UnscopedTemplate(_, _) => true,
+            Name::Nested(ref nested) => nested.is_template_function(subs),
+            Name::Local(ref local) => local.is_template_function(subs),
+            Name::Unscoped(_) | Name::Std(_) => false,
         }
     }
 }
@@ -678,6 +718,12 @@ impl Demangle for NestedName {
     }
 }
 
+impl IsTemplateFunction for NestedName {
+    fn is_template_function(&self, subs: &SubstitutionTable) -> bool {
+        self.2.is_template_function(subs)
+    }
+}
+
 /// The `<prefix>` production.
 ///
 /// ```text
@@ -713,6 +759,19 @@ pub enum Prefix {
 
     /// A prefix and data member.
     DataMember(PrefixHandle, DataMemberPrefix),
+}
+
+impl IsTemplateFunction for Prefix {
+    fn is_template_function(&self, _: &SubstitutionTable) -> bool {
+        match *self {
+            Prefix::Template(_, _) => true,
+            Prefix::Unqualified(_) |
+            Prefix::Nested(_, _) |
+            Prefix::TemplateParam(_) |
+            Prefix::Decltype(_) |
+            Prefix::DataMember(_, _) => false,
+        }
+    }
 }
 
 define_handle! {
@@ -846,7 +905,24 @@ impl Parse for PrefixHandle {
     }
 }
 
+impl IsTemplateFunction for PrefixHandle {
+    fn is_template_function(&self, subs: &SubstitutionTable) -> bool {
+        match *self {
+            PrefixHandle::BackReference(idx) => {
+                if let Some(&Substitutable::Prefix(ref p)) = subs.get(idx) {
+                    p.is_template_function(subs)
+                } else {
+                    false
+                }
+            }
+            _ => false,
+        }
+    }
+}
+
 impl Prefix {
+    // Is this <prefix> also a valid <template-prefix> production. Not to be
+    // confused with the IsTemplateFunction trait.
     fn is_template_prefix(&self) -> bool {
         match *self {
             Prefix::Unqualified(..) |
@@ -3782,6 +3858,16 @@ impl Demangle for LocalName {
         match *self {
             LocalName::Relative(ref encoding, _, _) |
             LocalName::Default(ref encoding, _, _) => encoding.demangle(ctx),
+        }
+    }
+}
+
+impl IsTemplateFunction for LocalName {
+    fn is_template_function(&self, subs: &SubstitutionTable) -> bool {
+        match *self {
+            LocalName::Relative(_, None, _) => false,
+            LocalName::Relative(_, Some(ref name), _) => name.is_template_function(subs),
+            LocalName::Default(_, _, ref name) => name.is_template_function(subs),
         }
     }
 }

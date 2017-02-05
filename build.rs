@@ -149,8 +149,8 @@ extern crate cpp_demangle;
         try!(writeln!(test_file,
                       r###"
 #[test]
-#[cfg(feature = "libiberty_compat")]
-fn test_libiberty_demangle_{}() {{
+#[cfg(feature = "run_libiberty_tests")]
+fn test_libiberty_demangle_{}_() {{
     let mangled = br#"{}"#;
     println!("Parsing symbol: {{}}", String::from_utf8_lossy(mangled));
     let sym = cpp_demangle::Symbol::new(&mangled[..])
