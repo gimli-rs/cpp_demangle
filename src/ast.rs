@@ -2193,19 +2193,19 @@ impl Demangle for ArrayType {
         match *self {
             ArrayType::DimensionNumber(n, ref ty) => {
                 try!(ty.demangle(ctx));
-                try!(write!(ctx, "[{}]", n));
+                try!(write!(ctx, " [{}]", n));
                 Ok(())
             }
             ArrayType::DimensionExpression(ref expr, ref ty) => {
                 try!(ty.demangle(ctx));
-                try!(write!(ctx, "["));
+                try!(write!(ctx, " ["));
                 try!(expr.demangle(ctx));
                 try!(write!(ctx, "]"));
                 Ok(())
             }
             ArrayType::NoDimension(ref ty) => {
                 try!(ty.demangle(ctx));
-                try!(write!(ctx, "[]"));
+                try!(write!(ctx, " []"));
                 Ok(())
             }
         }
