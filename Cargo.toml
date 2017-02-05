@@ -27,6 +27,7 @@ version = "0.1.5"
 
 [features]
 fuzz = ["afl", "afl-plugin"]
+libiberty_compat = []
 logging = []
 nightly = []
 
