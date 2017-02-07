@@ -27,15 +27,18 @@ pub enum Substitutable {
 }
 
 impl ast::Demangle for Substitutable {
-    fn demangle<W>(&self, ctx: &mut ast::DemangleContext<W>) -> io::Result<()>
+    fn demangle<W>(&self,
+                   ctx: &mut ast::DemangleContext<W>,
+                   stack: Option<ast::ArgStack>)
+                   -> io::Result<()>
         where W: io::Write
     {
         match *self {
-            Substitutable::UnscopedTemplateName(ref name) => name.demangle(ctx),
-            Substitutable::Type(ref ty) => ty.demangle(ctx),
-            Substitutable::TemplateTemplateParam(ref ttp) => ttp.demangle(ctx),
-            Substitutable::UnresolvedType(ref ty) => ty.demangle(ctx),
-            Substitutable::Prefix(ref prefix) => prefix.demangle(ctx),
+            Substitutable::UnscopedTemplateName(ref name) => name.demangle(ctx, stack),
+            Substitutable::Type(ref ty) => ty.demangle(ctx, stack),
+            Substitutable::TemplateTemplateParam(ref ttp) => ttp.demangle(ctx, stack),
+            Substitutable::UnresolvedType(ref ty) => ty.demangle(ctx, stack),
+            Substitutable::Prefix(ref prefix) => prefix.demangle(ctx, stack),
         }
     }
 }
@@ -64,6 +67,19 @@ impl SubstitutionTable {
     /// Does this substitution table contain a component at the given index?
     pub fn contains(&self, idx: usize) -> bool {
         idx < self.0.len()
+    }
+
+    /// Get the type referenced by the given handle, or None if there is no such
+    /// entry, or there is an entry that is not a type.
+    pub fn get_type(&self, handle: &ast::TypeHandle) -> Option<&ast::Type> {
+        if let ast::TypeHandle::BackReference(idx) = *handle {
+            self.0.get(idx).and_then(|s| match *s {
+                Substitutable::Type(ref ty) => Some(ty),
+                _ => None,
+            })
+        } else {
+            None
+        }
     }
 }
 

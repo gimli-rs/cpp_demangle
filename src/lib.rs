@@ -76,7 +76,7 @@ impl<T> Symbol<T>
     ///     .expect("Could not parse mangled symbol!");
     ///
     /// let demangled = format!("{}", sym);
-    /// assert_eq!(demangled, "int space::foo(bool, char)");
+    /// assert_eq!(demangled, "space::foo(int, bool, char)");
     ///
     /// // Now let's try something a little more complicated!
     ///
@@ -89,7 +89,7 @@ impl<T> Symbol<T>
     /// let demangled = format!("{}", sym);
     /// assert_eq!(
     ///     demangled,
-    ///     "JSContext* JS_GetPropertyDescriptorById(JS::Handle<JSObject*>, JS::Handle<jsid>, JS::MutableHandle<JS::PropertyDescriptor>)"
+    ///     "JS_GetPropertyDescriptorById(JSContext*, JS::Handle<JSObject*>, JS::Handle<jsid>, JS::MutableHandle<JS::PropertyDescriptor>)"
     /// );
     /// ```
     pub fn new(raw: T) -> Result<Symbol<T>> {
@@ -105,11 +105,24 @@ impl<T> Symbol<T>
             }
         };
 
-        Ok(Symbol {
+        let symbol = Symbol {
             raw: raw,
             substitutions: substitutions,
             parsed: parsed,
-        })
+        };
+
+        if cfg!(feature = "logging") {
+            println!("Successfully parsed '{}' as
+
+AST = {:#?}
+
+substitutions = {:#?}",
+                     String::from_utf8_lossy(symbol.raw.as_ref()),
+                     symbol.parsed,
+                     symbol.substitutions);
+        }
+
+        Ok(symbol)
     }
 
     // TODO: new_with_tail
@@ -124,7 +137,7 @@ impl<T> fmt::Display for Symbol<T>
             let mut ctx = ast::DemangleContext::new(&self.substitutions,
                                                     self.raw.as_ref(),
                                                     &mut out);
-            try!(self.parsed.demangle(&mut ctx).map_err(|_| fmt::Error));
+            try!(self.parsed.demangle(&mut ctx, None).map_err(|_| fmt::Error));
         }
         write!(f, "{}", String::from_utf8_lossy(&out))
     }
