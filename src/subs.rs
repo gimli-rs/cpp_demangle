@@ -27,15 +27,18 @@ pub enum Substitutable {
 }
 
 impl ast::Demangle for Substitutable {
-    fn demangle<W>(&self, ctx: &mut ast::DemangleContext<W>) -> io::Result<()>
+    fn demangle<W>(&self,
+                   ctx: &mut ast::DemangleContext<W>,
+                   stack: Option<ast::ArgStack>)
+                   -> io::Result<()>
         where W: io::Write
     {
         match *self {
-            Substitutable::UnscopedTemplateName(ref name) => name.demangle(ctx),
-            Substitutable::Type(ref ty) => ty.demangle(ctx),
-            Substitutable::TemplateTemplateParam(ref ttp) => ttp.demangle(ctx),
-            Substitutable::UnresolvedType(ref ty) => ty.demangle(ctx),
-            Substitutable::Prefix(ref prefix) => prefix.demangle(ctx),
+            Substitutable::UnscopedTemplateName(ref name) => name.demangle(ctx, stack),
+            Substitutable::Type(ref ty) => ty.demangle(ctx, stack),
+            Substitutable::TemplateTemplateParam(ref ttp) => ttp.demangle(ctx, stack),
+            Substitutable::UnresolvedType(ref ty) => ty.demangle(ctx, stack),
+            Substitutable::Prefix(ref prefix) => prefix.demangle(ctx, stack),
         }
     }
 }
