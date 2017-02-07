@@ -65,6 +65,11 @@ fn test_afl_seed_{}() {{
     Ok(())
 }
 
+// Ratcheting number that is increased as more libiberty tests start
+// passing. Once they are all passing, this can be removed and we can enable all
+// of them by default.
+const LIBIBERTY_TEST_THRESHOLD: usize = 13;
+
 /// Read `tests/libiberty-demangle-expected`, parse its input mangled symbols,
 /// and expected output demangled symbols, and generate test cases for them.
 ///
@@ -144,8 +149,8 @@ fn generate_compatibility_tests_from_libiberty() -> io::Result<()> {
 
         try!(writeln!(test_file,
                       r###"
+{}
 #[test]
-#[cfg(feature = "run_libiberty_tests")]
 fn test_libiberty_demangle_{}_() {{
     let mangled = br#"{}"#;
     println!("Parsing mangled symbol: {{}}", String::from_utf8_lossy(mangled));
@@ -161,6 +166,11 @@ fn test_libiberty_demangle_{}_() {{
     assert_eq!(expected, actual);
 }}
 "###,
+                      if n <= LIBIBERTY_TEST_THRESHOLD {
+                          ""
+                      } else {
+                          r###"#[cfg(feature = "run_libiberty_tests")]"###
+                      },
                       n,
                       mangled.trim(),
                       demangled.trim()));
