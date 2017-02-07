@@ -540,10 +540,7 @@ impl Demangle for Encoding {
 
                 // To maintain compatibility with libiberty, print `()` instead
                 // of `(void)` for functions that take no arguments.
-                let void =
-                    Type::Builtin(BuiltinType::Standard(StandardBuiltinType::Void));
-                if function_args.len() == 1 &&
-                   ctx.subs.get_type(&function_args[0]) == Some(&void) {
+                if function_args.len() == 1 && function_args[0].is_void(ctx.subs) {
                     try!(write!(ctx, ")"));
                     return Ok(());
                 }
@@ -1573,9 +1570,24 @@ pub enum Type {
     PackExpansion(TypeHandle),
 }
 
+impl Type {
+    fn is_void(&self) -> bool {
+        match *self {
+            Type::Builtin(BuiltinType::Standard(StandardBuiltinType::Void)) => true,
+            _ => false,
+        }
+    }
+}
+
 define_handle! {
     /// A reference to a parsed `Type` production.
     pub enum TypeHandle
+}
+
+impl TypeHandle {
+    fn is_void(&self, subs: &SubstitutionTable) -> bool {
+        subs.get_type(self).map_or(false, |ty| ty.is_void())
+    }
 }
 
 impl Parse for TypeHandle {
@@ -2101,6 +2113,13 @@ impl Demangle for BareFunctionType {
     {
         try!(self.ret().demangle(ctx, stack));
         try!(write!(ctx, " ("));
+
+        // For libiberty compatibility, print `()` instead of `(void)`.
+        if self.args().len() == 1 && self.args()[0].is_void(ctx.subs) {
+            try!(write!(ctx, ")"));
+            return Ok(());
+        }
+
         let mut need_comma = false;
         for arg in self.args() {
             if need_comma {
