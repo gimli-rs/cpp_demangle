@@ -204,6 +204,9 @@ pub struct DemangleContext<'a, W>
     // `Write` implementation for `DemangleContext`.
     bytes_written: usize,
 
+    // The last byte written to `out`, if any.
+    last_byte_written: Option<u8>,
+
     // Any time we start demangling an entry from the substitutions table, we
     // mark its corresponding bit here. Before we begin demangling such an
     // entry, we check whether the bit is set. If it is set, then we have
@@ -220,7 +223,12 @@ impl<'a, W> io::Write for DemangleContext<'a, W>
     where W: io::Write
 {
     fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+        if buf.is_empty() {
+            return Ok(0);
+        }
+
         self.out.write(buf).map(|n| {
+            self.last_byte_written = buf.last().cloned();
             self.bytes_written += n;
             n
         })
@@ -244,6 +252,7 @@ impl<'a, W> DemangleContext<'a, W>
             input: input,
             out: out,
             bytes_written: 0,
+            last_byte_written: None,
             mark_bits: FixedBitSet::with_capacity(subs.len()),
         }
     }
@@ -258,6 +267,15 @@ impl<'a, W> DemangleContext<'a, W>
 
     fn mark_bit_is_set(&self, idx: usize) -> bool {
         self.mark_bits[idx]
+    }
+
+    fn ensure_space(&mut self) -> io::Result<()> {
+        if let Some(b' ') = self.last_byte_written {
+            Ok(())
+        } else {
+            try!(write!(self, " "));
+            Ok(())
+        }
     }
 }
 
@@ -416,7 +434,14 @@ macro_rules! define_vocabulary {
 /// <mangled-name> ::= _Z <encoding>
 /// ```
 #[derive(Clone, Debug, Hash, PartialEq, Eq)]
-pub struct MangledName(Encoding);
+pub enum MangledName {
+    /// The encoding of the mangled symbol name.
+    Encoding(Encoding),
+
+    /// A top-level type. Technically not allowed by the standard, however in
+    /// practice this can happen, and is tested for by libiberty.
+    Type(TypeHandle),
+}
 
 impl Parse for MangledName {
     fn parse<'a, 'b>(subs: &'a mut SubstitutionTable,
@@ -425,7 +450,7 @@ impl Parse for MangledName {
         log_parse!("MangledName", input);
 
         // The _Z from the spec is really just a suggestion... Sometimes there
-        // is an extra leadin underscore (like what we get out of `nm`) and
+        // is an extra leading underscore (like what we get out of `nm`) and
         // sometimes it appears to be completely missing, if libiberty tests are
         // to be trusted...
         let tail = if let Ok(tail) = consume(b"__Z", input) {
@@ -438,8 +463,13 @@ impl Parse for MangledName {
             }
         };
 
-        let (encoding, tail) = try!(Encoding::parse(subs, tail));
-        Ok((MangledName(encoding), tail))
+        if let Ok((encoding, tail)) = Encoding::parse(subs, tail) {
+            return Ok((MangledName::Encoding(encoding), tail))
+        };
+
+        // The libiberty tests also specify that a type can be top level.
+        let (ty, tail) = try!(TypeHandle::parse(subs, input));
+        Ok((MangledName::Type(ty), tail))
     }
 }
 
@@ -450,7 +480,10 @@ impl Demangle for MangledName {
                    -> io::Result<()>
         where W: io::Write
     {
-        self.0.demangle(ctx, stack)
+        match *self {
+            MangledName::Encoding(ref enc)=> enc.demangle(ctx, stack),
+            MangledName::Type(ref ty) => ty.demangle(ctx, stack),
+        }
     }
 }
 
@@ -1779,12 +1812,13 @@ impl Demangle for Type {
                 Ok(())
             }
             Type::VendorExtension(ref name, ref template_args, ref ty) => {
+                try!(ty.demangle(ctx, stack));
+                try!(write!(ctx, " "));
                 try!(name.demangle(ctx, stack));
                 if let Some(ref args) = *template_args {
                     try!(args.demangle(ctx, stack));
                 }
-                try!(write!(ctx, " "));
-                ty.demangle(ctx, stack)
+                Ok(())
             }
             Type::PackExpansion(ref ty) => {
                 try!(ty.demangle(ctx, stack));
@@ -1851,16 +1885,19 @@ impl Demangle for CvQualifiers {
                    -> io::Result<()>
         where W: io::Write
     {
-        if self.restrict {
-            try!(write!(ctx, "restrict"));
+        if self.const_ {
+            try!(ctx.ensure_space());
+            try!(write!(ctx, "const"));
         }
 
         if self.volatile {
+            try!(ctx.ensure_space());
             try!(write!(ctx, "volatile"));
         }
 
-        if self.const_ {
-            try!(write!(ctx, "const"));
+        if self.restrict {
+            try!(ctx.ensure_space());
+            try!(write!(ctx, "restrict"));
         }
 
         Ok(())
@@ -4866,7 +4903,7 @@ mod tests {
             with subs [] => {
                 Ok => {
                     b"_Z3foo..." => {
-                        MangledName(
+                        MangledName::Encoding(
                             Encoding::Data(
                                 Name::Unscoped(
                                     UnscopedName::Unqualified(
@@ -6472,7 +6509,7 @@ mod tests {
                     b"L_Z3abcE..." => {
                         Expression::Primary(
                             ExprPrimary::External(
-                                MangledName(
+                                MangledName::Encoding(
                                     Encoding::Data(
                                         Name::Unscoped(
                                             UnscopedName::Unqualified(
@@ -6808,7 +6845,7 @@ mod tests {
                     }
                     b"L_Z3abcE..." => {
                         ExprPrimary::External(
-                            MangledName(
+                            MangledName::Encoding(
                                 Encoding::Data(
                                     Name::Unscoped(
                                         UnscopedName::Unqualified(
