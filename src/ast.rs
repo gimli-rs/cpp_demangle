@@ -3201,11 +3201,14 @@ impl Demangle for Expression {
                 expr.demangle(ctx, stack)
             }
             Expression::Binary(ref op, ref lhs, ref rhs) => {
+                try!(write!(ctx, "("));
                 try!(lhs.demangle(ctx, stack));
-                try!(write!(ctx, " "));
+                try!(write!(ctx, ")"));
                 try!(op.demangle(ctx, stack));
-                try!(write!(ctx, " "));
-                rhs.demangle(ctx, stack)
+                try!(write!(ctx, "("));
+                try!(rhs.demangle(ctx, stack));
+                try!(write!(ctx, ")"));
+                Ok(())
             }
             Expression::Ternary(OperatorName::Question,
                                 ref condition,
