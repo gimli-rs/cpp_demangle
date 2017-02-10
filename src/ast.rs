@@ -2413,13 +2413,10 @@ impl Demangle for PointerToMemberType {
                    -> io::Result<()>
         where W: io::Write
     {
-        // TODO: do we need to actually understand operator precedence to
-        // correctly wrap this in parentheses?
-        try!(write!(ctx, "("));
-        try!(self.0.demangle(ctx, stack));
-        try!(write!(ctx, "->*"));
         try!(self.1.demangle(ctx, stack));
-        try!(write!(ctx, ")"));
+        try!(write!(ctx, " "));
+        try!(self.0.demangle(ctx, stack));
+        try!(write!(ctx, "::*"));
         Ok(())
     }
 }
