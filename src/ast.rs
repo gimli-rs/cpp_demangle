@@ -4514,10 +4514,8 @@ impl Demangle for SpecialName {
                 Ok(())
             }
             SpecialName::Typeinfo(ref ty) => {
-                try!(write!(ctx, "{{typeinfo("));
-                try!(ty.demangle(ctx, stack));
-                try!(write!(ctx, ")}}"));
-                Ok(())
+                try!(write!(ctx, "typeinfo for "));
+                ty.demangle(ctx, stack)
             }
             SpecialName::TypeinfoName(ref ty) => {
                 try!(write!(ctx, "{{typeinfo name("));
