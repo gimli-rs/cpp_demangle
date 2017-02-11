@@ -1787,19 +1787,31 @@ impl Demangle for Type {
                 quals.demangle(ctx, stack)
             }
             Type::PointerTo(ref ty) => {
-                try!(ty.demangle(ctx, stack));
-                try!(write!(ctx, "*"));
-                Ok(())
+                if let Some(&Type::Array(ref array_type)) = ctx.subs.get_type(ty) {
+                    array_type.demangle_with_ptrlike("*", ctx, stack)
+                } else {
+                    try!(ty.demangle(ctx, stack));
+                    try!(write!(ctx, "*"));
+                    Ok(())
+                }
             }
             Type::LvalueRef(ref ty) => {
-                try!(ty.demangle(ctx, stack));
-                try!(write!(ctx, "&"));
-                Ok(())
+                if let Some(&Type::Array(ref array_type)) = ctx.subs.get_type(ty) {
+                    array_type.demangle_with_ptrlike("&", ctx, stack)
+                } else {
+                    try!(ty.demangle(ctx, stack));
+                    try!(write!(ctx, "&"));
+                    Ok(())
+                }
             }
             Type::RvalueRef(ref ty) => {
-                try!(ty.demangle(ctx, stack));
-                try!(write!(ctx, "&&"));
-                Ok(())
+                if let Some(&Type::Array(ref array_type)) = ctx.subs.get_type(ty) {
+                    array_type.demangle_with_ptrlike("&&", ctx, stack)
+                } else {
+                    try!(ty.demangle(ctx, stack));
+                    try!(write!(ctx, "&&"));
+                    Ok(())
+                }
             }
             Type::Complex(ref ty) => {
                 try!(ty.demangle(ctx, stack));
@@ -2419,6 +2431,34 @@ impl Demangle for ArrayType {
                 Ok(())
             }
         }
+    }
+}
+
+impl ArrayType {
+    fn demangle_with_ptrlike<W>(&self,
+                                ptr_op: &str,
+                                ctx: &mut DemangleContext<W>,
+                                stack: Option<ArgStack>)
+                                -> io::Result<()>
+        where W: io::Write
+    {
+        match *self {
+            ArrayType::DimensionNumber(n, ref ty) => {
+                try!(ty.demangle(ctx, stack));
+                try!(write!(ctx, " ({}) [{}]", ptr_op, n));
+            }
+            ArrayType::DimensionExpression(ref expr, ref ty) => {
+                try!(ty.demangle(ctx, stack));
+                try!(write!(ctx, " ({}) [", ptr_op));
+                try!(expr.demangle(ctx, stack));
+                try!(write!(ctx, "]"));
+            }
+            ArrayType::NoDimension(ref ty) => {
+                try!(ty.demangle(ctx, stack));
+                try!(write!(ctx, " ({}) []", ptr_op));
+            }
+        }
+        Ok(())
     }
 }
 
