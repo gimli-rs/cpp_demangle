@@ -1836,12 +1836,14 @@ impl Parse for TypeHandle {
     }
 }
 
-impl Demangle for Type {
-    fn demangle<W>(&self,
-                   ctx: &mut DemangleContext<W>,
-                   stack: Option<ArgStack>)
-                   -> io::Result<()>
-        where W: io::Write
+impl DemangleWithInner for Type {
+    fn demangle_with_inner<D, W>(&self,
+                                 inner: Option<&D>,
+                                 ctx: &mut DemangleContext<W>,
+                                 stack: Option<ArgStack>)
+                                 -> io::Result<()>
+        where D: ?Sized + Demangle,
+              W: io::Write
     {
         match *self {
             Type::Builtin(ref builtin) => builtin.demangle(ctx, stack),
@@ -1856,22 +1858,44 @@ impl Demangle for Type {
             }
             Type::Decltype(ref dt) => dt.demangle(ctx, stack),
             Type::Qualified(ref quals, ref ty) => {
-                try!(ty.demangle(ctx, stack));
-                try!(write!(ctx, " "));
-                quals.demangle(ctx, stack)
+                if let Some(ty @ &Type::PointerTo(_)) = ctx.subs.get_type(ty) {
+                    ty.demangle_with_inner(Some(quals), ctx, stack)
+                } else {
+                    try!(ty.demangle(ctx, stack));
+                    try!(write!(ctx, " "));
+                    quals.demangle(ctx, stack)
+                }
             }
             Type::PointerTo(ref ty) => {
-                match ctx.subs.get_type(ty) {
-                    Some(&Type::Array(ref array_type)) => {
-                        array_type.demangle_with_inner(Some("*"), ctx, stack)
+                fn demangle_pointer<D, W>(ty: &TypeHandle,
+                                          inner: &D,
+                                          ctx: &mut DemangleContext<W>,
+                                          stack: Option<ArgStack>)
+                                          -> io::Result<()>
+                    where D: ?Sized + Demangle,
+                          W: io::Write
+                {
+                    match ctx.subs.get_type(ty) {
+                        Some(&Type::Array(ref array_type)) => {
+                            array_type.demangle_with_inner(Some(inner), ctx, stack)
+                        }
+                        Some(&Type::Function(ref func)) => {
+                            func.demangle_with_inner(Some(inner), ctx, stack)
+                        }
+                        _ => {
+                            try!(ty.demangle(ctx, stack));
+                            try!(inner.demangle(ctx, stack));
+                            Ok(())
+                        }
                     }
-                    Some(&Type::Function(ref func)) => {
-                        func.demangle_with_inner(Some("*"), ctx, stack)
+                }
+                match inner {
+                    Some(inner) => {
+                        let concat = Concat("* ", inner);
+                        demangle_pointer(ty, &concat, ctx, stack)
                     }
-                    _ => {
-                        try!(ty.demangle(ctx, stack));
-                        try!(write!(ctx, "*"));
-                        Ok(())
+                    None => {
+                        demangle_pointer(ty, "*", ctx, stack)
                     }
                 }
             }
