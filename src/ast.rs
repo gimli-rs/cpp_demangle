@@ -4259,7 +4259,12 @@ impl Demangle for LocalName {
                 try!(write!(ctx, "::"));
                 name.demangle(ctx, stack)
             }
-            LocalName::Relative(ref encoding, None, _) |
+            LocalName::Relative(ref encoding, None, _) => {
+                // No name means that this is the symbol for a string literal.
+                try!(encoding.demangle(ctx, stack));
+                try!(write!(ctx, "::string literal"));
+                Ok(())
+            }
             LocalName::Default(ref encoding, _, _) => encoding.demangle(ctx, stack),
         }
     }
