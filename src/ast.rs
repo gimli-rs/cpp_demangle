@@ -4253,9 +4253,13 @@ impl Demangle for LocalName {
                    -> io::Result<()>
         where W: io::Write
     {
-        // TODO: not entirely clear that this is right at all...
         match *self {
-            LocalName::Relative(ref encoding, _, _) |
+            LocalName::Relative(ref encoding, Some(ref name), _) => {
+                try!(encoding.demangle(ctx, stack));
+                try!(write!(ctx, "::"));
+                name.demangle(ctx, stack)
+            }
+            LocalName::Relative(ref encoding, None, _) |
             LocalName::Default(ref encoding, _, _) => encoding.demangle(ctx, stack),
         }
     }
