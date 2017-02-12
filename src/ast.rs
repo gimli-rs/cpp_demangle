@@ -290,6 +290,74 @@ pub trait Demangle {
         where W: io::Write;
 }
 
+impl Demangle for str {
+    #[inline(always)]
+    fn demangle<W>(&self,
+                   ctx: &mut DemangleContext<W>,
+                   _: Option<ArgStack>)
+                   -> io::Result<()>
+        where W: io::Write
+    {
+        try!(write!(ctx, "{}", self));
+        Ok(())
+    }
+}
+
+/// Sometimes an AST node needs to insert itself as an inner item within one of
+/// its children when demangling that child. For example, the AST `(array 10
+/// int)` is demangled as `int[10]`, but if we were to demangle `(lvalue-ref
+/// (array 10 int))` then we want this demangled form: `int (&) [10]`. The
+/// `DemangleWithInner` trait enables such behavior by allowing us to pass AST
+/// parents down to their children as inner items.
+///
+/// The inner item is an `Option` so we can provide a default `Demangle`
+/// implementation for all `DemangleWithInner` implementors, and don't have to
+/// write two copies of almost-but-not-quite the same code.
+pub trait DemangleWithInner {
+    /// Demangle this type with the given inner item.
+    fn demangle_with_inner<D, W>(&self,
+                                 inner: Option<&D>,
+                                 ctx: &mut DemangleContext<W>,
+                                 stack: Option<ArgStack>)
+                                 -> io::Result<()>
+        where D: ?Sized + Demangle,
+              W: io::Write;
+}
+
+impl<D> Demangle for D
+    where D: DemangleWithInner
+{
+    fn demangle<W>(&self,
+                   ctx: &mut DemangleContext<W>,
+                   stack: Option<ArgStack>)
+                   -> io::Result<()>
+        where W: io::Write
+    {
+        let inner: Option<&str> = None;
+        self.demangle_with_inner(inner, ctx, stack)
+    }
+}
+
+/// Demangle T and concatenate it with the demangling of U.
+struct Concat<'a, 'b, T, U>(&'a T, &'b U)
+    where T: 'a + ?Sized,
+          U: 'b + ?Sized;
+
+impl<'a, 'b, T, U> Demangle for Concat<'a, 'b, T, U>
+    where T: 'a + ?Sized + Demangle,
+          U: 'b + ?Sized + Demangle
+{
+    fn demangle<W>(&self,
+                   ctx: &mut DemangleContext<W>,
+                   stack: Option<ArgStack>)
+                   -> io::Result<()>
+        where W: io::Write
+    {
+        try!(self.0.demangle(ctx, stack));
+        self.1.demangle(ctx, stack)
+    }
+}
+
 /// Define a handle to a AST type that lives inside the substitution table. A
 /// handle is always either an index into the substitution table, or it is a
 /// reference to a "well-known" component.
@@ -1787,19 +1855,31 @@ impl Demangle for Type {
                 quals.demangle(ctx, stack)
             }
             Type::PointerTo(ref ty) => {
-                try!(ty.demangle(ctx, stack));
-                try!(write!(ctx, "*"));
-                Ok(())
+                if let Some(&Type::Array(ref array_type)) = ctx.subs.get_type(ty) {
+                    array_type.demangle_with_inner(Some("*"), ctx, stack)
+                } else {
+                    try!(ty.demangle(ctx, stack));
+                    try!(write!(ctx, "*"));
+                    Ok(())
+                }
             }
             Type::LvalueRef(ref ty) => {
-                try!(ty.demangle(ctx, stack));
-                try!(write!(ctx, "&"));
-                Ok(())
+                if let Some(&Type::Array(ref array_type)) = ctx.subs.get_type(ty) {
+                    array_type.demangle_with_inner(Some("&"), ctx, stack)
+                } else {
+                    try!(ty.demangle(ctx, stack));
+                    try!(write!(ctx, "&"));
+                    Ok(())
+                }
             }
             Type::RvalueRef(ref ty) => {
-                try!(ty.demangle(ctx, stack));
-                try!(write!(ctx, "&&"));
-                Ok(())
+                if let Some(&Type::Array(ref array_type)) = ctx.subs.get_type(ty) {
+                    array_type.demangle_with_inner(Some("&&"), ctx, stack)
+                } else {
+                    try!(ty.demangle(ctx, stack));
+                    try!(write!(ctx, "&&"));
+                    Ok(())
+                }
             }
             Type::Complex(ref ty) => {
                 try!(ty.demangle(ctx, stack));
@@ -2095,17 +2175,19 @@ impl Parse for FunctionType {
     }
 }
 
-impl Demangle for FunctionType {
-    fn demangle<W>(&self,
-                   ctx: &mut DemangleContext<W>,
-                   stack: Option<ArgStack>)
-                   -> io::Result<()>
-        where W: io::Write
+impl DemangleWithInner for FunctionType {
+    fn demangle_with_inner<D, W>(&self,
+                                 inner: Option<&D>,
+                                 ctx: &mut DemangleContext<W>,
+                                 stack: Option<ArgStack>)
+                                 -> io::Result<()>
+        where D: ?Sized + Demangle,
+              W: io::Write
     {
-        try!(self.cv_qualifiers.demangle(ctx, stack));
         // TODO: transactions safety?
         // TODO: extern C?
-        try!(self.bare.demangle(ctx, stack));
+        try!(self.bare.demangle_with_inner(inner, ctx, stack));
+        try!(self.cv_qualifiers.demangle(ctx, stack));
         // TODO: ref_qualifier?
         Ok(())
     }
@@ -2141,15 +2223,25 @@ impl Parse for BareFunctionType {
     }
 }
 
-impl Demangle for BareFunctionType {
-    fn demangle<W>(&self,
-                   ctx: &mut DemangleContext<W>,
-                   stack: Option<ArgStack>)
-                   -> io::Result<()>
-        where W: io::Write
+impl DemangleWithInner for BareFunctionType {
+    fn demangle_with_inner<D, W>(&self,
+                                 inner: Option<&D>,
+                                 ctx: &mut DemangleContext<W>,
+                                 stack: Option<ArgStack>)
+                                 -> io::Result<()>
+        where D: ?Sized + Demangle,
+              W: io::Write
     {
         try!(self.ret().demangle(ctx, stack));
-        try!(write!(ctx, " ("));
+        try!(ctx.ensure_space());
+
+        if let Some(inner) = inner {
+            try!(write!(ctx, "("));
+            try!(inner.demangle(ctx, stack));
+            try!(write!(ctx, ")"));
+        }
+
+        try!(write!(ctx, "("));
 
         // For libiberty compatibility, print `()` instead of `(void)`.
         if self.args().len() == 1 && self.args()[0].is_void(ctx.subs) {
@@ -2393,32 +2485,50 @@ impl Parse for ArrayType {
     }
 }
 
-impl Demangle for ArrayType {
-    fn demangle<W>(&self,
-                   ctx: &mut DemangleContext<W>,
-                   stack: Option<ArgStack>)
-                   -> io::Result<()>
-        where W: io::Write
+impl DemangleWithInner for ArrayType {
+    fn demangle_with_inner<D, W>(&self,
+                              inner: Option<&D>,
+                              ctx: &mut DemangleContext<W>,
+                              stack: Option<ArgStack>)
+                              -> io::Result<()>
+        where D: ?Sized + Demangle,
+              W: io::Write
     {
         match *self {
             ArrayType::DimensionNumber(n, ref ty) => {
                 try!(ty.demangle(ctx, stack));
-                try!(write!(ctx, " [{}]", n));
-                Ok(())
+                if let Some(inner) = inner {
+                    try!(write!(ctx, " ("));
+                    try!(inner.demangle(ctx, stack));
+                    try!(write!(ctx, ") [{}]", n));
+                } else {
+                    try!(write!(ctx, " [{}]", n));
+                }
             }
             ArrayType::DimensionExpression(ref expr, ref ty) => {
                 try!(ty.demangle(ctx, stack));
-                try!(write!(ctx, " ["));
+                if let Some(inner) = inner {
+                    try!(write!(ctx, " ("));
+                    try!(inner.demangle(ctx, stack));
+                    try!(write!(ctx, ") ["));
+                } else {
+                    try!(write!(ctx, " ["));
+                }
                 try!(expr.demangle(ctx, stack));
                 try!(write!(ctx, "]"));
-                Ok(())
             }
             ArrayType::NoDimension(ref ty) => {
                 try!(ty.demangle(ctx, stack));
-                try!(write!(ctx, " []"));
-                Ok(())
+                if let Some(inner) = inner {
+                    try!(write!(ctx, " ("));
+                    try!(inner.demangle(ctx, stack));
+                    try!(write!(ctx, ") []"));
+                } else {
+                    try!(write!(ctx, " []"));
+                }
             }
         }
+        Ok(())
     }
 }
 
@@ -2450,11 +2560,16 @@ impl Demangle for PointerToMemberType {
                    -> io::Result<()>
         where W: io::Write
     {
-        try!(self.1.demangle(ctx, stack));
-        try!(write!(ctx, " "));
-        try!(self.0.demangle(ctx, stack));
-        try!(write!(ctx, "::*"));
-        Ok(())
+        if let Some(&Type::Function(ref func)) = ctx.subs.get_type(&self.1) {
+            let ptm = Concat(&self.0, "::*");
+            func.demangle_with_inner(Some(&ptm), ctx, stack)
+        } else {
+            try!(self.1.demangle(ctx, stack));
+            try!(write!(ctx, " "));
+            try!(self.0.demangle(ctx, stack));
+            try!(write!(ctx, "::*"));
+            Ok(())
+        }
     }
 }
 

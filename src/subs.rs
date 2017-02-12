@@ -1,6 +1,7 @@
 //! Types dealing with the substitutions table.
 
 use ast;
+use std::fmt;
 use std::io;
 use std::iter::FromIterator;
 use std::ops::Deref;
@@ -46,8 +47,15 @@ impl ast::Demangle for Substitutable {
 /// The table of substitutable components that we have parsed thus far, and for
 /// which there are potential back-references.
 #[doc(hidden)]
-#[derive(Clone, Debug, Hash, PartialEq, Eq)]
+#[derive(Clone, Hash, PartialEq, Eq)]
 pub struct SubstitutionTable(Vec<Substitutable>);
+
+impl fmt::Debug for SubstitutionTable {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        try!(f.pad("SubstitutionTable "));
+        f.debug_map().entries(self.0.iter().enumerate()).finish()
+    }
+}
 
 impl SubstitutionTable {
     /// Construct a new `SubstitutionTable`.
