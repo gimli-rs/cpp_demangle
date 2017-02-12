@@ -1698,14 +1698,21 @@ impl Parse for TypeHandle {
         log_parse!("TypeHandle", input);
 
         if let Ok((sub, tail)) = Substitution::parse(subs, input) {
-            match sub {
-                Substitution::WellKnown(component) => {
-                    return Ok((TypeHandle::WellKnown(component), tail));
-                }
-                Substitution::BackReference(idx) => {
-                    // TODO: should this check if the back reference actually points
-                    // to a <type>?
-                    return Ok((TypeHandle::BackReference(idx), tail));
+            // If we see an 'I', then this is actually a substitution for a
+            // <template-template-param>, and the template args are what
+            // follows. Throw away what we just parsed, and re-parse it in
+            // `TemplateTemplateParamHandle::parse` for now, but it would be
+            // nice not to duplicate work we've already done.
+            if tail.peek() != Some(b'I') {
+                match sub {
+                    Substitution::WellKnown(component) => {
+                        return Ok((TypeHandle::WellKnown(component), tail));
+                    }
+                    Substitution::BackReference(idx) => {
+                        // TODO: should this check if the back reference actually points
+                        // to a <type>?
+                        return Ok((TypeHandle::BackReference(idx), tail));
+                    }
                 }
             }
         }
@@ -1748,10 +1755,9 @@ impl Parse for TypeHandle {
         }
 
         if let Ok((param, tail)) = TemplateParam::parse(subs, input) {
-            // If we see an 'I', then this is a <template-template-param>. Throw
-            // away what we just parsed, and re-parse it in
-            // `TemplateTemplateParamHandle::parse` for now, but it would be
-            // nice not to duplicate work we've already done.
+            // Same situation as with `Substitution::parse` at the top of this
+            // function: this is actually a <template-template-param> and
+            // <template-args>.
             if tail.peek() != Some(b'I') {
                 let ty = Type::TemplateParam(param);
                 return insert_and_return_handle(ty, subs, tail);
@@ -1855,30 +1861,48 @@ impl Demangle for Type {
                 quals.demangle(ctx, stack)
             }
             Type::PointerTo(ref ty) => {
-                if let Some(&Type::Array(ref array_type)) = ctx.subs.get_type(ty) {
-                    array_type.demangle_with_inner(Some("*"), ctx, stack)
-                } else {
-                    try!(ty.demangle(ctx, stack));
-                    try!(write!(ctx, "*"));
-                    Ok(())
+                match ctx.subs.get_type(ty) {
+                    Some(&Type::Array(ref array_type)) => {
+                        array_type.demangle_with_inner(Some("*"), ctx, stack)
+                    }
+                    Some(&Type::Function(ref func)) => {
+                        func.demangle_with_inner(Some("*"), ctx, stack)
+                    }
+                    _ => {
+                        try!(ty.demangle(ctx, stack));
+                        try!(write!(ctx, "*"));
+                        Ok(())
+                    }
                 }
             }
             Type::LvalueRef(ref ty) => {
-                if let Some(&Type::Array(ref array_type)) = ctx.subs.get_type(ty) {
-                    array_type.demangle_with_inner(Some("&"), ctx, stack)
-                } else {
-                    try!(ty.demangle(ctx, stack));
-                    try!(write!(ctx, "&"));
-                    Ok(())
+                match ctx.subs.get_type(ty) {
+                    Some(&Type::Array(ref array_type)) => {
+                        array_type.demangle_with_inner(Some("&"), ctx, stack)
+                    }
+                    Some(&Type::Function(ref func)) => {
+                        func.demangle_with_inner(Some("&"), ctx, stack)
+                    }
+                    _ => {
+                        try!(ty.demangle(ctx, stack));
+                        try!(write!(ctx, "&"));
+                        Ok(())
+                    }
                 }
             }
             Type::RvalueRef(ref ty) => {
-                if let Some(&Type::Array(ref array_type)) = ctx.subs.get_type(ty) {
-                    array_type.demangle_with_inner(Some("&&"), ctx, stack)
-                } else {
-                    try!(ty.demangle(ctx, stack));
-                    try!(write!(ctx, "&&"));
-                    Ok(())
+                match ctx.subs.get_type(ty) {
+                    Some(&Type::Array(ref array_type)) => {
+                        array_type.demangle_with_inner(Some("&&"), ctx, stack)
+                    }
+                    Some(&Type::Function(ref func)) => {
+                        func.demangle_with_inner(Some("&&"), ctx, stack)
+                    }
+                    _ => {
+                        try!(ty.demangle(ctx, stack));
+                        try!(write!(ctx, "&&"));
+                        Ok(())
+                    }
                 }
             }
             Type::Complex(ref ty) => {
@@ -4098,9 +4122,6 @@ impl Parse for ExprPrimary {
             return Ok((expr, tail));
         }
 
-        // TODO: apparently g++ omitted the '_' in the <mangled-name> here until
-        // -fabi-version=3, so we should detect and work around that...
-
         let (name, tail) = try!(MangledName::parse(subs, tail));
         let tail = try!(consume(b"E", tail));
         let expr = ExprPrimary::External(name);
@@ -4253,9 +4274,18 @@ impl Demangle for LocalName {
                    -> io::Result<()>
         where W: io::Write
     {
-        // TODO: not entirely clear that this is right at all...
         match *self {
-            LocalName::Relative(ref encoding, _, _) |
+            LocalName::Relative(ref encoding, Some(ref name), _) => {
+                try!(encoding.demangle(ctx, stack));
+                try!(write!(ctx, "::"));
+                name.demangle(ctx, stack)
+            }
+            LocalName::Relative(ref encoding, None, _) => {
+                // No name means that this is the symbol for a string literal.
+                try!(encoding.demangle(ctx, stack));
+                try!(write!(ctx, "::string literal"));
+                Ok(())
+            }
             LocalName::Default(ref encoding, _, _) => encoding.demangle(ctx, stack),
         }
     }
