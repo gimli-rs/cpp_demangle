@@ -1870,21 +1870,33 @@ impl Demangle for Type {
                 }
             }
             Type::LvalueRef(ref ty) => {
-                if let Some(&Type::Array(ref array_type)) = ctx.subs.get_type(ty) {
-                    array_type.demangle_with_inner(Some("&"), ctx, stack)
-                } else {
-                    try!(ty.demangle(ctx, stack));
-                    try!(write!(ctx, "&"));
-                    Ok(())
+                match ctx.subs.get_type(ty) {
+                    Some(&Type::Array(ref array_type)) => {
+                        array_type.demangle_with_inner(Some("&"), ctx, stack)
+                    }
+                    Some(&Type::Function(ref func)) => {
+                        func.demangle_with_inner(Some("&"), ctx, stack)
+                    }
+                    _ => {
+                        try!(ty.demangle(ctx, stack));
+                        try!(write!(ctx, "&"));
+                        Ok(())
+                    }
                 }
             }
             Type::RvalueRef(ref ty) => {
-                if let Some(&Type::Array(ref array_type)) = ctx.subs.get_type(ty) {
-                    array_type.demangle_with_inner(Some("&&"), ctx, stack)
-                } else {
-                    try!(ty.demangle(ctx, stack));
-                    try!(write!(ctx, "&&"));
-                    Ok(())
+                match ctx.subs.get_type(ty) {
+                    Some(&Type::Array(ref array_type)) => {
+                        array_type.demangle_with_inner(Some("&&"), ctx, stack)
+                    }
+                    Some(&Type::Function(ref func)) => {
+                        func.demangle_with_inner(Some("&&"), ctx, stack)
+                    }
+                    _ => {
+                        try!(ty.demangle(ctx, stack));
+                        try!(write!(ctx, "&&"));
+                        Ok(())
+                    }
                 }
             }
             Type::Complex(ref ty) => {
