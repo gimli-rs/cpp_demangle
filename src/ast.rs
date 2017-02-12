@@ -1698,14 +1698,21 @@ impl Parse for TypeHandle {
         log_parse!("TypeHandle", input);
 
         if let Ok((sub, tail)) = Substitution::parse(subs, input) {
-            match sub {
-                Substitution::WellKnown(component) => {
-                    return Ok((TypeHandle::WellKnown(component), tail));
-                }
-                Substitution::BackReference(idx) => {
-                    // TODO: should this check if the back reference actually points
-                    // to a <type>?
-                    return Ok((TypeHandle::BackReference(idx), tail));
+            // If we see an 'I', then this is actually a substitution for a
+            // <template-template-param>, and the template args are what
+            // follows. Throw away what we just parsed, and re-parse it in
+            // `TemplateTemplateParamHandle::parse` for now, but it would be
+            // nice not to duplicate work we've already done.
+            if tail.peek() != Some(b'I') {
+                match sub {
+                    Substitution::WellKnown(component) => {
+                        return Ok((TypeHandle::WellKnown(component), tail));
+                    }
+                    Substitution::BackReference(idx) => {
+                        // TODO: should this check if the back reference actually points
+                        // to a <type>?
+                        return Ok((TypeHandle::BackReference(idx), tail));
+                    }
                 }
             }
         }
@@ -1748,10 +1755,9 @@ impl Parse for TypeHandle {
         }
 
         if let Ok((param, tail)) = TemplateParam::parse(subs, input) {
-            // If we see an 'I', then this is a <template-template-param>. Throw
-            // away what we just parsed, and re-parse it in
-            // `TemplateTemplateParamHandle::parse` for now, but it would be
-            // nice not to duplicate work we've already done.
+            // Same situation as with `Substitution::parse` at the top of this
+            // function: this is actually a <template-template-param> and
+            // <template-args>.
             if tail.peek() != Some(b'I') {
                 let ty = Type::TemplateParam(param);
                 return insert_and_return_handle(ty, subs, tail);
@@ -4115,9 +4121,6 @@ impl Parse for ExprPrimary {
             let expr = ExprPrimary::Literal(ty, start, end);
             return Ok((expr, tail));
         }
-
-        // TODO: apparently g++ omitted the '_' in the <mangled-name> here until
-        // -fabi-version=3, so we should detect and work around that...
 
         let (name, tail) = try!(MangledName::parse(subs, tail));
         let tail = try!(consume(b"E", tail));
