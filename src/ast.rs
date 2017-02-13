@@ -371,7 +371,7 @@ impl<'a> Demangle for FunctionArgList<'a> {
 
         // To maintain compatibility with libiberty, print `()` instead
         // of `(void)` for functions that take no arguments.
-        if self.0.len() == 1 && self.0[0].is_void(ctx.subs) {
+        if self.0.len() == 1 && self.0[0].is_void() {
             try!(write!(ctx, ")"));
             return Ok(());
         }
@@ -401,9 +401,27 @@ impl<'a> Demangle for FunctionArgList<'a> {
 /// - a `Demangle` impl that proxies to the appropriate `Substitutable` in the
 ///   `SubstitutionTable`
 macro_rules! define_handle {
-    ( $(#[$attr:meta])* pub enum $typename:ident ) => {
+    (
+        $(#[$attr:meta])*
+        pub enum $typename:ident
+    ) => {
+        define_handle! {
+            $(#[$attr])*
+            pub enum $typename {}
+        }
+    };
+
+    (
+        $(#[$attr:meta])*
+        pub enum $typename:ident {
+            $(
+                $( #[$extra_attr:meta] )*
+                extra $extra_variant:ident ( $extra_variant_ty:ident ),
+            )*
+        }
+    ) => {
         $(#[$attr])*
-            #[derive(Clone, Debug, Hash, PartialEq, Eq)]
+        #[derive(Clone, Debug, Hash, PartialEq, Eq)]
         pub enum $typename {
             /// A reference to a "well-known" component.
             WellKnown(WellKnownComponent),
@@ -411,6 +429,11 @@ macro_rules! define_handle {
             /// A back-reference into the substitution table to a component we
             /// have already parsed.
             BackReference(usize),
+
+            $(
+                $( #[$extra_attr] )*
+                $extra_variant( $extra_variant_ty ),
+            )*
         }
 
         impl $typename {
@@ -442,10 +465,13 @@ macro_rules! define_handle {
                         ctx.clear_mark_bit(idx);
                         ret
                     }
+                    $(
+                        $typename::$extra_variant(ref extra) => extra.demangle(ctx, stack),
+                    )*
                 }
             }
         }
-    }
+    };
 }
 
 /// Define a "vocabulary" nonterminal, something like `OperatorName` or
@@ -1647,9 +1673,6 @@ define_vocabulary! {
 /// ```
 #[derive(Clone, Debug, Hash, PartialEq, Eq)]
 pub enum Type {
-    /// A builtin type.
-    Builtin(BuiltinType),
-
     /// A function type.
     Function(FunctionType),
 
@@ -1696,23 +1719,20 @@ pub enum Type {
     PackExpansion(TypeHandle),
 }
 
-impl Type {
-    fn is_void(&self) -> bool {
-        match *self {
-            Type::Builtin(BuiltinType::Standard(StandardBuiltinType::Void)) => true,
-            _ => false,
-        }
+define_handle! {
+    /// A reference to a parsed `Type` production.
+    pub enum TypeHandle {
+        /// A builtin type.
+        extra Builtin(BuiltinType),
     }
 }
 
-define_handle! {
-    /// A reference to a parsed `Type` production.
-    pub enum TypeHandle
-}
-
 impl TypeHandle {
-    fn is_void(&self, subs: &SubstitutionTable) -> bool {
-        subs.get_type(self).map_or(false, |ty| ty.is_void())
+    fn is_void(&self) -> bool {
+        match *self {
+            TypeHandle::Builtin(BuiltinType::Standard(StandardBuiltinType::Void)) => true,
+            _ => false,
+        }
     }
 }
 
@@ -1755,8 +1775,10 @@ impl Parse for TypeHandle {
         }
 
         if let Ok((builtin, tail)) = BuiltinType::parse(subs, input) {
-            let ty = Type::Builtin(builtin);
-            return insert_and_return_handle(ty, subs, tail);
+            // Builtin types are one of two exceptions that do not end up in the
+            // substitutions table.
+            let handle = TypeHandle::Builtin(builtin);
+            return Ok((handle, tail));
         }
 
         if let Ok((funty, tail)) = FunctionType::parse(subs, input) {
@@ -1871,7 +1893,6 @@ impl DemangleWithInner for Type {
               W: io::Write
     {
         match *self {
-            Type::Builtin(ref builtin) => builtin.demangle(ctx, stack),
             Type::Function(ref func_ty) => func_ty.demangle(ctx, stack),
             Type::ClassEnum(ref cls_enum_ty) => cls_enum_ty.demangle(ctx, stack),
             Type::Array(ref array_ty) => array_ty.demangle(ctx, stack),
@@ -4171,19 +4192,14 @@ impl Demangle for ExprPrimary {
     {
         match *self {
             ExprPrimary::External(ref name) => name.demangle(ctx, stack),
+            ExprPrimary::Literal(
+                TypeHandle::Builtin(BuiltinType::Standard(StandardBuiltinType::Nullptr)),
+                _,
+                _) => {
+                try!(write!(ctx, "nullptr"));
+                return Ok(());
+            }
             ExprPrimary::Literal(ref type_handle, start, end) => {
-                if let Some(idx) = type_handle.back_reference() {
-                    match ctx.subs[idx] {
-                        Substitutable::Type(Type::Builtin(BuiltinType::Standard(StandardBuiltinType::Nullptr))) => {
-                            try!(write!(ctx, "nullptr"));
-                            return Ok(());
-                        }
-                        // TODO: should we assert that we only point back to
-                        // types from a type handle?
-                        _ => {}
-                    }
-                }
-
                 debug_assert!(start <= end);
                 if start == end {
                     type_handle.demangle(ctx, stack)
@@ -5078,28 +5094,25 @@ mod tests {
     #[test]
     fn parse_mangled_name() {
         assert_parse!(MangledName {
-            with subs [] => {
-                Ok => {
-                    b"_Z3foo..." => {
-                        MangledName::Encoding(
-                            Encoding::Data(
-                                Name::Unscoped(
-                                    UnscopedName::Unqualified(
-                                        UnqualifiedName::Source(
-                                            SourceName(Identifier {
-                                                start: 3,
-                                                end: 6,
-                                            })))))),
-                        b"...",
-                        []
-                    }
+            Ok => {
+                b"_Z3foo..." => {
+                    MangledName::Encoding(
+                        Encoding::Data(
+                            Name::Unscoped(
+                                UnscopedName::Unqualified(
+                                    UnqualifiedName::Source(
+                                        SourceName(Identifier {
+                                            start: 3,
+                                            end: 6,
+                                        })))))),
+                    b"..."
                 }
-                Err => {
-                    b"_Y" => Error::UnexpectedText,
-                    b"_Z" => Error::UnexpectedEnd,
-                    b"_" => Error::UnexpectedEnd,
-                    b"" => Error::UnexpectedEnd,
-                }
+            }
+            Err => {
+                b"_Y" => Error::UnexpectedText,
+                b"_Z" => Error::UnexpectedText,
+                b"_" => Error::UnexpectedEnd,
+                b"" => Error::UnexpectedEnd,
             }
         });
     }
@@ -5119,15 +5132,10 @@ mod tests {
                                             end: 4,
                                         })))),
                             BareFunctionType(vec![
-                                TypeHandle::BackReference(0)
+                                TypeHandle::Builtin(BuiltinType::Standard(StandardBuiltinType::Int))
                             ])),
                         b"...",
-                        [
-                            Substitutable::Type(
-                                Type::Builtin(
-                                    BuiltinType::Standard(
-                                        StandardBuiltinType::Int))),
-                        ]
+                        []
                     }
                     b"3foo..." => {
                         Encoding::Data(
@@ -5197,7 +5205,9 @@ mod tests {
                         Name::UnscopedTemplate(
                             UnscopedTemplateNameHandle::BackReference(2),
                             TemplateArgs(vec![
-                                TemplateArg::Type(TypeHandle::BackReference(3)),
+                                TemplateArg::Type(
+                                    TypeHandle::Builtin(
+                                        BuiltinType::Standard(StandardBuiltinType::Char)))
                             ])),
                         b"...",
                         [
@@ -5206,10 +5216,6 @@ mod tests {
                                     UnscopedName::Unqualified(
                                         UnqualifiedName::Operator(
                                             OperatorName::Delete)))),
-                            Substitutable::Type(
-                                Type::Builtin(
-                                    BuiltinType::Standard(
-                                        StandardBuiltinType::Char))),
                         ]
                     }
                     b"Z3abcEs..." => {
@@ -5601,7 +5607,8 @@ mod tests {
         assert_parse!(TypeHandle {
             with subs [
                 Substitutable::Type(
-                    Type::Builtin(BuiltinType::Standard(StandardBuiltinType::Char))),
+                    Type::PointerTo(
+                        TypeHandle::Builtin(BuiltinType::Standard(StandardBuiltinType::Char)))),
             ] => {
                 Ok => {
                     b"S_..." => {
@@ -5610,12 +5617,9 @@ mod tests {
                         []
                     }
                     b"c..." => {
-                        TypeHandle::BackReference(1),
+                        TypeHandle::Builtin(BuiltinType::Standard(StandardBuiltinType::Char)),
                         b"...",
-                        [
-                            Substitutable::Type(
-                                Type::Builtin(BuiltinType::Standard(StandardBuiltinType::Char)))
-                        ]
+                        []
                     }
                     b"FS_E..." => {
                         TypeHandle::BackReference(1),
@@ -5803,7 +5807,8 @@ mod tests {
         assert_parse!(FunctionType {
             with subs [
                 Substitutable::Type(
-                    Type::Builtin(BuiltinType::Standard(StandardBuiltinType::Char))),
+                    Type::PointerTo(
+                        TypeHandle::Builtin(BuiltinType::Standard(StandardBuiltinType::Char)))),
             ] => {
                 Ok => {
                     b"KDxFYS_RE..." => {
@@ -5899,7 +5904,8 @@ mod tests {
         assert_parse!(BareFunctionType {
             with subs [
                 Substitutable::Type(
-                    Type::Builtin(BuiltinType::Standard(StandardBuiltinType::Char))),
+                    Type::PointerTo(
+                        TypeHandle::Builtin(BuiltinType::Standard(StandardBuiltinType::Char)))),
             ] => {
                 Ok => {
                     b"S_S_..." => {
@@ -6201,8 +6207,8 @@ mod tests {
         assert_parse!(Expression {
             with subs [
                 Substitutable::Type(
-                    Type::Builtin(
-                        BuiltinType::Standard(StandardBuiltinType::Int))),
+                    Type::PointerTo(TypeHandle::Builtin(
+                        BuiltinType::Standard(StandardBuiltinType::Int)))),
             ] => {
                 Ok => {
                     b"psLS_1E..." => {
@@ -7232,7 +7238,9 @@ mod tests {
     fn parse_lambda_sig() {
         assert_parse!(LambdaSig {
             with subs [
-                Substitutable::Type(Type::Builtin(BuiltinType::Standard(StandardBuiltinType::Bool)))
+                Substitutable::Type(
+                    Type::PointerTo(
+                        TypeHandle::Builtin(BuiltinType::Standard(StandardBuiltinType::Bool))))
             ] => {
                 Ok => {
                     b"v..." => {
@@ -7329,127 +7337,96 @@ mod tests {
     #[test]
     fn parse_special_name() {
         assert_parse!(SpecialName {
-            with subs [] => {
-                Ok => {
-                    b"TVi..." => {
-                        SpecialName::VirtualTable(TypeHandle::BackReference(0)),
-                        b"...",
-                        [
-                            Substitutable::Type(
-                                Type::Builtin(
-                                    BuiltinType::Standard(
-                                        StandardBuiltinType::Int)))
-                        ]
-                    }
-                    b"TTi..." => {
-                        SpecialName::Vtt(TypeHandle::BackReference(0)),
-                        b"...",
-                        [
-                            Substitutable::Type(
-                                Type::Builtin(
-                                    BuiltinType::Standard(
-                                        StandardBuiltinType::Int)))
-                        ]
-                    }
-                    b"TIi..." => {
-                        SpecialName::Typeinfo(TypeHandle::BackReference(0)),
-                        b"...",
-                        [
-                            Substitutable::Type(
-                                Type::Builtin(
-                                    BuiltinType::Standard(
-                                        StandardBuiltinType::Int)))
-                        ]
-                    }
-                    b"TSi..." => {
-                        SpecialName::TypeinfoName(TypeHandle::BackReference(0)),
-                        b"...",
-                        [
-                            Substitutable::Type(
-                                Type::Builtin(
-                                    BuiltinType::Standard(
-                                        StandardBuiltinType::Int)))
-                        ]
-                    }
-                    b"Tv42_36_3abc..." => {
-                        SpecialName::VirtualOverrideThunk(
-                            CallOffset::Virtual(VOffset(42, 36)),
-                            Box::new(Encoding::Data(
-                                Name::Unscoped(
-                                    UnscopedName::Unqualified(
-                                        UnqualifiedName::Source(
-                                            SourceName(Identifier {
-                                                start: 9,
-                                                end: 12,
-                                            }))))))),
-                        b"...",
-                        []
-                    }
-                    b"Tcv42_36_v42_36_3abc..." => {
-                        SpecialName::VirtualOverrideThunkCovariant(
-                            CallOffset::Virtual(VOffset(42, 36)),
-                            CallOffset::Virtual(VOffset(42, 36)),
-                            Box::new(Encoding::Data(
-                                Name::Unscoped(
-                                    UnscopedName::Unqualified(
-                                        UnqualifiedName::Source(
-                                            SourceName(Identifier {
-                                                start: 17,
-                                                end: 20,
-                                            }))))))),
-                        b"...",
-                        []
-                    }
-                    b"GV3abc..." => {
-                        SpecialName::Guard(
+            Ok => {
+                b"TVi..." => {
+                    SpecialName::VirtualTable(TypeHandle::Builtin(BuiltinType::Standard(StandardBuiltinType::Int))),
+                    b"..."
+                }
+                b"TTi..." => {
+                    SpecialName::Vtt(TypeHandle::Builtin(BuiltinType::Standard(StandardBuiltinType::Int))),
+                    b"..."
+                }
+                b"TIi..." => {
+                    SpecialName::Typeinfo(TypeHandle::Builtin(BuiltinType::Standard(StandardBuiltinType::Int))),
+                    b"..."
+                }
+                b"TSi..." => {
+                    SpecialName::TypeinfoName(TypeHandle::Builtin(BuiltinType::Standard(StandardBuiltinType::Int))),
+                    b"..."
+                }
+                b"Tv42_36_3abc..." => {
+                    SpecialName::VirtualOverrideThunk(
+                        CallOffset::Virtual(VOffset(42, 36)),
+                        Box::new(Encoding::Data(
                             Name::Unscoped(
                                 UnscopedName::Unqualified(
                                     UnqualifiedName::Source(
                                         SourceName(Identifier {
-                                            start: 3,
-                                            end: 6,
-                                        }))))),
-                        b"...",
-                        []
-                    }
-                    b"GR3abc_..." => {
-                        SpecialName::GuardTemporary(
+                                            start: 9,
+                                            end: 12,
+                                        }))))))),
+                    b"..."
+                }
+                b"Tcv42_36_v42_36_3abc..." => {
+                    SpecialName::VirtualOverrideThunkCovariant(
+                        CallOffset::Virtual(VOffset(42, 36)),
+                        CallOffset::Virtual(VOffset(42, 36)),
+                        Box::new(Encoding::Data(
                             Name::Unscoped(
                                 UnscopedName::Unqualified(
                                     UnqualifiedName::Source(
                                         SourceName(Identifier {
-                                            start: 3,
-                                            end: 6,
-                                        })))),
+                                            start: 17,
+                                            end: 20,
+                                        }))))))),
+                    b"..."
+                }
+                b"GV3abc..." => {
+                    SpecialName::Guard(
+                        Name::Unscoped(
+                            UnscopedName::Unqualified(
+                                UnqualifiedName::Source(
+                                    SourceName(Identifier {
+                                        start: 3,
+                                        end: 6,
+                                    }))))),
+                    b"..."
+                }
+                b"GR3abc_..." => {
+                    SpecialName::GuardTemporary(
+                        Name::Unscoped(
+                            UnscopedName::Unqualified(
+                                UnqualifiedName::Source(
+                                    SourceName(Identifier {
+                                        start: 3,
+                                        end: 6,
+                                    })))),
                         0),
-                        b"...",
-                        []
-                    }
-                    b"GR3abc0_..." => {
-                        SpecialName::GuardTemporary(
-                            Name::Unscoped(
-                                UnscopedName::Unqualified(
-                                    UnqualifiedName::Source(
-                                        SourceName(Identifier {
-                                            start: 3,
-                                            end: 6,
-                                        })))),
-                            1),
-                        b"...",
-                        []
-                    }
+                    b"..."
                 }
-                Err => {
-                    b"TZ" => Error::UnexpectedText,
-                    b"GZ" => Error::UnexpectedText,
-                    b"GR3abcz" => Error::UnexpectedText,
-                    b"GR3abc0z" => Error::UnexpectedText,
-                    b"T" => Error::UnexpectedEnd,
-                    b"G" => Error::UnexpectedEnd,
-                    b"" => Error::UnexpectedEnd,
-                    b"GR3abc" => Error::UnexpectedEnd,
-                    b"GR3abc0" => Error::UnexpectedEnd,
+                b"GR3abc0_..." => {
+                    SpecialName::GuardTemporary(
+                        Name::Unscoped(
+                            UnscopedName::Unqualified(
+                                UnqualifiedName::Source(
+                                    SourceName(Identifier {
+                                        start: 3,
+                                        end: 6,
+                                    })))),
+                        1),
+                    b"..."
                 }
+            }
+            Err => {
+                b"TZ" => Error::UnexpectedText,
+                b"GZ" => Error::UnexpectedText,
+                b"GR3abcz" => Error::UnexpectedText,
+                b"GR3abc0z" => Error::UnexpectedText,
+                b"T" => Error::UnexpectedEnd,
+                b"G" => Error::UnexpectedEnd,
+                b"" => Error::UnexpectedEnd,
+                b"GR3abc" => Error::UnexpectedEnd,
+                b"GR3abc0" => Error::UnexpectedEnd,
             }
         });
     }
