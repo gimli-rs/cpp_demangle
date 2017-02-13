@@ -358,6 +358,38 @@ impl<'a, 'b, T, U> Demangle for Concat<'a, 'b, T, U>
     }
 }
 
+struct FunctionArgList<'a>(&'a [TypeHandle]);
+
+impl<'a> Demangle for FunctionArgList<'a> {
+    fn demangle<W>(&self,
+                   ctx: &mut DemangleContext<W>,
+                   stack: Option<ArgStack>)
+                   -> io::Result<()>
+        where W: io::Write
+    {
+        try!(write!(ctx, "("));
+
+        // To maintain compatibility with libiberty, print `()` instead
+        // of `(void)` for functions that take no arguments.
+        if self.0.len() == 1 && self.0[0].is_void(ctx.subs) {
+            try!(write!(ctx, ")"));
+            return Ok(());
+        }
+
+        let mut need_comma = false;
+        for arg in self.0 {
+            if need_comma {
+                try!(write!(ctx, ", "));
+            }
+            try!(arg.demangle(ctx, stack));
+            need_comma = true;
+        }
+
+        try!(write!(ctx, ")"));
+        Ok(())
+    }
+}
+
 /// Define a handle to a AST type that lives inside the substitution table. A
 /// handle is always either an index into the substitution table, or it is a
 /// reference to a "well-known" component.
@@ -626,36 +658,22 @@ impl Demangle for Encoding {
                 let (stack, function_args) = if let Some(template_args) =
                     name.get_template_args(ctx.subs) {
                     let stack = stack.push(template_args);
-                    let function_args = &fun_ty.0[1..];
+                    let function_args = FunctionArgList(&fun_ty.0[1..]);
 
                     try!(fun_ty.0[0].demangle(ctx, stack));
                     try!(write!(ctx, " "));
 
                     (stack, function_args)
                 } else {
-                    (stack, &fun_ty.0[..])
+                    (stack, FunctionArgList(&fun_ty.0[..]))
                 };
 
+                if let Name::Nested(ref name) = *name {
+                    return name.demangle_with_inner(Some(&function_args), ctx, stack);
+                }
+
                 try!(name.demangle(ctx, stack));
-                try!(write!(ctx, "("));
-
-                // To maintain compatibility with libiberty, print `()` instead
-                // of `(void)` for functions that take no arguments.
-                if function_args.len() == 1 && function_args[0].is_void(ctx.subs) {
-                    try!(write!(ctx, ")"));
-                    return Ok(());
-                }
-
-                let mut need_comma = false;
-                for arg in function_args {
-                    if need_comma {
-                        try!(write!(ctx, ", "));
-                    }
-                    try!(arg.demangle(ctx, stack));
-                    need_comma = true;
-                }
-                try!(write!(ctx, ")"));
-                Ok(())
+                function_args.demangle(ctx, stack)
             }
             Encoding::Data(ref name) => name.demangle(ctx, stack),
             Encoding::Special(ref name) => name.demangle(ctx, stack),
@@ -915,24 +933,31 @@ impl Parse for NestedName {
     }
 }
 
-impl Demangle for NestedName {
-    fn demangle<W>(&self,
-                   ctx: &mut DemangleContext<W>,
-                   stack: Option<ArgStack>)
-                   -> io::Result<()>
-        where W: io::Write
+impl DemangleWithInner for NestedName {
+    fn demangle_with_inner<D, W>(&self,
+                                 inner: Option<&D>,
+                                 ctx: &mut DemangleContext<W>,
+                                 stack: Option<ArgStack>)
+                                 -> io::Result<()>
+        where D: ?Sized + Demangle,
+              W: io::Write
     {
+        try!(self.2.demangle(ctx, stack));
+
+        if let Some(inner) = inner {
+            try!(inner.demangle(ctx, stack));
+        }
+
         if self.0 != CvQualifiers::default() {
             try!(self.0.demangle(ctx, stack));
-            try!(write!(ctx, " "));
         }
 
         if let Some(ref refs) = self.1 {
+            try!(ctx.ensure_space());
             try!(refs.demangle(ctx, stack));
-            try!(write!(ctx, " "));
         }
 
-        self.2.demangle(ctx, stack)
+        Ok(())
     }
 }
 
@@ -2289,24 +2314,8 @@ impl DemangleWithInner for BareFunctionType {
             try!(write!(ctx, ")"));
         }
 
-        try!(write!(ctx, "("));
-
-        // For libiberty compatibility, print `()` instead of `(void)`.
-        if self.args().len() == 1 && self.args()[0].is_void(ctx.subs) {
-            try!(write!(ctx, ")"));
-            return Ok(());
-        }
-
-        let mut need_comma = false;
-        for arg in self.args() {
-            if need_comma {
-                try!(write!(ctx, ", "));
-            }
-            try!(arg.demangle(ctx, stack));
-            need_comma = true;
-        }
-        try!(write!(ctx, ")"));
-        Ok(())
+        let args = FunctionArgList(self.args());
+        args.demangle(ctx, stack)
     }
 }
 
