@@ -123,6 +123,12 @@ impl<'a> From<&'a [u8]> for IndexStr<'a> {
     }
 }
 
+impl<'a> Into<&'a [u8]> for IndexStr<'a> {
+    fn into(self) -> &'a [u8] {
+        self.string
+    }
+}
+
 impl<'a, 'b> PartialEq<&'a [u8]> for IndexStr<'b> {
     fn eq(&self, rhs: &&[u8]) -> bool {
         self.string == *rhs

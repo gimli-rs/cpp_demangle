@@ -124,8 +124,54 @@ substitutions = {:#?}",
 
         Ok(symbol)
     }
+}
 
-    // TODO: new_with_tail
+impl<T> Symbol<T> {
+    /// Parse a mangled symbol from input and return it and the trailing tail of
+    /// bytes that come after the symbol.
+    ///
+    /// While `Symbol::new` will return an error if there is unexpected trailing
+    /// bytes, `with_tail` simply returns the trailing bytes along with the
+    /// parsed symbol.
+    ///
+    /// ```
+    /// use cpp_demangle::BorrowedSymbol;
+    ///
+    /// let mangled = b"_ZN5space3fooEibc and some trailing junk";
+    ///
+    /// let (sym, tail) = BorrowedSymbol::with_tail(&mangled[..])
+    ///     .expect("Could not parse mangled symbol!");
+    ///
+    /// assert_eq!(tail, b" and some trailing junk");
+    ///
+    /// let demangled = format!("{}", sym);
+    /// assert_eq!(demangled, "space::foo(int, bool, char)");
+    /// ```
+    pub fn with_tail(input: &[u8]) -> Result<(BorrowedSymbol, &[u8])> {
+        let mut substitutions = subs::SubstitutionTable::new();
+
+        let idx_str = IndexStr::new(input);
+        let (parsed, tail) = try!(ast::MangledName::parse(&mut substitutions, idx_str));
+
+        let symbol = Symbol {
+            raw: input,
+            substitutions: substitutions,
+            parsed: parsed,
+        };
+
+        if cfg!(feature = "logging") {
+            println!("Successfully parsed '{}' as
+
+AST = {:#?}
+
+substitutions = {:#?}",
+                     String::from_utf8_lossy(symbol.raw.as_ref()),
+                     symbol.parsed,
+                     symbol.substitutions);
+        }
+
+        Ok((symbol, tail.into()))
+    }
 }
 
 impl<T> fmt::Display for Symbol<T>
