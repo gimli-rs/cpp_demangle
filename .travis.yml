@@ -53,5 +53,3 @@ matrix:
       env: FUZZ = "true"
     - rust: stable
       env: FUZZ = "true"
-  allow_failures:
-    - env: FUZZ = "true"
