@@ -17,9 +17,6 @@ addons:
   apt:
     packages:
     - libcurl4-openssl-dev
-    - libelf-dev
-    - libdw-dev
-    - binutils-dev
 
 before_script:
 - pip install -v 'travis-cargo<0.2' --user
@@ -40,8 +37,6 @@ script:
 
 after_success:
 - travis-cargo --only stable doc-upload
-- travis-cargo coveralls --no-sudo --verify
-- if [[ "$TRAVIS_RUST_VERSION" == "nightly" ]]; then KCOV=./kcov/build/src/kcov ./coverage; fi
 
 env:
   matrix:
