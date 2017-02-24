@@ -39,7 +39,7 @@ impl AutoLogParse {
 
     #[cfg(not(feature = "logging"))]
     #[inline(always)]
-    fn new<'a>(_: &'static str, _: IndexStr<'a>) -> AutoLogParse {
+    fn new(_: &'static str, _: IndexStr) -> AutoLogParse {
         AutoLogParse
     }
 }
@@ -581,12 +581,10 @@ impl Parse for MangledName {
         // to be trusted...
         let tail = if let Ok(tail) = consume(b"__Z", input) {
             tail
+        } else if let Ok(tail) = consume(b"_Z", input) {
+            tail
         } else {
-            if let Ok(tail) = consume(b"_Z", input) {
-                tail
-            } else {
-                input
-            }
+            input
         };
 
         if let Ok((encoding, tail)) = Encoding::parse(subs, tail) {
@@ -4197,7 +4195,7 @@ impl Demangle for ExprPrimary {
                 _,
                 _) => {
                 try!(write!(ctx, "nullptr"));
-                return Ok(());
+                Ok(())
             }
             ExprPrimary::Literal(ref type_handle, start, end) => {
                 debug_assert!(start <= end);
@@ -4346,7 +4344,7 @@ impl GetTemplateArgs for LocalName {
                              -> Option<&'a TemplateArgs> {
         match *self {
             LocalName::Relative(_, None, _) => None,
-            LocalName::Relative(_, Some(ref name), _) => name.get_template_args(subs),
+            LocalName::Relative(_, Some(ref name), _) |
             LocalName::Default(_, _, ref name) => name.get_template_args(subs),
         }
     }
