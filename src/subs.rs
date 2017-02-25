@@ -27,13 +27,13 @@ pub enum Substitutable {
     Prefix(ast::Prefix),
 }
 
-impl ast::Demangle for Substitutable {
-    fn demangle<W>(&self,
-                   ctx: &mut ast::DemangleContext<W>,
-                   stack: Option<ast::ArgStack>)
-                   -> io::Result<()>
-        where W: io::Write
-    {
+impl<'subs, W> ast::Demangle<'subs, W> for Substitutable
+    where W: 'subs + io::Write
+{
+    fn demangle<'prev, 'ctx>(&'subs self,
+                             ctx: &'ctx mut ast::DemangleContext<'subs, W>,
+                             stack: Option<ast::ArgScopeStack<'prev, 'subs>>)
+                             -> io::Result<()> {
         match *self {
             Substitutable::UnscopedTemplateName(ref name) => name.demangle(ctx, stack),
             Substitutable::Type(ref ty) => ty.demangle(ctx, stack),
@@ -47,7 +47,7 @@ impl ast::Demangle for Substitutable {
 /// The table of substitutable components that we have parsed thus far, and for
 /// which there are potential back-references.
 #[doc(hidden)]
-#[derive(Clone, Hash, PartialEq, Eq)]
+#[derive(Clone, Default, Hash, PartialEq, Eq)]
 pub struct SubstitutionTable(Vec<Substitutable>);
 
 impl fmt::Debug for SubstitutionTable {
@@ -60,7 +60,7 @@ impl fmt::Debug for SubstitutionTable {
 impl SubstitutionTable {
     /// Construct a new `SubstitutionTable`.
     pub fn new() -> SubstitutionTable {
-        SubstitutionTable(Vec::new())
+        Default::default()
     }
 
     /// Insert a freshly-parsed substitutable component into the table and

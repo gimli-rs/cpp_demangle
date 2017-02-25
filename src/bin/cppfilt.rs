@@ -1,3 +1,6 @@
+// For clippy.
+#![allow(unknown_lints)]
+
 extern crate cpp_demangle;
 
 use cpp_demangle::BorrowedSymbol;
@@ -6,6 +9,7 @@ use std::process;
 
 /// Find the index of the first (potential) occurrence of a mangled C++ symbol
 /// in the given `haystack`.
+#[allow(needless_range_loop)]
 fn find_mangled(haystack: &[u8]) -> Option<usize> {
     for i in 0..haystack.len() - 1 {
         if haystack[i] == b'_' {

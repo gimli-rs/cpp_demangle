@@ -30,6 +30,10 @@
 #![deny(missing_debug_implementations)]
 #![deny(unsafe_code)]
 
+// Clippy stuff.
+#![allow(unknown_lints)]
+#![allow(inline_always)]
+
 #[macro_use]
 mod logging;
 

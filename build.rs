@@ -68,7 +68,7 @@ fn test_afl_seed_{}() {{
 // Ratcheting number that is increased as more libiberty tests start
 // passing. Once they are all passing, this can be removed and we can enable all
 // of them by default.
-const LIBIBERTY_TEST_THRESHOLD: usize = 48;
+const LIBIBERTY_TEST_THRESHOLD: usize = 49;
 
 /// Read `tests/libiberty-demangle-expected`, parse its input mangled symbols,
 /// and expected output demangled symbols, and generate test cases for them.
@@ -159,8 +159,8 @@ fn test_libiberty_demangle_{}_() {{
         .expect("should parse mangled symbol");
 
     let expected = r#"{}"#;
-    println!("     Expect demangled symbol: {{}}", expected);
     let actual = format!("{{}}", sym);
+    println!("     Expect demangled symbol: {{}}", expected);
     println!("Actually demangled symbol as: {{}}", actual);
 
     assert_eq!(expected, actual);
