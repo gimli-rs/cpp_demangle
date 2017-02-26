@@ -68,7 +68,7 @@ fn test_afl_seed_{}() {{
 // Ratcheting number that is increased as more libiberty tests start
 // passing. Once they are all passing, this can be removed and we can enable all
 // of them by default.
-const LIBIBERTY_TEST_THRESHOLD: usize = 49;
+const LIBIBERTY_TEST_THRESHOLD: usize = 52;
 
 /// Read `tests/libiberty-demangle-expected`, parse its input mangled symbols,
 /// and expected output demangled symbols, and generate test cases for them.
