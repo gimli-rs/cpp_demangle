@@ -56,6 +56,10 @@ assert_eq!(demangled, "space::foo(int, bool, char)");
 
 [Documentation on docs.rs](https://docs.rs/cpp_demangle)
 
+Example programs:
+
+* [A `c++filt` clone](./src/bin/cppfilt.rs)
+
 ## Implementation Status
 
 Work is ongoing. While `cpp_demangle` can parse every mangled symbol in
