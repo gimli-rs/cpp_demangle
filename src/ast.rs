@@ -389,6 +389,11 @@ pub trait DemangleAsInner<'subs, W>: fmt::Debug
         None
     }
 
+    /// Cast this `DemangleAsInner` to an `ArrayType`.
+    fn downcast_to_array_type(&self) -> Option<&ArrayType> {
+        None
+    }
+
     /// Cast this `DemangleAsInner` to a `PointerToMember`.
     fn downcast_to_pointer_to_member(&self) -> Option<&PointerToMemberType> {
         None
@@ -2857,14 +2862,25 @@ impl<'subs, W> DemangleAsInner<'subs, W> for ArrayType
                                       -> io::Result<()> {
         log_demangle!(self, ctx);
 
+        let mut inner_is_array = false;
         while let Some(inner) = ctx.inner.pop() {
-            try!(ctx.ensure_space());
-            try!(write!(ctx, "("));
+            // Multidimensional arrays do not get parens.
+            inner_is_array = inner.downcast_to_array_type().is_some();
+            if !inner_is_array {
+                try!(ctx.ensure_space());
+                try!(write!(ctx, "("));
+            }
+
             try!(inner.demangle_as_inner(ctx, stack));
-            try!(write!(ctx, ")"));
+
+            if !inner_is_array {
+                try!(write!(ctx, ")"));
+            }
         }
 
-        try!(ctx.ensure_space());
+        if !inner_is_array {
+            try!(ctx.ensure_space());
+        }
 
         match *self {
             ArrayType::DimensionNumber(n, _) => {
@@ -2881,6 +2897,10 @@ impl<'subs, W> DemangleAsInner<'subs, W> for ArrayType
         }
 
         Ok(())
+    }
+
+    fn downcast_to_array_type(&self) -> Option<&ArrayType> {
+        Some(self)
     }
 }
 
