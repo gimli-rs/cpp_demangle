@@ -3,9 +3,14 @@
 
 extern crate cpp_demangle;
 
+// For command line integration
+#[macro_use]
+extern crate clap;
+
 use cpp_demangle::BorrowedSymbol;
 use std::io::{self, BufRead, Write};
 use std::process;
+use clap::App;
 
 /// Find the index of the first (potential) occurrence of a mangled C++ symbol
 /// in the given `haystack`.
@@ -62,6 +67,13 @@ fn demangle_all<R, W>(input: &mut R, out: &mut W) -> io::Result<()>
 }
 
 fn main() {
+    let _ = App::new("cppfilt")
+        .version(crate_version!())
+        .author(crate_authors!())
+        .about("A c++filt clone as an example of how to use the cpp_demangle crate!")
+        .get_matches();
+
+    
     let stdin = io::stdin();
     let mut stdin = stdin.lock();
 
