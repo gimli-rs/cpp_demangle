@@ -16,6 +16,7 @@ travis-ci = { repository = "fitzgen/cpp_demangle" }
 
 [dependencies]
 fixedbitset = "0.1.5"
+clap = "2.20.5"
 
 [dependencies.afl]
 optional = true
