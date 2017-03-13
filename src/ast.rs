@@ -7,8 +7,11 @@ use index_str::IndexStr;
 use self::fixedbitset::FixedBitSet;
 #[cfg(feature = "logging")]
 use std::cell::RefCell;
+use std::collections::HashMap;
+use std::collections::hash_map::Entry;
 use std::error::Error;
 use std::fmt;
+use std::hash::{Hash, Hasher};
 use std::io::{self, Write};
 use std::mem;
 use std::ops;
@@ -69,7 +72,10 @@ struct AutoLogDemangle;
 
 impl AutoLogDemangle {
     #[cfg(feature = "logging")]
-    fn new<P, W>(production: &P, ctx: &DemangleContext<W>) -> AutoLogDemangle
+    fn new<P, W>(production: &P,
+                 ctx: &DemangleContext<W>,
+                 stack: Option<ArgScopeStack>)
+                 -> AutoLogDemangle
         where P: ?Sized + fmt::Debug,
               W: io::Write
     {
@@ -82,6 +88,7 @@ impl AutoLogDemangle {
             log!("{}(", indent);
             log!("{}  {:?}", indent, production);
             log!("{}  inner = {:?}", indent, ctx.inner);
+            log!("{}  stack = {:?}", indent, stack);
 
             *depth.borrow_mut() += 1;
         });
@@ -90,7 +97,10 @@ impl AutoLogDemangle {
 
     #[cfg(not(feature = "logging"))]
     #[inline(always)]
-    fn new<P, W>(_: &P, _: &DemangleContext<W>) -> AutoLogDemangle
+    fn new<P, W>(_: &P,
+                 _: &DemangleContext<W>,
+                 _: Option<ArgScopeStack>)
+                 -> AutoLogDemangle
         where P: ?Sized + fmt::Debug,
               W: io::Write
     {
@@ -112,8 +122,8 @@ impl Drop for AutoLogDemangle {
 /// Automatically log start and end demangling in an s-expression format, when
 /// the `logging` feature is enabled.
 macro_rules! log_demangle {
-    ( $production:expr , $ctx:expr ) => {
-        let _log = AutoLogDemangle::new($production, $ctx);
+    ( $production:expr , $ctx:expr , $stack:expr ) => {
+        let _log = AutoLogDemangle::new($production, $ctx, $stack);
     }
 }
 
@@ -170,10 +180,10 @@ trait GetTemplateArgs {
 /// This trait is implemented by anything that can potentially resolve arguments
 /// for us.
 trait ArgScope<'me, 'ctx>: fmt::Debug {
-    /// Get the current context's `idx`th template argument.
+    /// Get the current scope's `idx`th template argument.
     fn get_template_arg(&'me self, idx: usize) -> Result<&'ctx TemplateArg>;
 
-    /// Get the current context's `idx`th function argument's type.
+    /// Get the current scope's `idx`th function argument's type.
     fn get_function_arg(&'me self, idx: usize) -> Result<&'ctx Type>;
 }
 
@@ -186,8 +196,8 @@ trait ArgScope<'me, 'ctx>: fmt::Debug {
 pub struct ArgScopeStack<'prev, 'subs>
     where 'subs: 'prev
 {
-    prev: Option<&'prev ArgScopeStack<'prev, 'subs>>,
     item: &'subs ArgScope<'subs, 'subs>,
+    prev: Option<&'prev ArgScopeStack<'prev, 'subs>>,
 }
 
 /// When we first begin demangling, we haven't entered any function or template
@@ -290,6 +300,13 @@ pub struct DemangleContext<'a, W>
     // always backwards mean that there can't be cycles? Alternatively, is that
     // check too strict, and should it be relaxed?
     mark_bits: FixedBitSet,
+
+    // Remember which TemplateArg we mapped a TemplateParam to. We only have the
+    // proper argument scope the first time we visit a TemplateArg, and any
+    // substitution back references could be within a completely different
+    // scope. If we try to (re-)resolve a TemplateParam's concrete TemplateArg
+    // outside the scope it was defined in, we'll get garbage results.
+    template_params_to_args: HashMap<&'a TemplateParam, &'a TemplateArg>,
 }
 
 impl<'a, W> io::Write for DemangleContext<'a, W>
@@ -330,6 +347,7 @@ impl<'a, W> DemangleContext<'a, W>
             bytes_written: 0,
             last_byte_written: None,
             mark_bits: FixedBitSet::with_capacity(subs.len()),
+            template_params_to_args: HashMap::new(),
         }
     }
 
@@ -463,10 +481,10 @@ impl<'subs, W> Demangle<'subs, W> for FunctionArgSlice
     where W: 'subs + io::Write
 {
     fn demangle<'prev, 'ctx>(&'subs self,
-                       ctx: &'ctx mut DemangleContext<'subs, W>,
-                       stack: Option<ArgScopeStack<'prev, 'subs>>)
-                       -> io::Result<()> {
-        log_demangle!(self, ctx);
+                             ctx: &'ctx mut DemangleContext<'subs, W>,
+                             stack: Option<ArgScopeStack<'prev, 'subs>>)
+                             -> io::Result<()> {
+        log_demangle!(self, ctx, stack);
 
         let mut saw_needs_paren = false;
         let (needs_space, needs_paren) = ctx.inner
@@ -601,7 +619,7 @@ macro_rules! define_handle {
         }
     ) => {
         $(#[$attr])*
-        #[derive(Clone, Debug, Hash, PartialEq, Eq)]
+        #[derive(Clone, Debug, PartialEq, Eq)]
         pub enum $typename {
             /// A reference to a "well-known" component.
             WellKnown(WellKnownComponent),
@@ -711,11 +729,11 @@ macro_rules! define_vocabulary {
             // might not live long enough.
             fn demangle<'me, 'prev, 'ctx, 'subs, W>(&'me self,
                                                     ctx: &'ctx mut DemangleContext<'subs, W>,
-                                                    _: Option<ArgScopeStack<'prev, 'subs>>)
+                                                    stack: Option<ArgScopeStack<'prev, 'subs>>)
                                                     -> io::Result<()>
                 where W: 'subs + io::Write
             {
-                log_demangle!(self, ctx);
+                log_demangle!(self, ctx, stack);
 
                 write!(ctx, "{}", match *self {
                     $(
@@ -745,7 +763,7 @@ macro_rules! define_vocabulary {
 /// ```text
 /// <mangled-name> ::= _Z <encoding>
 /// ```
-#[derive(Clone, Debug, Hash, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum MangledName {
     /// The encoding of the mangled symbol name.
     Encoding(Encoding),
@@ -774,7 +792,7 @@ impl Parse for MangledName {
         };
 
         if let Ok((encoding, tail)) = Encoding::parse(subs, tail) {
-            return Ok((MangledName::Encoding(encoding), tail))
+            return Ok((MangledName::Encoding(encoding), tail));
         };
 
         // The libiberty tests also specify that a type can be top level.
@@ -787,14 +805,13 @@ impl<'subs, W> Demangle<'subs, W> for MangledName
     where W: 'subs + io::Write
 {
     fn demangle<'prev, 'ctx>(&'subs self,
-                ctx: &'ctx mut DemangleContext<'subs, W>,
-                stack: Option<ArgScopeStack<'prev, 'subs>>)
-                -> io::Result<()>
-    {
-        log_demangle!(self, ctx);
+                             ctx: &'ctx mut DemangleContext<'subs, W>,
+                             stack: Option<ArgScopeStack<'prev, 'subs>>)
+                             -> io::Result<()> {
+        log_demangle!(self, ctx, stack);
 
         match *self {
-            MangledName::Encoding(ref enc)=> enc.demangle(ctx, stack),
+            MangledName::Encoding(ref enc) => enc.demangle(ctx, stack),
             MangledName::Type(ref ty) => ty.demangle(ctx, stack),
         }
     }
@@ -807,7 +824,7 @@ impl<'subs, W> Demangle<'subs, W> for MangledName
 ///            ::= <data name>
 ///            ::= <special-name>
 /// ```
-#[derive(Clone, Debug, Hash, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Encoding {
     /// An encoded function.
     Function(Name, BareFunctionType),
@@ -842,11 +859,10 @@ impl<'subs, W> Demangle<'subs, W> for Encoding
     where W: 'subs + io::Write
 {
     fn demangle<'prev, 'ctx>(&'subs self,
-                            ctx: &'ctx mut DemangleContext<'subs, W>,
-                            stack: Option<ArgScopeStack<'prev, 'subs>>)
-                            -> io::Result<()>
-    {
-        log_demangle!(self, ctx);
+                             ctx: &'ctx mut DemangleContext<'subs, W>,
+                             stack: Option<ArgScopeStack<'prev, 'subs>>)
+                             -> io::Result<()> {
+        log_demangle!(self, ctx, stack);
 
         match *self {
             Encoding::Function(ref name, ref fun_ty) => {
@@ -931,7 +947,7 @@ impl<'subs, W> DemangleAsInner<'subs, W> for Encoding
 ///        ::= <local-name>
 ///        ::= St <unqualified-name> # ::std::
 /// ```
-#[derive(Clone, Debug, Hash, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Name {
     /// A nested name
     Nested(NestedName),
@@ -991,11 +1007,10 @@ impl<'subs, W> Demangle<'subs, W> for Name
     where W: 'subs + io::Write
 {
     fn demangle<'prev, 'ctx>(&'subs self,
-                ctx: &'ctx mut DemangleContext<'subs, W>,
-                stack: Option<ArgScopeStack<'prev, 'subs>>)
-                -> io::Result<()>
-    {
-        log_demangle!(self, ctx);
+                             ctx: &'ctx mut DemangleContext<'subs, W>,
+                             stack: Option<ArgScopeStack<'prev, 'subs>>)
+                             -> io::Result<()> {
+        log_demangle!(self, ctx, stack);
 
         match *self {
             Name::Nested(ref nested) => nested.demangle(ctx, stack),
@@ -1033,7 +1048,7 @@ impl GetTemplateArgs for Name {
 /// <unscoped-name> ::= <unqualified-name>
 ///                 ::= St <unqualified-name>   # ::std::
 /// ```
-#[derive(Clone, Debug, Hash, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum UnscopedName {
     /// An unqualified name.
     Unqualified(UnqualifiedName),
@@ -1062,11 +1077,10 @@ impl<'subs, W> Demangle<'subs, W> for UnscopedName
     where W: 'subs + io::Write
 {
     fn demangle<'prev, 'ctx>(&'subs self,
-                ctx: &'ctx mut DemangleContext<'subs, W>,
-                stack: Option<ArgScopeStack<'prev, 'subs>>)
-                -> io::Result<()>
-    {
-        log_demangle!(self, ctx);
+                             ctx: &'ctx mut DemangleContext<'subs, W>,
+                             stack: Option<ArgScopeStack<'prev, 'subs>>)
+                             -> io::Result<()> {
+        log_demangle!(self, ctx, stack);
 
         match *self {
             UnscopedName::Unqualified(ref unqualified) => {
@@ -1086,7 +1100,7 @@ impl<'subs, W> Demangle<'subs, W> for UnscopedName
 /// <unscoped-template-name> ::= <unscoped-name>
 ///                          ::= <substitution>
 /// ```
-#[derive(Clone, Debug, Hash, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct UnscopedTemplateName(UnscopedName);
 
 define_handle! {
@@ -1126,11 +1140,10 @@ impl<'subs, W> Demangle<'subs, W> for UnscopedTemplateName
     where W: 'subs + io::Write
 {
     fn demangle<'prev, 'ctx>(&'subs self,
-                ctx: &'ctx mut DemangleContext<'subs, W>,
-                stack: Option<ArgScopeStack<'prev, 'subs>>)
-                -> io::Result<()>
-    {
-        log_demangle!(self, ctx);
+                             ctx: &'ctx mut DemangleContext<'subs, W>,
+                             stack: Option<ArgScopeStack<'prev, 'subs>>)
+                             -> io::Result<()> {
+        log_demangle!(self, ctx, stack);
 
         self.0.demangle(ctx, stack)
     }
@@ -1142,7 +1155,7 @@ impl<'subs, W> Demangle<'subs, W> for UnscopedTemplateName
 /// <nested-name> ::= N [<CV-qualifiers>] [<ref-qualifier>] <prefix> <unqualified-name> E
 ///               ::= N [<CV-qualifiers>] [<ref-qualifier>] <template-prefix> <template-args> E
 /// ```
-#[derive(Clone, Debug, Hash, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct NestedName(CvQualifiers, Option<RefQualifier>, PrefixHandle);
 
 impl Parse for NestedName {
@@ -1187,10 +1200,10 @@ impl<'subs, W> Demangle<'subs, W> for NestedName
     where W: 'subs + io::Write
 {
     fn demangle<'prev, 'ctx>(&'subs self,
-                ctx: &'ctx mut DemangleContext<'subs, W>,
-                stack: Option<ArgScopeStack<'prev, 'subs>>)
-                -> io::Result<()> {
-        log_demangle!(self, ctx);
+                             ctx: &'ctx mut DemangleContext<'subs, W>,
+                             stack: Option<ArgScopeStack<'prev, 'subs>>)
+                             -> io::Result<()> {
+        log_demangle!(self, ctx, stack);
 
         try!(self.2.demangle(ctx, stack));
 
@@ -1235,7 +1248,7 @@ impl GetTemplateArgs for NestedName {
 ///                   ::= <template-param>
 ///                   ::= <substitution>
 /// ```
-#[derive(Clone, Debug, Hash, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Prefix {
     /// An unqualified name.
     Unqualified(UnqualifiedName),
@@ -1432,8 +1445,8 @@ impl PrefixHandle {
     // XXX: Not an impl GetTemplateArgs for PrefixHandle because the 'me
     // reference to self may not live long enough.
     fn get_template_args<'me, 'ctx>(&'me self,
-                                     subs: &'ctx SubstitutionTable)
-                                     -> Option<&'ctx TemplateArgs> {
+                                    subs: &'ctx SubstitutionTable)
+                                    -> Option<&'ctx TemplateArgs> {
         match *self {
             PrefixHandle::BackReference(idx) => {
                 if let Some(&Substitutable::Prefix(ref p)) = subs.get(idx) {
@@ -1451,11 +1464,10 @@ impl<'subs, W> Demangle<'subs, W> for Prefix
     where W: 'subs + io::Write
 {
     fn demangle<'prev, 'ctx>(&'subs self,
-                ctx: &'ctx mut DemangleContext<'subs, W>,
-                stack: Option<ArgScopeStack<'prev, 'subs>>)
-                -> io::Result<()>
-    {
-        log_demangle!(self, ctx);
+                             ctx: &'ctx mut DemangleContext<'subs, W>,
+                             stack: Option<ArgScopeStack<'prev, 'subs>>)
+                             -> io::Result<()> {
+        log_demangle!(self, ctx, stack);
 
         match *self {
             Prefix::Unqualified(ref unqualified) => unqualified.demangle(ctx, stack),
@@ -1487,7 +1499,7 @@ impl<'subs, W> Demangle<'subs, W> for Prefix
 ///                    ::= <source-name>
 ///                    ::= <unnamed-type-name>
 /// ```
-#[derive(Clone, Debug, Hash, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum UnqualifiedName {
     /// An operator name.
     Operator(OperatorName),
@@ -1534,11 +1546,10 @@ impl<'subs, W> Demangle<'subs, W> for UnqualifiedName
     where W: 'subs + io::Write
 {
     fn demangle<'prev, 'ctx>(&'subs self,
-                ctx: &'ctx mut DemangleContext<'subs, W>,
-                stack: Option<ArgScopeStack<'prev, 'subs>>)
-                -> io::Result<()>
-    {
-        log_demangle!(self, ctx);
+                             ctx: &'ctx mut DemangleContext<'subs, W>,
+                             stack: Option<ArgScopeStack<'prev, 'subs>>)
+                             -> io::Result<()> {
+        log_demangle!(self, ctx, stack);
 
         match *self {
             UnqualifiedName::Operator(ref op_name) => {
@@ -1557,7 +1568,7 @@ impl<'subs, W> Demangle<'subs, W> for UnqualifiedName
 /// ```text
 /// <source-name> ::= <positive length number> <identifier>
 /// ```
-#[derive(Clone, Debug, Hash, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SourceName(Identifier);
 
 impl Parse for SourceName {
@@ -1604,7 +1615,7 @@ impl SourceName {
                                             -> io::Result<()>
         where W: 'subs + io::Write
     {
-        log_demangle!(self, ctx);
+        log_demangle!(self, ctx, stack);
 
         self.0.demangle(ctx, stack)
     }
@@ -1620,7 +1631,7 @@ impl SourceName {
 /// > unqualified identifier for the entity in the source code. This ABI does not
 /// > yet specify a mangling for identifiers containing characters outside of
 /// > `_A-Za-z0-9`.
-#[derive(Clone, Debug, Hash, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Identifier {
     start: usize,
     end: usize,
@@ -1663,11 +1674,11 @@ impl Identifier {
     #[inline]
     fn demangle<'me, 'prev, 'ctx, 'subs, W>(&'me self,
                                             ctx: &'ctx mut DemangleContext<'subs, W>,
-                                            _: Option<ArgScopeStack<'prev, 'subs>>)
+                                            stack: Option<ArgScopeStack<'prev, 'subs>>)
                                             -> io::Result<()>
         where W: 'subs + io::Write
     {
-        log_demangle!(self, ctx);
+        log_demangle!(self, ctx, stack);
 
         let ident = &ctx.input[self.start..self.end];
         try!(write!(ctx, "{}", String::from_utf8_lossy(ident)));
@@ -1697,7 +1708,7 @@ impl Parse for Number {
 /// ```text
 /// <seq-id> ::= <0-9A-Z>+
 /// ```
-#[derive(Clone, Debug, Hash, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SeqId(usize);
 
 impl Parse for SeqId {
@@ -1710,15 +1721,102 @@ impl Parse for SeqId {
     }
 }
 
-// TODO: support the rest of <operator-name>:
-//
-// ::= cv <type>               # (cast)
-// ::= li <source-name>        # operator ""
-// ::= v <digit> <source-name> # vendor extended operator
+/// The `<operator-name>` production.
+///
+/// ```text
+/// <operator-name> ::= <simple-operator-name>
+///                 ::= cv <type>               # (cast)
+///                 ::= li <source-name>        # operator ""
+///                 ::= v <digit> <source-name> # vendor extended operator
+/// ```
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum OperatorName {
+    /// A simple operator name.
+    Simple(SimpleOperatorName),
+
+    /// A type cast.
+    Cast(TypeHandle),
+
+    /// Operator literal, ie `operator ""`.
+    Literal(SourceName),
+
+    /// A non-standard, vendor extension operator.
+    VendorExtension(u8, SourceName),
+}
+
+impl StartsWith for OperatorName {
+    fn starts_with(byte: u8) -> bool {
+        byte == b'c' || byte == b'l' || byte == b'v' ||
+        SimpleOperatorName::starts_with(byte)
+    }
+}
+
+impl Parse for OperatorName {
+    fn parse<'a, 'b>(subs: &'a mut SubstitutionTable,
+                     input: IndexStr<'b>)
+                     -> Result<(OperatorName, IndexStr<'b>)> {
+        log_parse!("OperatorName", input);
+
+        if let Ok((simple, tail)) = SimpleOperatorName::parse(subs, input) {
+            return Ok((OperatorName::Simple(simple), tail));
+        }
+
+        if let Ok(tail) = consume(b"cv", input) {
+            let (ty, tail) = try!(TypeHandle::parse(subs, tail));
+            return Ok((OperatorName::Cast(ty), tail));
+        }
+
+        if let Ok(tail) = consume(b"li", input) {
+            let (name, tail) = try!(SourceName::parse(subs, tail));
+            return Ok((OperatorName::Literal(name), tail));
+        }
+
+        let tail = try!(consume(b"v", input));
+        let (arity, tail) = match tail.peek() {
+            Some(c) if b'0' <= c && c <= b'9' => (c - b'0', tail.range_from(1..)),
+            None => return Err(error::Error::UnexpectedEnd),
+            _ => return Err(error::Error::UnexpectedText),
+        };
+        let (name, tail) = try!(SourceName::parse(subs, tail));
+        Ok((OperatorName::VendorExtension(arity, name), tail))
+    }
+}
+
+impl<'subs, W> Demangle<'subs, W> for OperatorName
+    where W: 'subs + io::Write
+{
+    fn demangle<'prev, 'ctx>(&'subs self,
+                             ctx: &'ctx mut DemangleContext<'subs, W>,
+                             stack: Option<ArgScopeStack<'prev, 'subs>>)
+                             -> io::Result<()> {
+        log_demangle!(self, ctx, stack);
+
+        match *self {
+            OperatorName::Simple(ref simple) => simple.demangle(ctx, stack),
+            OperatorName::Cast(ref ty) => {
+                try!(ctx.ensure_space());
+                try!(ty.demangle(ctx, stack));
+                Ok(())
+            }
+            OperatorName::Literal(ref name) => {
+                try!(name.demangle(ctx, stack));
+                try!(write!(ctx, "::operator \"\""));
+                Ok(())
+            }
+            OperatorName::VendorExtension(arity, ref name) => {
+                // TODO: no idea how this should be demangled...
+                try!(name.demangle(ctx, stack));
+                try!(write!(ctx, "::operator {}", arity));
+                Ok(())
+            }
+        }
+    }
+}
+
 define_vocabulary! {
-    /// The `<operator-name>` production.
-    #[derive(Clone, Debug, Hash, PartialEq, Eq)]
-    pub enum OperatorName {
+    /// The `<simple-operator-name>` production.
+    #[derive(Clone, Debug, PartialEq, Eq)]
+    pub enum SimpleOperatorName {
         New              (b"nw",  "new"),
         NewArray         (b"na",  "new[]"),
         Delete           (b"dl",  "delete"),
@@ -1775,7 +1873,7 @@ define_vocabulary! {
 /// <call-offset> ::= h <nv-offset> _
 ///               ::= v <v-offset> _
 /// ```
-#[derive(Clone, Debug, Hash, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum CallOffset {
     /// A non-virtual offset.
     NonVirtual(NvOffset),
@@ -1813,11 +1911,10 @@ impl<'subs, W> Demangle<'subs, W> for CallOffset
     where W: 'subs + io::Write
 {
     fn demangle<'prev, 'ctx>(&'subs self,
-                ctx: &'ctx mut DemangleContext<'subs, W>,
-                _: Option<ArgScopeStack<'prev, 'subs>>)
-                -> io::Result<()>
-    {
-        log_demangle!(self, ctx);
+                             ctx: &'ctx mut DemangleContext<'subs, W>,
+                             stack: Option<ArgScopeStack<'prev, 'subs>>)
+                             -> io::Result<()> {
+        log_demangle!(self, ctx, stack);
 
         match *self {
             CallOffset::NonVirtual(NvOffset(offset)) => {
@@ -1836,7 +1933,7 @@ impl<'subs, W> Demangle<'subs, W> for CallOffset
 /// ```text
 /// <nv-offset> ::= <offset number>
 /// ```
-#[derive(Clone, Debug, Hash, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct NvOffset(isize);
 
 impl Parse for NvOffset {
@@ -1854,7 +1951,7 @@ impl Parse for NvOffset {
 /// ```text
 /// <v-offset> ::= <offset number> _ <virtual offset number>
 /// ```
-#[derive(Clone, Debug, Hash, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct VOffset(isize, isize);
 
 impl Parse for VOffset {
@@ -1881,7 +1978,7 @@ define_vocabulary! {
     ///                  ::= D1  # complete object destructor
     ///                  ::= D2  # base object destructor
     /// ```
-    #[derive(Clone, Debug, Hash, PartialEq, Eq)]
+    #[derive(Clone, Debug, PartialEq, Eq)]
     pub enum CtorDtorName {
         CompleteConstructor             (b"C1", "complete object constructor"),
         BaseConstructor                 (b"C2", "base object constructor"),
@@ -1913,7 +2010,7 @@ define_vocabulary! {
 ///        ::= Dp <type>                                # pack expansion (C++0x)
 ///        ::= <substitution>
 /// ```
-#[derive(Clone, Debug, Hash, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Type {
     /// A function type.
     Function(FunctionType),
@@ -2129,10 +2226,10 @@ impl<'subs, W> Demangle<'subs, W> for Type
     where W: 'subs + io::Write
 {
     fn demangle<'prev, 'ctx>(&'subs self,
-                ctx: &'ctx mut DemangleContext<'subs, W>,
-                stack: Option<ArgScopeStack<'prev, 'subs>>)
-                -> io::Result<()> {
-        log_demangle!(self, ctx);
+                             ctx: &'ctx mut DemangleContext<'subs, W>,
+                             stack: Option<ArgScopeStack<'prev, 'subs>>)
+                             -> io::Result<()> {
+        log_demangle!(self, ctx, stack);
 
         match *self {
             Type::Function(ref func_ty) => func_ty.demangle(ctx, stack),
@@ -2198,7 +2295,7 @@ impl<'subs, W> DemangleAsInner<'subs, W> for Type
                                       ctx: &'ctx mut DemangleContext<'subs, W>,
                                       stack: Option<ArgScopeStack<'prev, 'subs>>)
                                       -> io::Result<()> {
-        log_demangle!(self, ctx);
+        log_demangle!(self, ctx, stack);
 
         match *self {
             Type::PointerTo(_) => {
@@ -2278,11 +2375,10 @@ impl<'subs, W> Demangle<'subs, W> for CvQualifiers
     where W: 'subs + io::Write
 {
     fn demangle<'prev, 'ctx>(&'subs self,
-                ctx: &'ctx mut DemangleContext<'subs, W>,
-                _: Option<ArgScopeStack<'prev, 'subs>>)
-                -> io::Result<()>
-    {
-        log_demangle!(self, ctx);
+                             ctx: &'ctx mut DemangleContext<'subs, W>,
+                             stack: Option<ArgScopeStack<'prev, 'subs>>)
+                             -> io::Result<()> {
+        log_demangle!(self, ctx, stack);
 
         if self.const_ {
             try!(ctx.ensure_space());
@@ -2321,7 +2417,7 @@ define_vocabulary! {
     /// <ref-qualifier> ::= R   # & ref-qualifier
     ///                 ::= O   # && ref-qualifier
     /// ```
-    #[derive(Clone, Debug, Hash, PartialEq, Eq)]
+    #[derive(Clone, Debug, PartialEq, Eq)]
     pub enum RefQualifier {
         LValueRef(b"R", "&"),
         RValueRef(b"O", "&&")
@@ -2363,7 +2459,7 @@ define_vocabulary! {
     ///                ::= Dc # decltype(auto)
     ///                ::= Dn # std::nullptr_t (i.e., decltype(nullptr))
     /// ```
-    #[derive(Clone, Debug, Hash, PartialEq, Eq)]
+    #[derive(Clone, Debug, PartialEq, Eq)]
     pub enum StandardBuiltinType {
         Void             (b"v",  "void"),
         Wchar            (b"w",  "wchar_t"),
@@ -2399,7 +2495,7 @@ define_vocabulary! {
 }
 
 /// The `<builtin-type>` production.
-#[derive(Clone, Debug, Hash, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum BuiltinType {
     /// A standards compliant builtin type.
     Standard(StandardBuiltinType),
@@ -2437,7 +2533,7 @@ impl BuiltinType {
                                             -> io::Result<()>
         where W: 'subs + io::Write
     {
-        log_demangle!(self, ctx);
+        log_demangle!(self, ctx, stack);
 
         match *self {
             BuiltinType::Standard(ref ty) => ty.demangle(ctx, stack),
@@ -2451,7 +2547,7 @@ impl BuiltinType {
 /// ```text
 /// <function-type> ::= [<CV-qualifiers>] [Dx] F [Y] <bare-function-type> [<ref-qualifier>] E
 /// ```
-#[derive(Clone, Debug, Hash, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct FunctionType {
     cv_qualifiers: CvQualifiers,
     transaction_safe: bool,
@@ -2513,10 +2609,10 @@ impl<'subs, W> Demangle<'subs, W> for FunctionType
     where W: 'subs + io::Write
 {
     fn demangle<'prev, 'ctx>(&'subs self,
-                ctx: &'ctx mut DemangleContext<'subs, W>,
-                stack: Option<ArgScopeStack<'prev, 'subs>>)
-                -> io::Result<()> {
-        log_demangle!(self, ctx);
+                             ctx: &'ctx mut DemangleContext<'subs, W>,
+                             stack: Option<ArgScopeStack<'prev, 'subs>>)
+                             -> io::Result<()> {
+        log_demangle!(self, ctx, stack);
 
         // TODO: transactions safety?
         // TODO: extern C?
@@ -2533,7 +2629,7 @@ impl<'subs, W> Demangle<'subs, W> for FunctionType
 /// <bare-function-type> ::= <signature type>+
 ///      # types are possible return type, then parameter types
 /// ```
-#[derive(Clone, Debug, Hash, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct BareFunctionType(Vec<TypeHandle>);
 
 impl BareFunctionType {
@@ -2563,9 +2659,8 @@ impl<'subs, W> Demangle<'subs, W> for BareFunctionType
     fn demangle<'prev, 'ctx>(&'subs self,
                              ctx: &'ctx mut DemangleContext<'subs, W>,
                              stack: Option<ArgScopeStack<'prev, 'subs>>)
-                             -> io::Result<()>
-    {
-        log_demangle!(self, ctx);
+                             -> io::Result<()> {
+        log_demangle!(self, ctx, stack);
 
         ctx.inner.push(self);
 
@@ -2586,9 +2681,8 @@ impl<'subs, W> DemangleAsInner<'subs, W> for BareFunctionType
     fn demangle_as_inner<'prev, 'ctx>(&'subs self,
                                       ctx: &'ctx mut DemangleContext<'subs, W>,
                                       stack: Option<ArgScopeStack<'prev, 'subs>>)
-                                      -> io::Result<()>
-    {
-        log_demangle!(self, ctx);
+                                      -> io::Result<()> {
+        log_demangle!(self, ctx, stack);
         try!(self.args().demangle_as_inner(ctx, stack));
         Ok(())
     }
@@ -2600,7 +2694,7 @@ impl<'subs, W> DemangleAsInner<'subs, W> for BareFunctionType
 /// <decltype> ::= Dt <expression> E
 ///            ::= DT <expression> E
 /// ```
-#[derive(Clone, Debug, Hash, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Decltype {
     /// A `decltype` of an id-expression or class member access (C++0x).
     IdExpression(Expression),
@@ -2634,11 +2728,10 @@ impl<'subs, W> Demangle<'subs, W> for Decltype
     where W: 'subs + io::Write
 {
     fn demangle<'prev, 'ctx>(&'subs self,
-                ctx: &'ctx mut DemangleContext<'subs, W>,
-                stack: Option<ArgScopeStack<'prev, 'subs>>)
-                -> io::Result<()>
-    {
-        log_demangle!(self, ctx);
+                             ctx: &'ctx mut DemangleContext<'subs, W>,
+                             stack: Option<ArgScopeStack<'prev, 'subs>>)
+                             -> io::Result<()> {
+        log_demangle!(self, ctx, stack);
 
         match *self {
             Decltype::Expression(ref expr) |
@@ -2660,7 +2753,7 @@ impl<'subs, W> Demangle<'subs, W> for Decltype
 ///                   ::= Tu <name>
 ///                   ::= Te <name>
 /// ```
-#[derive(Clone, Debug, Hash, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ClassEnumType {
     /// A non-dependent type name, dependent type name, or dependent
     /// typename-specifier.
@@ -2708,11 +2801,10 @@ impl<'subs, W> Demangle<'subs, W> for ClassEnumType
     where W: 'subs + io::Write
 {
     fn demangle<'prev, 'ctx>(&'subs self,
-                ctx: &'ctx mut DemangleContext<'subs, W>,
-                stack: Option<ArgScopeStack<'prev, 'subs>>)
-                -> io::Result<()>
-    {
-        log_demangle!(self, ctx);
+                             ctx: &'ctx mut DemangleContext<'subs, W>,
+                             stack: Option<ArgScopeStack<'prev, 'subs>>)
+                             -> io::Result<()> {
+        log_demangle!(self, ctx, stack);
 
         match *self {
             ClassEnumType::Named(ref name) => name.demangle(ctx, stack),
@@ -2740,7 +2832,7 @@ impl<'subs, W> Demangle<'subs, W> for ClassEnumType
 /// ```
 ///
 /// TODO: parse the <closure-type-name> variant
-#[derive(Clone, Debug, Hash, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct UnnamedTypeName(Option<usize>);
 
 impl Parse for UnnamedTypeName {
@@ -2770,11 +2862,10 @@ impl<'subs, W> Demangle<'subs, W> for UnnamedTypeName
     where W: 'subs + io::Write
 {
     fn demangle<'prev, 'ctx>(&'subs self,
-                ctx: &'ctx mut DemangleContext<'subs, W>,
-                _: Option<ArgScopeStack<'prev, 'subs>>)
-                -> io::Result<()>
-    {
-        log_demangle!(self, ctx);
+                             ctx: &'ctx mut DemangleContext<'subs, W>,
+                             stack: Option<ArgScopeStack<'prev, 'subs>>)
+                             -> io::Result<()> {
+        log_demangle!(self, ctx, stack);
 
         try!(write!(ctx, "{{unnamed type {}}}", self.0.map_or(0, |n| n + 1)));
         Ok(())
@@ -2787,7 +2878,7 @@ impl<'subs, W> Demangle<'subs, W> for UnnamedTypeName
 /// <array-type> ::= A <positive dimension number> _ <element type>
 ///              ::= A [<dimension expression>] _ <element type>
 /// ```
-#[derive(Clone, Debug, Hash, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ArrayType {
     /// An array with a number-literal dimension.
     DimensionNumber(usize, TypeHandle),
@@ -2833,7 +2924,7 @@ impl<'subs, W> Demangle<'subs, W> for ArrayType
                              ctx: &'ctx mut DemangleContext<'subs, W>,
                              stack: Option<ArgScopeStack<'prev, 'subs>>)
                              -> io::Result<()> {
-        log_demangle!(self, ctx);
+        log_demangle!(self, ctx, stack);
 
         ctx.inner.push(self);
 
@@ -2860,7 +2951,7 @@ impl<'subs, W> DemangleAsInner<'subs, W> for ArrayType
                                       ctx: &'ctx mut DemangleContext<'subs, W>,
                                       stack: Option<ArgScopeStack<'prev, 'subs>>)
                                       -> io::Result<()> {
-        log_demangle!(self, ctx);
+        log_demangle!(self, ctx, stack);
 
         let mut inner_is_array = false;
         while let Some(inner) = ctx.inner.pop() {
@@ -2909,7 +3000,7 @@ impl<'subs, W> DemangleAsInner<'subs, W> for ArrayType
 /// ```text
 /// <pointer-to-member-type> ::= M <class type> <member type>
 /// ```
-#[derive(Clone, Debug, Hash, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct PointerToMemberType(TypeHandle, TypeHandle);
 
 impl Parse for PointerToMemberType {
@@ -2929,10 +3020,10 @@ impl<'subs, W> Demangle<'subs, W> for PointerToMemberType
     where W: 'subs + io::Write
 {
     fn demangle<'prev, 'ctx>(&'subs self,
-                ctx: &'ctx mut DemangleContext<'subs, W>,
-                stack: Option<ArgScopeStack<'prev, 'subs>>)
-                -> io::Result<()> {
-        log_demangle!(self, ctx);
+                             ctx: &'ctx mut DemangleContext<'subs, W>,
+                             stack: Option<ArgScopeStack<'prev, 'subs>>)
+                             -> io::Result<()> {
+        log_demangle!(self, ctx, stack);
 
         ctx.inner.push(self);
         try!(self.1.demangle(ctx, stack));
@@ -2947,10 +3038,10 @@ impl<'subs, W> DemangleAsInner<'subs, W> for PointerToMemberType
     where W: 'subs + io::Write
 {
     fn demangle_as_inner<'prev, 'ctx>(&'subs self,
-                         ctx: &'ctx mut DemangleContext<'subs, W>,
-                         stack: Option<ArgScopeStack<'prev, 'subs>>)
-                         -> io::Result<()> {
-        log_demangle!(self, ctx);
+                                      ctx: &'ctx mut DemangleContext<'subs, W>,
+                                      stack: Option<ArgScopeStack<'prev, 'subs>>)
+                                      -> io::Result<()> {
+        log_demangle!(self, ctx, stack);
 
         if ctx.last_byte_written != Some(b'(') {
             try!(ctx.ensure_space());
@@ -2972,7 +3063,7 @@ impl<'subs, W> DemangleAsInner<'subs, W> for PointerToMemberType
 /// <template-param> ::= T_ # first template parameter
 ///                  ::= T <parameter-2 non-negative number> _
 /// ```
-#[derive(Clone, Debug, Hash, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct TemplateParam(usize);
 
 impl Parse for TemplateParam {
@@ -2999,11 +3090,41 @@ impl<'subs, W> Demangle<'subs, W> for TemplateParam
                 stack: Option<ArgScopeStack<'prev, 'subs>>)
                 -> io::Result<()>
     {
-        log_demangle!(self, ctx);
+        log_demangle!(self, ctx, stack);
 
-        let arg = try!(stack.get_template_arg(self.0)
-            .map_err(|e| io::Error::new(io::ErrorKind::Other, e.description())));
+        let arg = try!(self.resolve(ctx, stack));
         arg.demangle(ctx, stack)
+    }
+}
+
+impl TemplateParam {
+    fn resolve<'subs, 'prev, 'ctx, W>(&'subs self,
+                                      ctx: &'ctx mut DemangleContext<'subs, W>,
+                                      stack: Option<ArgScopeStack<'prev, 'subs>>)
+                                      -> io::Result<&'subs TemplateArg>
+        where W: 'subs + io::Write
+    {
+        let e = match ctx.template_params_to_args.entry(self) {
+            Entry::Occupied(e) => e.into_mut(),
+            Entry::Vacant(e) => {
+                let arg = try!(stack.get_template_arg(self.0)
+                               .map_err(|e| io::Error::new(io::ErrorKind::Other,
+                                                           e.description())));
+                e.insert(arg)
+            }
+        };
+
+        Ok(*e)
+    }
+}
+
+impl<'a> Hash for &'a TemplateParam {
+    fn hash<H>(&self, state: &mut H)
+        where H: Hasher
+    {
+        let self_ref: &TemplateParam = *self;
+        let self_ptr = self_ref as *const _;
+        self_ptr.hash(state);
     }
 }
 
@@ -3013,7 +3134,7 @@ impl<'subs, W> Demangle<'subs, W> for TemplateParam
 /// <template-template-param> ::= <template-param>
 ///                           ::= <substitution>
 /// ```
-#[derive(Clone, Debug, Hash, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct TemplateTemplateParam(TemplateParam);
 
 define_handle! {
@@ -3056,11 +3177,10 @@ impl<'subs, W> Demangle<'subs, W> for TemplateTemplateParam
 {
     #[inline]
     fn demangle<'prev, 'ctx>(&'subs self,
-                ctx: &'ctx mut DemangleContext<'subs, W>,
-                stack: Option<ArgScopeStack<'prev, 'subs>>)
-                -> io::Result<()>
-    {
-        log_demangle!(self, ctx);
+                             ctx: &'ctx mut DemangleContext<'subs, W>,
+                             stack: Option<ArgScopeStack<'prev, 'subs>>)
+                             -> io::Result<()> {
+        log_demangle!(self, ctx, stack);
 
         self.0.demangle(ctx, stack)
     }
@@ -3078,7 +3198,7 @@ impl<'subs, W> Demangle<'subs, W> for TemplateTemplateParam
 ///                  ::= fL <L-1 non-negative number> p <top-level CV-qualifiers> <parameter-2 non-negative number> _
 ///                          # L > 0, second and later parameters
 /// ```
-#[derive(Clone, Debug, Hash, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct FunctionParam(usize, CvQualifiers, Option<usize>);
 
 impl Parse for FunctionParam {
@@ -3117,11 +3237,10 @@ impl<'subs, W> Demangle<'subs, W> for FunctionParam
     where W: 'subs + io::Write
 {
     fn demangle<'prev, 'ctx>(&'subs self,
-                ctx: &'ctx mut DemangleContext<'subs, W>,
-                stack: Option<ArgScopeStack<'prev, 'subs>>)
-                -> io::Result<()>
-    {
-        log_demangle!(self, ctx);
+                             ctx: &'ctx mut DemangleContext<'subs, W>,
+                             stack: Option<ArgScopeStack<'prev, 'subs>>)
+                             -> io::Result<()> {
+        log_demangle!(self, ctx, stack);
 
         // TODO: this needs more finesse.
         let ty = try!(stack.get_function_arg(self.0)
@@ -3135,7 +3254,7 @@ impl<'subs, W> Demangle<'subs, W> for FunctionParam
 /// ```text
 /// <template-args> ::= I <template-arg>+ E
 /// ```
-#[derive(Clone, Debug, Hash, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct TemplateArgs(Vec<TemplateArg>);
 
 impl Parse for TemplateArgs {
@@ -3156,10 +3275,10 @@ impl<'subs, W> Demangle<'subs, W> for TemplateArgs
     where W: 'subs + io::Write
 {
     fn demangle<'prev, 'ctx>(&'subs self,
-                ctx: &'ctx mut DemangleContext<'subs, W>,
-                stack: Option<ArgScopeStack<'prev, 'subs>>)
-                -> io::Result<()> {
-        log_demangle!(self, ctx);
+                             ctx: &'ctx mut DemangleContext<'subs, W>,
+                             stack: Option<ArgScopeStack<'prev, 'subs>>)
+                             -> io::Result<()> {
+        log_demangle!(self, ctx, stack);
 
         try!(write!(ctx, "<"));
         let mut need_comma = false;
@@ -3193,7 +3312,7 @@ impl<'subs> ArgScope<'subs, 'subs> for TemplateArgs {
 ///                ::= <expr-primary>        # simple expressions
 ///                ::= J <template-arg>* E   # argument pack
 /// ```
-#[derive(Clone, Debug, Hash, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum TemplateArg {
     /// A type or template.
     Type(TypeHandle),
@@ -3243,10 +3362,10 @@ impl<'subs, W> Demangle<'subs, W> for TemplateArg
     where W: 'subs + io::Write
 {
     fn demangle<'prev, 'ctx>(&'subs self,
-                ctx: &'ctx mut DemangleContext<'subs, W>,
-                stack: Option<ArgScopeStack<'prev, 'subs>>)
-                -> io::Result<()> {
-        log_demangle!(self, ctx);
+                             ctx: &'ctx mut DemangleContext<'subs, W>,
+                             stack: Option<ArgScopeStack<'prev, 'subs>>)
+                             -> io::Result<()> {
+        log_demangle!(self, ctx, stack);
 
         match *self {
             TemplateArg::Type(ref ty) => ty.demangle(ctx, stack),
@@ -3313,7 +3432,7 @@ impl<'subs, W> Demangle<'subs, W> for TemplateArg
 ///                                                                # objectless nonstatic member reference
 ///               ::= <expr-primary>
 /// ```
-#[derive(Clone, Debug, Hash, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Expression {
     /// A unary operator expression.
     Unary(OperatorName, Box<Expression>),
@@ -3746,10 +3865,10 @@ impl<'subs, W> Demangle<'subs, W> for Expression
     where W: 'subs + io::Write
 {
     fn demangle<'prev, 'ctx>(&'subs self,
-                ctx: &'ctx mut DemangleContext<'subs, W>,
-                stack: Option<ArgScopeStack<'prev, 'subs>>)
-                -> io::Result<()> {
-        log_demangle!(self, ctx);
+                             ctx: &'ctx mut DemangleContext<'subs, W>,
+                             stack: Option<ArgScopeStack<'prev, 'subs>>)
+                             -> io::Result<()> {
+        log_demangle!(self, ctx, stack);
 
         match *self {
             Expression::Unary(ref op, ref expr) => {
@@ -3767,7 +3886,7 @@ impl<'subs, W> Demangle<'subs, W> for Expression
                 try!(write!(ctx, ")"));
                 Ok(())
             }
-            Expression::Ternary(OperatorName::Question,
+            Expression::Ternary(OperatorName::Simple(SimpleOperatorName::Question),
                                 ref condition,
                                 ref consequent,
                                 ref alternative) => {
@@ -4089,7 +4208,7 @@ impl<'subs, W> Demangle<'subs, W> for Expression
 ///                   ::= [gs] sr <unresolved-qualifier-level>+ E <base-unresolved-name>
 ///                          # A::x, N::y, A<T>::z; "gs" means leading "::"
 /// ```
-#[derive(Clone, Debug, Hash, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum UnresolvedName {
     /// `x`
     Name(BaseUnresolvedName),
@@ -4158,10 +4277,10 @@ impl<'subs, W> Demangle<'subs, W> for UnresolvedName
     where W: 'subs + io::Write
 {
     fn demangle<'prev, 'ctx>(&'subs self,
-                ctx: &'ctx mut DemangleContext<'subs, W>,
-                stack: Option<ArgScopeStack<'prev, 'subs>>)
-                -> io::Result<()> {
-        log_demangle!(self, ctx);
+                             ctx: &'ctx mut DemangleContext<'subs, W>,
+                             stack: Option<ArgScopeStack<'prev, 'subs>>)
+                             -> io::Result<()> {
+        log_demangle!(self, ctx, stack);
 
         match *self {
             UnresolvedName::Name(ref name) => name.demangle(ctx, stack),
@@ -4204,7 +4323,7 @@ impl<'subs, W> Demangle<'subs, W> for UnresolvedName
 ///                   ::= <decltype>                            # decltype(p)::
 ///                   ::= <substitution>
 /// ```
-#[derive(Clone, Debug, Hash, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum UnresolvedType {
     /// An unresolved template type.
     Template(TemplateParam, Option<TemplateArgs>),
@@ -4264,10 +4383,10 @@ impl<'subs, W> Demangle<'subs, W> for UnresolvedType
     where W: 'subs + io::Write
 {
     fn demangle<'prev, 'ctx>(&'subs self,
-                ctx: &'ctx mut DemangleContext<'subs, W>,
-                stack: Option<ArgScopeStack<'prev, 'subs>>)
-                -> io::Result<()> {
-        log_demangle!(self, ctx);
+                             ctx: &'ctx mut DemangleContext<'subs, W>,
+                             stack: Option<ArgScopeStack<'prev, 'subs>>)
+                             -> io::Result<()> {
+        log_demangle!(self, ctx, stack);
 
         match *self {
             UnresolvedType::Decltype(ref dt) => dt.demangle(ctx, stack),
@@ -4290,7 +4409,7 @@ impl<'subs, W> Demangle<'subs, W> for UnresolvedType
 /// ```text
 /// <unresolved-qualifier-level> ::= <simple-id>
 /// ```
-#[derive(Clone, Debug, Hash, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct UnresolvedQualifierLevel(SimpleId);
 
 impl Parse for UnresolvedQualifierLevel {
@@ -4309,10 +4428,10 @@ impl<'subs, W> Demangle<'subs, W> for UnresolvedQualifierLevel
 {
     #[inline]
     fn demangle<'prev, 'ctx>(&'subs self,
-                ctx: &'ctx mut DemangleContext<'subs, W>,
-                stack: Option<ArgScopeStack<'prev, 'subs>>)
-                -> io::Result<()> {
-        log_demangle!(self, ctx);
+                             ctx: &'ctx mut DemangleContext<'subs, W>,
+                             stack: Option<ArgScopeStack<'prev, 'subs>>)
+                             -> io::Result<()> {
+        log_demangle!(self, ctx, stack);
 
         self.0.demangle(ctx, stack)
     }
@@ -4323,7 +4442,7 @@ impl<'subs, W> Demangle<'subs, W> for UnresolvedQualifierLevel
 /// ```text
 /// <simple-id> ::= <source-name> [ <template-args> ]
 /// ```
-#[derive(Clone, Debug, Hash, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SimpleId(SourceName, Option<TemplateArgs>);
 
 impl Parse for SimpleId {
@@ -4346,10 +4465,10 @@ impl<'subs, W> Demangle<'subs, W> for SimpleId
     where W: 'subs + io::Write
 {
     fn demangle<'prev, 'ctx>(&'subs self,
-                ctx: &'ctx mut DemangleContext<'subs, W>,
-                stack: Option<ArgScopeStack<'prev, 'subs>>)
-                -> io::Result<()> {
-        log_demangle!(self, ctx);
+                             ctx: &'ctx mut DemangleContext<'subs, W>,
+                             stack: Option<ArgScopeStack<'prev, 'subs>>)
+                             -> io::Result<()> {
+        log_demangle!(self, ctx, stack);
 
         try!(self.0.demangle(ctx, stack));
         if let Some(ref args) = self.1 {
@@ -4368,7 +4487,7 @@ impl<'subs, W> Demangle<'subs, W> for SimpleId
 ///                        ::= dn <destructor-name>               # destructor or pseudo-destructor;
 ///                                                               # e.g. ~X or ~X<N-1>
 /// ```
-#[derive(Clone, Debug, Hash, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum BaseUnresolvedName {
     /// An unresolved name.
     Name(SimpleId),
@@ -4411,10 +4530,10 @@ impl<'subs, W> Demangle<'subs, W> for BaseUnresolvedName
     where W: 'subs + io::Write
 {
     fn demangle<'prev, 'ctx>(&'subs self,
-                ctx: &'ctx mut DemangleContext<'subs, W>,
-                stack: Option<ArgScopeStack<'prev, 'subs>>)
-                -> io::Result<()> {
-        log_demangle!(self, ctx);
+                             ctx: &'ctx mut DemangleContext<'subs, W>,
+                             stack: Option<ArgScopeStack<'prev, 'subs>>)
+                             -> io::Result<()> {
+        log_demangle!(self, ctx, stack);
 
         match *self {
             BaseUnresolvedName::Name(ref name) => name.demangle(ctx, stack),
@@ -4436,7 +4555,7 @@ impl<'subs, W> Demangle<'subs, W> for BaseUnresolvedName
 /// <destructor-name> ::= <unresolved-type> # e.g., ~T or ~decltype(f())
 ///                   ::= <simple-id>       # e.g., ~A<2*N>
 /// ```
-#[derive(Clone, Debug, Hash, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum DestructorName {
     /// A destructor for an unresolved type.
     Unresolved(UnresolvedTypeHandle),
@@ -4464,10 +4583,10 @@ impl<'subs, W> Demangle<'subs, W> for DestructorName
     where W: 'subs + io::Write
 {
     fn demangle<'prev, 'ctx>(&'subs self,
-                ctx: &'ctx mut DemangleContext<'subs, W>,
-                stack: Option<ArgScopeStack<'prev, 'subs>>)
-                -> io::Result<()> {
-        log_demangle!(self, ctx);
+                             ctx: &'ctx mut DemangleContext<'subs, W>,
+                             stack: Option<ArgScopeStack<'prev, 'subs>>)
+                             -> io::Result<()> {
+        log_demangle!(self, ctx, stack);
 
         try!(write!(ctx, "~"));
         match *self {
@@ -4488,7 +4607,7 @@ impl<'subs, W> Demangle<'subs, W> for DestructorName
 ///                ::= L <type> <real-part float> _ <imag-part float> E # complex floating point literal (C 2000)
 ///                ::= L <mangled-name> E                               # external name
 /// ```
-#[derive(Clone, Debug, Hash, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ExprPrimary {
     /// A type literal.
     Literal(TypeHandle, usize, usize),
@@ -4529,10 +4648,10 @@ impl<'subs, W> Demangle<'subs, W> for ExprPrimary
     where W: 'subs + io::Write
 {
     fn demangle<'prev, 'ctx>(&'subs self,
-                ctx: &'ctx mut DemangleContext<'subs, W>,
-                stack: Option<ArgScopeStack<'prev, 'subs>>)
-                -> io::Result<()> {
-        log_demangle!(self, ctx);
+                             ctx: &'ctx mut DemangleContext<'subs, W>,
+                             stack: Option<ArgScopeStack<'prev, 'subs>>)
+                             -> io::Result<()> {
+        log_demangle!(self, ctx, stack);
 
         match *self {
             ExprPrimary::External(ref name) => name.demangle(ctx, stack),
@@ -4563,7 +4682,7 @@ impl<'subs, W> Demangle<'subs, W> for ExprPrimary
 /// ```text
 /// <initializer> ::= pi <expression>* E # parenthesized initialization
 /// ```
-#[derive(Clone, Debug, Hash, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Initializer(Vec<Expression>);
 
 impl Parse for Initializer {
@@ -4583,10 +4702,10 @@ impl<'subs, W> Demangle<'subs, W> for Initializer
     where W: 'subs + io::Write
 {
     fn demangle<'prev, 'ctx>(&'subs self,
-                ctx: &'ctx mut DemangleContext<'subs, W>,
-                stack: Option<ArgScopeStack<'prev, 'subs>>)
-                -> io::Result<()> {
-        log_demangle!(self, ctx);
+                             ctx: &'ctx mut DemangleContext<'subs, W>,
+                             stack: Option<ArgScopeStack<'prev, 'subs>>)
+                             -> io::Result<()> {
+        log_demangle!(self, ctx, stack);
 
         try!(write!(ctx, "("));
         let mut need_comma = false;
@@ -4609,7 +4728,7 @@ impl<'subs, W> Demangle<'subs, W> for Initializer
 ///              := Z <function encoding> E s [<discriminator>]
 ///              := Z <function encoding> Ed [ <parameter number> ] _ <entity name>
 /// ```
-#[derive(Clone, Debug, Hash, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum LocalName {
     /// The mangling of the enclosing function, the mangling of the entity
     /// relative to the function, and an optional discriminator.
@@ -4666,10 +4785,10 @@ impl<'subs, W> Demangle<'subs, W> for LocalName
     where W: 'subs + io::Write
 {
     fn demangle<'prev, 'ctx>(&'subs self,
-                ctx: &'ctx mut DemangleContext<'subs, W>,
-                stack: Option<ArgScopeStack<'prev, 'subs>>)
-                -> io::Result<()> {
-        log_demangle!(self, ctx);
+                             ctx: &'ctx mut DemangleContext<'subs, W>,
+                             stack: Option<ArgScopeStack<'prev, 'subs>>)
+                             -> io::Result<()> {
+        log_demangle!(self, ctx, stack);
 
         match *self {
             LocalName::Relative(ref encoding, Some(ref name), _) => {
@@ -4706,7 +4825,7 @@ impl GetTemplateArgs for LocalName {
 /// <discriminator> := _ <non-negative number>      # when number < 10
 ///                 := __ <non-negative number> _   # when number >= 10
 /// ```
-#[derive(Clone, Debug, Hash, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Discriminator(usize);
 
 impl Parse for Discriminator {
@@ -4753,7 +4872,7 @@ impl Parse for Discriminator {
 /// ```text
 /// <closure-type-name> ::= Ul <lambda-sig> E [ <nonnegative number> ] _
 /// ```
-#[derive(Clone, Debug, Hash, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ClosureTypeName(LambdaSig, Option<usize>);
 
 impl Parse for ClosureTypeName {
@@ -4779,10 +4898,10 @@ impl<'subs, W> Demangle<'subs, W> for ClosureTypeName
     where W: 'subs + io::Write
 {
     fn demangle<'prev, 'ctx>(&'subs self,
-                ctx: &'ctx mut DemangleContext<'subs, W>,
-                stack: Option<ArgScopeStack<'prev, 'subs>>)
-                -> io::Result<()> {
-        log_demangle!(self, ctx);
+                             ctx: &'ctx mut DemangleContext<'subs, W>,
+                             stack: Option<ArgScopeStack<'prev, 'subs>>)
+                             -> io::Result<()> {
+        log_demangle!(self, ctx, stack);
 
         try!(write!(ctx, "{{lambda("));
         try!(self.0.demangle(ctx, stack));
@@ -4796,7 +4915,7 @@ impl<'subs, W> Demangle<'subs, W> for ClosureTypeName
 /// ```text
 /// <lambda-sig> ::= <parameter type>+  # Parameter types or "v" if the lambda has no parameters
 /// ```
-#[derive(Clone, Debug, Hash, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct LambdaSig(Vec<TypeHandle>);
 
 impl Parse for LambdaSig {
@@ -4818,10 +4937,10 @@ impl<'subs, W> Demangle<'subs, W> for LambdaSig
     where W: 'subs + io::Write
 {
     fn demangle<'prev, 'ctx>(&'subs self,
-                ctx: &'ctx mut DemangleContext<'subs, W>,
-                stack: Option<ArgScopeStack<'prev, 'subs>>)
-                -> io::Result<()> {
-        log_demangle!(self, ctx);
+                             ctx: &'ctx mut DemangleContext<'subs, W>,
+                             stack: Option<ArgScopeStack<'prev, 'subs>>)
+                             -> io::Result<()> {
+        log_demangle!(self, ctx, stack);
 
         let mut need_comma = false;
         for ty in &self.0 {
@@ -4840,7 +4959,7 @@ impl<'subs, W> Demangle<'subs, W> for LambdaSig
 /// ```text
 /// <data-member-prefix> := <member source-name> M
 /// ```
-#[derive(Clone, Debug, Hash, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct DataMemberPrefix(SourceName);
 
 impl Parse for DataMemberPrefix {
@@ -4866,10 +4985,10 @@ impl<'subs, W> Demangle<'subs, W> for DataMemberPrefix
 {
     #[inline]
     fn demangle<'prev, 'ctx>(&'subs self,
-                ctx: &'ctx mut DemangleContext<'subs, W>,
-                stack: Option<ArgScopeStack<'prev, 'subs>>)
-                -> io::Result<()> {
-        log_demangle!(self, ctx);
+                             ctx: &'ctx mut DemangleContext<'subs, W>,
+                             stack: Option<ArgScopeStack<'prev, 'subs>>)
+                             -> io::Result<()> {
+        log_demangle!(self, ctx, stack);
 
         self.0.demangle(ctx, stack)
     }
@@ -4891,7 +5010,7 @@ impl<'subs, W> Demangle<'subs, W> for DataMemberPrefix
 ///                ::= So # ::std::basic_ostream<char,  std::char_traits<char> >
 ///                ::= Sd # ::std::basic_iostream<char, std::char_traits<char> >
 /// ```
-#[derive(Clone, Debug, Hash, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Substitution {
     /// A reference to an entity that already occurred, ie the `S_` and `S
     /// <seq-id> _` forms.
@@ -4934,7 +5053,7 @@ define_vocabulary! {
 /// The `<substitution>` variants that are encoded directly in the grammar,
 /// rather than as back references to other components in the substitution
 /// table.
-    #[derive(Clone, Debug, Hash, PartialEq, Eq)]
+    #[derive(Clone, Debug, PartialEq, Eq)]
     pub enum WellKnownComponent {
         Std          (b"St", "std"),
         StdAllocator (b"Sa", "std::allocator"),
@@ -4985,7 +5104,7 @@ define_vocabulary! {
 /// <special-name> ::= GR <object name> _             # First temporary
 /// <special-name> ::= GR <object name> <seq-id> _    # Subsequent temporaries
 /// ```
-#[derive(Clone, Debug, Hash, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum SpecialName {
     /// A virtual table.
     VirtualTable(TypeHandle),
@@ -5084,9 +5203,8 @@ impl<'subs, W> Demangle<'subs, W> for SpecialName
     fn demangle<'prev, 'ctx>(&'subs self,
                              ctx: &'ctx mut DemangleContext<'subs, W>,
                              stack: Option<ArgScopeStack<'prev, 'subs>>)
-                             -> io::Result<()>
-    {
-        log_demangle!(self, ctx);
+                             -> io::Result<()> {
+        log_demangle!(self, ctx, stack);
 
         match *self {
             SpecialName::VirtualTable(ref ty) => {
@@ -5252,25 +5370,24 @@ fn parse_number(base: u32,
 
 #[cfg(test)]
 mod tests {
+    use super::{ArrayType, BareFunctionType, BaseUnresolvedName, BuiltinType, CallOffset,
+                ClassEnumType, ClosureTypeName, CtorDtorName, CvQualifiers,
+                DataMemberPrefix, Decltype, DestructorName, Discriminator, Encoding,
+                ExprPrimary, Expression, FunctionParam, FunctionType, Identifier,
+                Initializer, LambdaSig, LocalName, MangledName, Name, NestedName, Number,
+                NvOffset, OperatorName, Parse, PointerToMemberType, Prefix, PrefixHandle,
+                RefQualifier, SeqId, SimpleId, SimpleOperatorName, SourceName,
+                SpecialName, StandardBuiltinType, Substitution, TemplateArg, TemplateArgs,
+                TemplateParam, TemplateTemplateParam, TemplateTemplateParamHandle, Type,
+                TypeHandle, UnnamedTypeName, UnqualifiedName, UnresolvedName,
+                UnresolvedQualifierLevel, UnresolvedType, UnresolvedTypeHandle,
+                UnscopedName, UnscopedTemplateName, UnscopedTemplateNameHandle, VOffset,
+                WellKnownComponent};
     use error::Error;
     use index_str::IndexStr;
     use std::fmt::Debug;
     use std::iter::FromIterator;
     use subs::{Substitutable, SubstitutionTable};
-    use super::{ArrayType, BareFunctionType, BaseUnresolvedName, BuiltinType,
-                CallOffset, ClassEnumType, ClosureTypeName, CtorDtorName, CvQualifiers,
-                DataMemberPrefix, Decltype, DestructorName,
-                Discriminator, Encoding, ExprPrimary, Expression, FunctionParam,
-                FunctionType, Identifier, Initializer, LambdaSig, LocalName,
-                MangledName, Name, NestedName, Number, NvOffset, OperatorName, Parse,
-                PointerToMemberType, Prefix, PrefixHandle, RefQualifier, SeqId,
-                SimpleId, SourceName, SpecialName, StandardBuiltinType, Substitution,
-                TemplateArg, TemplateArgs, TemplateParam, TemplateTemplateParam,
-                TemplateTemplateParamHandle, Type, TypeHandle, UnnamedTypeName,
-                UnqualifiedName, UnresolvedName, UnresolvedQualifierLevel,
-                UnresolvedType, UnresolvedTypeHandle, UnscopedName,
-                UnscopedTemplateName, UnscopedTemplateNameHandle, VOffset,
-                WellKnownComponent};
 
     fn assert_parse_ok<P, S1, S2, I1, I2>(production: &'static str,
                                           subs: S1,
@@ -5534,10 +5651,10 @@ mod tests {
             with subs [
                 Substitutable::Prefix(
                     Prefix::Unqualified(
-                        UnqualifiedName::Operator(OperatorName::New))),
+                        UnqualifiedName::Operator(OperatorName::Simple(SimpleOperatorName::New)))),
                 Substitutable::Prefix(
                     Prefix::Nested(PrefixHandle::BackReference(0),
-                                   UnqualifiedName::Operator(OperatorName::New))),
+                                   UnqualifiedName::Operator(OperatorName::Simple(SimpleOperatorName::New)))),
             ] => {
                 Ok => {
                     b"NS0_E..." => {
@@ -5572,7 +5689,8 @@ mod tests {
                                 UnscopedTemplateName(
                                     UnscopedName::Unqualified(
                                         UnqualifiedName::Operator(
-                                            OperatorName::Delete)))),
+                                            OperatorName::Simple(
+                                                SimpleOperatorName::Delete))))),
                         ]
                     }
                     b"Z3abcEs..." => {
@@ -5616,7 +5734,8 @@ mod tests {
                     UnscopedTemplateName(
                         UnscopedName::Unqualified(
                             UnqualifiedName::Operator(
-                                OperatorName::New)))),
+                                OperatorName::Simple(
+                                    SimpleOperatorName::New))))),
             ] => {
                 Ok => {
                     b"S_..." => {
@@ -5632,7 +5751,8 @@ mod tests {
                                 UnscopedTemplateName(
                                     UnscopedName::Unqualified(
                                         UnqualifiedName::Operator(
-                                            OperatorName::Delete))))
+                                            OperatorName::Simple(
+                                                SimpleOperatorName::Delete)))))
                         ]
                     }
                 }
@@ -5653,7 +5773,8 @@ mod tests {
                 Substitutable::Prefix(
                     Prefix::Unqualified(
                         UnqualifiedName::Operator(
-                            OperatorName::New))),
+                            OperatorName::Simple(
+                                SimpleOperatorName::New)))),
             ] => {
                 Ok => {
                     b"NKOS_3abcE..." => {
@@ -5831,7 +5952,8 @@ mod tests {
                 Substitutable::Prefix(
                     Prefix::Unqualified(
                         UnqualifiedName::Operator(
-                            OperatorName::New))),
+                            OperatorName::Simple(
+                                SimpleOperatorName::New)))),
             ] => {
                 Ok => {
                     b"3foo..." => {
@@ -6569,7 +6691,7 @@ mod tests {
             ] => {
                 Ok => {
                     b"psLS_1E..." => {
-                        Expression::Unary(OperatorName::UnaryPlus,
+                        Expression::Unary(OperatorName::Simple(SimpleOperatorName::UnaryPlus),
                                           Box::new(Expression::Primary(
                                               ExprPrimary::Literal(
                                                   TypeHandle::BackReference(0),
@@ -6579,7 +6701,7 @@ mod tests {
                         []
                     }
                     b"rsLS_1ELS_1E..." => {
-                        Expression::Binary(OperatorName::Shr,
+                        Expression::Binary(OperatorName::Simple(SimpleOperatorName::Shr),
                                            Box::new(Expression::Primary(
                                                ExprPrimary::Literal(
                                                    TypeHandle::BackReference(0),
@@ -6594,7 +6716,7 @@ mod tests {
                         []
                     }
                     b"quLS_1ELS_2ELS_3E..." => {
-                        Expression::Ternary(OperatorName::Question,
+                        Expression::Ternary(OperatorName::Simple(SimpleOperatorName::Question),
                                             Box::new(Expression::Primary(
                                                 ExprPrimary::Literal(
                                                     TypeHandle::BackReference(0),
@@ -7306,14 +7428,15 @@ mod tests {
                         []
                     }
                     b"onnw..." => {
-                        BaseUnresolvedName::Operator(OperatorName::New, None),
+                        BaseUnresolvedName::Operator(OperatorName::Simple(SimpleOperatorName::New), None),
                         b"...",
                         []
                     }
                     b"onnwIS_E..." => {
-                        BaseUnresolvedName::Operator(OperatorName::New, Some(TemplateArgs(vec![
-                            TemplateArg::Type(TypeHandle::BackReference(0))
-                        ]))),
+                        BaseUnresolvedName::Operator(OperatorName::Simple(SimpleOperatorName::New),
+                                                     Some(TemplateArgs(vec![
+                                                         TemplateArg::Type(TypeHandle::BackReference(0))
+                                                     ]))),
                         b"...",
                         []
                     }
@@ -8040,7 +8163,7 @@ mod tests {
         assert_parse!(UnqualifiedName {
             Ok => {
                 b"qu.." => {
-                    UnqualifiedName::Operator(OperatorName::Question),
+                    UnqualifiedName::Operator(OperatorName::Simple(SimpleOperatorName::Question)),
                     b".."
                 }
                 b"C1.." => {
@@ -8304,12 +8427,58 @@ mod tests {
     fn parse_operator_name() {
         assert_parse!(OperatorName {
             Ok => {
+                b"qu..." => {
+                    OperatorName::Simple(SimpleOperatorName::Question),
+                    b"..."
+                }
+                b"cvi..." => {
+                    OperatorName::Cast(
+                        TypeHandle::Builtin(
+                            BuiltinType::Standard(
+                                StandardBuiltinType::Int))),
+                    b"..."
+                }
+                b"li3Foo..." => {
+                    OperatorName::Literal(SourceName(Identifier {
+                        start: 3,
+                        end: 6,
+                    })),
+                    b"..."
+                }
+                b"v33Foo..." => {
+                    OperatorName::VendorExtension(3, SourceName(Identifier {
+                        start: 3,
+                        end: 6
+                    })),
+                    b"..."
+                }
+            }
+            Err => {
+                b"cv" => Error::UnexpectedEnd,
+                b"li3ab" => Error::UnexpectedEnd,
+                b"li" => Error::UnexpectedEnd,
+                b"v33ab" => Error::UnexpectedEnd,
+                b"v3" => Error::UnexpectedEnd,
+                b"v" => Error::UnexpectedEnd,
+                b"" => Error::UnexpectedEnd,
+                b"q" => Error::UnexpectedText,
+                b"c" => Error::UnexpectedText,
+                b"l" => Error::UnexpectedText,
+                b"zzz" => Error::UnexpectedText,
+            }
+        });
+    }
+
+    #[test]
+    fn parse_simple_operator_name() {
+        assert_parse!(SimpleOperatorName {
+            Ok => {
                 b"qu" => {
-                    OperatorName::Question,
+                    SimpleOperatorName::Question,
                     b""
                 }
                 b"quokka" => {
-                    OperatorName::Question,
+                    SimpleOperatorName::Question,
                     b"okka"
                 }
             }

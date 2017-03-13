@@ -9,7 +9,7 @@ use std::ops::Deref;
 /// An enumeration of all of the types that can end up in the substitution
 /// table.
 #[doc(hidden)]
-#[derive(Clone, Debug, Hash, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Substitutable {
     /// An `<unscoped-template-name>` production.
     UnscopedTemplateName(ast::UnscopedTemplateName),
@@ -47,7 +47,7 @@ impl<'subs, W> ast::Demangle<'subs, W> for Substitutable
 /// The table of substitutable components that we have parsed thus far, and for
 /// which there are potential back-references.
 #[doc(hidden)]
-#[derive(Clone, Default, Hash, PartialEq, Eq)]
+#[derive(Clone, Default, PartialEq, Eq)]
 pub struct SubstitutionTable(Vec<Substitutable>);
 
 impl fmt::Debug for SubstitutionTable {
