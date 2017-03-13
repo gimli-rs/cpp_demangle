@@ -85,7 +85,10 @@ fn generate_compatibility_tests_from_libiberty() -> io::Result<()> {
     let _ = fs::remove_file(&test_path);
     let mut test_file = try!(fs::File::create(test_path));
 
-    try!(writeln!(&mut test_file, "extern crate cpp_demangle;"));
+    try!(writeln!(&mut test_file, "
+extern crate cpp_demangle;
+use std::fmt::Write;
+"));
 
     let libiberty_tests = try!(get_test_path("libiberty-demangle-expected"));
     let libiberty_tests = try!(fs::File::open(libiberty_tests));
@@ -147,6 +150,12 @@ fn generate_compatibility_tests_from_libiberty() -> io::Result<()> {
             continue;
         }
 
+        let cfg = if n <= LIBIBERTY_TEST_THRESHOLD {
+            ""
+        } else {
+            r###"#[cfg(feature = "run_libiberty_tests")]"###
+        };
+
         try!(writeln!(test_file,
                       r###"
 {}
@@ -159,18 +168,21 @@ fn test_libiberty_demangle_{}_() {{
         .expect("should parse mangled symbol");
 
     let expected = r#"{}"#;
-    let actual = format!("{{}}", sym);
+
+    let mut actual = String::new();
+    if let Err(e) = write!(&mut actual, "{{}}", sym) {{
+        panic!("Error while demangling '{{}}': {{}}",
+               String::from_utf8_lossy(mangled),
+               e);
+    }}
+
     println!("     Expect demangled symbol: {{}}", expected);
     println!("Actually demangled symbol as: {{}}", actual);
 
     assert_eq!(expected, actual);
 }}
 "###,
-                      if n <= LIBIBERTY_TEST_THRESHOLD {
-                          ""
-                      } else {
-                          r###"#[cfg(feature = "run_libiberty_tests")]"###
-                      },
+                      cfg,
                       n,
                       mangled.trim(),
                       demangled.trim()));
