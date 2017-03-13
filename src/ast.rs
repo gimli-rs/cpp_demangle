@@ -7,8 +7,11 @@ use index_str::IndexStr;
 use self::fixedbitset::FixedBitSet;
 #[cfg(feature = "logging")]
 use std::cell::RefCell;
+use std::collections::HashMap;
+use std::collections::hash_map::Entry;
 use std::error::Error;
 use std::fmt;
+use std::hash::{Hash, Hasher};
 use std::io::{self, Write};
 use std::mem;
 use std::ops;
@@ -170,10 +173,10 @@ trait GetTemplateArgs {
 /// This trait is implemented by anything that can potentially resolve arguments
 /// for us.
 trait ArgScope<'me, 'ctx>: fmt::Debug {
-    /// Get the current context's `idx`th template argument.
+    /// Get the current scope's `idx`th template argument.
     fn get_template_arg(&'me self, idx: usize) -> Result<&'ctx TemplateArg>;
 
-    /// Get the current context's `idx`th function argument's type.
+    /// Get the current scope's `idx`th function argument's type.
     fn get_function_arg(&'me self, idx: usize) -> Result<&'ctx Type>;
 }
 
@@ -290,6 +293,13 @@ pub struct DemangleContext<'a, W>
     // always backwards mean that there can't be cycles? Alternatively, is that
     // check too strict, and should it be relaxed?
     mark_bits: FixedBitSet,
+
+    // Remember which TemplateArg we mapped a TemplateParam to. We only have the
+    // proper argument scope the first time we visit a TemplateArg, and any
+    // substitution back references could be within a completely different
+    // scope. If we try to (re-)resolve a TemplateParam's concrete TemplateArg
+    // outside the scope it was defined in, we'll get garbage results.
+    template_params_to_args: HashMap<&'a TemplateParam, &'a TemplateArg>,
 }
 
 impl<'a, W> io::Write for DemangleContext<'a, W>
@@ -330,6 +340,7 @@ impl<'a, W> DemangleContext<'a, W>
             bytes_written: 0,
             last_byte_written: None,
             mark_bits: FixedBitSet::with_capacity(subs.len()),
+            template_params_to_args: HashMap::new(),
         }
     }
 
@@ -601,7 +612,7 @@ macro_rules! define_handle {
         }
     ) => {
         $(#[$attr])*
-        #[derive(Clone, Debug, Hash, PartialEq, Eq)]
+        #[derive(Clone, Debug, PartialEq, Eq)]
         pub enum $typename {
             /// A reference to a "well-known" component.
             WellKnown(WellKnownComponent),
@@ -745,7 +756,7 @@ macro_rules! define_vocabulary {
 /// ```text
 /// <mangled-name> ::= _Z <encoding>
 /// ```
-#[derive(Clone, Debug, Hash, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum MangledName {
     /// The encoding of the mangled symbol name.
     Encoding(Encoding),
@@ -807,7 +818,7 @@ impl<'subs, W> Demangle<'subs, W> for MangledName
 ///            ::= <data name>
 ///            ::= <special-name>
 /// ```
-#[derive(Clone, Debug, Hash, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Encoding {
     /// An encoded function.
     Function(Name, BareFunctionType),
@@ -931,7 +942,7 @@ impl<'subs, W> DemangleAsInner<'subs, W> for Encoding
 ///        ::= <local-name>
 ///        ::= St <unqualified-name> # ::std::
 /// ```
-#[derive(Clone, Debug, Hash, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Name {
     /// A nested name
     Nested(NestedName),
@@ -1033,7 +1044,7 @@ impl GetTemplateArgs for Name {
 /// <unscoped-name> ::= <unqualified-name>
 ///                 ::= St <unqualified-name>   # ::std::
 /// ```
-#[derive(Clone, Debug, Hash, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum UnscopedName {
     /// An unqualified name.
     Unqualified(UnqualifiedName),
@@ -1086,7 +1097,7 @@ impl<'subs, W> Demangle<'subs, W> for UnscopedName
 /// <unscoped-template-name> ::= <unscoped-name>
 ///                          ::= <substitution>
 /// ```
-#[derive(Clone, Debug, Hash, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct UnscopedTemplateName(UnscopedName);
 
 define_handle! {
@@ -1142,7 +1153,7 @@ impl<'subs, W> Demangle<'subs, W> for UnscopedTemplateName
 /// <nested-name> ::= N [<CV-qualifiers>] [<ref-qualifier>] <prefix> <unqualified-name> E
 ///               ::= N [<CV-qualifiers>] [<ref-qualifier>] <template-prefix> <template-args> E
 /// ```
-#[derive(Clone, Debug, Hash, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct NestedName(CvQualifiers, Option<RefQualifier>, PrefixHandle);
 
 impl Parse for NestedName {
@@ -1235,7 +1246,7 @@ impl GetTemplateArgs for NestedName {
 ///                   ::= <template-param>
 ///                   ::= <substitution>
 /// ```
-#[derive(Clone, Debug, Hash, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Prefix {
     /// An unqualified name.
     Unqualified(UnqualifiedName),
@@ -1487,7 +1498,7 @@ impl<'subs, W> Demangle<'subs, W> for Prefix
 ///                    ::= <source-name>
 ///                    ::= <unnamed-type-name>
 /// ```
-#[derive(Clone, Debug, Hash, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum UnqualifiedName {
     /// An operator name.
     Operator(OperatorName),
@@ -1557,7 +1568,7 @@ impl<'subs, W> Demangle<'subs, W> for UnqualifiedName
 /// ```text
 /// <source-name> ::= <positive length number> <identifier>
 /// ```
-#[derive(Clone, Debug, Hash, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SourceName(Identifier);
 
 impl Parse for SourceName {
@@ -1620,7 +1631,7 @@ impl SourceName {
 /// > unqualified identifier for the entity in the source code. This ABI does not
 /// > yet specify a mangling for identifiers containing characters outside of
 /// > `_A-Za-z0-9`.
-#[derive(Clone, Debug, Hash, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Identifier {
     start: usize,
     end: usize,
@@ -1697,7 +1708,7 @@ impl Parse for Number {
 /// ```text
 /// <seq-id> ::= <0-9A-Z>+
 /// ```
-#[derive(Clone, Debug, Hash, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SeqId(usize);
 
 impl Parse for SeqId {
@@ -1717,7 +1728,7 @@ impl Parse for SeqId {
 // ::= v <digit> <source-name> # vendor extended operator
 define_vocabulary! {
     /// The `<operator-name>` production.
-    #[derive(Clone, Debug, Hash, PartialEq, Eq)]
+    #[derive(Clone, Debug, PartialEq, Eq)]
     pub enum OperatorName {
         New              (b"nw",  "new"),
         NewArray         (b"na",  "new[]"),
@@ -1775,7 +1786,7 @@ define_vocabulary! {
 /// <call-offset> ::= h <nv-offset> _
 ///               ::= v <v-offset> _
 /// ```
-#[derive(Clone, Debug, Hash, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum CallOffset {
     /// A non-virtual offset.
     NonVirtual(NvOffset),
@@ -1836,7 +1847,7 @@ impl<'subs, W> Demangle<'subs, W> for CallOffset
 /// ```text
 /// <nv-offset> ::= <offset number>
 /// ```
-#[derive(Clone, Debug, Hash, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct NvOffset(isize);
 
 impl Parse for NvOffset {
@@ -1854,7 +1865,7 @@ impl Parse for NvOffset {
 /// ```text
 /// <v-offset> ::= <offset number> _ <virtual offset number>
 /// ```
-#[derive(Clone, Debug, Hash, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct VOffset(isize, isize);
 
 impl Parse for VOffset {
@@ -1881,7 +1892,7 @@ define_vocabulary! {
     ///                  ::= D1  # complete object destructor
     ///                  ::= D2  # base object destructor
     /// ```
-    #[derive(Clone, Debug, Hash, PartialEq, Eq)]
+    #[derive(Clone, Debug, PartialEq, Eq)]
     pub enum CtorDtorName {
         CompleteConstructor             (b"C1", "complete object constructor"),
         BaseConstructor                 (b"C2", "base object constructor"),
@@ -1913,7 +1924,7 @@ define_vocabulary! {
 ///        ::= Dp <type>                                # pack expansion (C++0x)
 ///        ::= <substitution>
 /// ```
-#[derive(Clone, Debug, Hash, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Type {
     /// A function type.
     Function(FunctionType),
@@ -2321,7 +2332,7 @@ define_vocabulary! {
     /// <ref-qualifier> ::= R   # & ref-qualifier
     ///                 ::= O   # && ref-qualifier
     /// ```
-    #[derive(Clone, Debug, Hash, PartialEq, Eq)]
+    #[derive(Clone, Debug, PartialEq, Eq)]
     pub enum RefQualifier {
         LValueRef(b"R", "&"),
         RValueRef(b"O", "&&")
@@ -2363,7 +2374,7 @@ define_vocabulary! {
     ///                ::= Dc # decltype(auto)
     ///                ::= Dn # std::nullptr_t (i.e., decltype(nullptr))
     /// ```
-    #[derive(Clone, Debug, Hash, PartialEq, Eq)]
+    #[derive(Clone, Debug, PartialEq, Eq)]
     pub enum StandardBuiltinType {
         Void             (b"v",  "void"),
         Wchar            (b"w",  "wchar_t"),
@@ -2399,7 +2410,7 @@ define_vocabulary! {
 }
 
 /// The `<builtin-type>` production.
-#[derive(Clone, Debug, Hash, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum BuiltinType {
     /// A standards compliant builtin type.
     Standard(StandardBuiltinType),
@@ -2451,7 +2462,7 @@ impl BuiltinType {
 /// ```text
 /// <function-type> ::= [<CV-qualifiers>] [Dx] F [Y] <bare-function-type> [<ref-qualifier>] E
 /// ```
-#[derive(Clone, Debug, Hash, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct FunctionType {
     cv_qualifiers: CvQualifiers,
     transaction_safe: bool,
@@ -2533,7 +2544,7 @@ impl<'subs, W> Demangle<'subs, W> for FunctionType
 /// <bare-function-type> ::= <signature type>+
 ///      # types are possible return type, then parameter types
 /// ```
-#[derive(Clone, Debug, Hash, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct BareFunctionType(Vec<TypeHandle>);
 
 impl BareFunctionType {
@@ -2600,7 +2611,7 @@ impl<'subs, W> DemangleAsInner<'subs, W> for BareFunctionType
 /// <decltype> ::= Dt <expression> E
 ///            ::= DT <expression> E
 /// ```
-#[derive(Clone, Debug, Hash, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Decltype {
     /// A `decltype` of an id-expression or class member access (C++0x).
     IdExpression(Expression),
@@ -2660,7 +2671,7 @@ impl<'subs, W> Demangle<'subs, W> for Decltype
 ///                   ::= Tu <name>
 ///                   ::= Te <name>
 /// ```
-#[derive(Clone, Debug, Hash, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ClassEnumType {
     /// A non-dependent type name, dependent type name, or dependent
     /// typename-specifier.
@@ -2740,7 +2751,7 @@ impl<'subs, W> Demangle<'subs, W> for ClassEnumType
 /// ```
 ///
 /// TODO: parse the <closure-type-name> variant
-#[derive(Clone, Debug, Hash, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct UnnamedTypeName(Option<usize>);
 
 impl Parse for UnnamedTypeName {
@@ -2787,7 +2798,7 @@ impl<'subs, W> Demangle<'subs, W> for UnnamedTypeName
 /// <array-type> ::= A <positive dimension number> _ <element type>
 ///              ::= A [<dimension expression>] _ <element type>
 /// ```
-#[derive(Clone, Debug, Hash, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ArrayType {
     /// An array with a number-literal dimension.
     DimensionNumber(usize, TypeHandle),
@@ -2909,7 +2920,7 @@ impl<'subs, W> DemangleAsInner<'subs, W> for ArrayType
 /// ```text
 /// <pointer-to-member-type> ::= M <class type> <member type>
 /// ```
-#[derive(Clone, Debug, Hash, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct PointerToMemberType(TypeHandle, TypeHandle);
 
 impl Parse for PointerToMemberType {
@@ -2972,7 +2983,7 @@ impl<'subs, W> DemangleAsInner<'subs, W> for PointerToMemberType
 /// <template-param> ::= T_ # first template parameter
 ///                  ::= T <parameter-2 non-negative number> _
 /// ```
-#[derive(Clone, Debug, Hash, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct TemplateParam(usize);
 
 impl Parse for TemplateParam {
@@ -3001,9 +3012,39 @@ impl<'subs, W> Demangle<'subs, W> for TemplateParam
     {
         log_demangle!(self, ctx);
 
-        let arg = try!(stack.get_template_arg(self.0)
-            .map_err(|e| io::Error::new(io::ErrorKind::Other, e.description())));
+        let arg = try!(self.resolve(ctx, stack));
         arg.demangle(ctx, stack)
+    }
+}
+
+impl TemplateParam {
+    fn resolve<'subs, 'prev, 'ctx, W>(&'subs self,
+                                      ctx: &'ctx mut DemangleContext<'subs, W>,
+                                      stack: Option<ArgScopeStack<'prev, 'subs>>)
+                                      -> io::Result<&'subs TemplateArg>
+        where W: 'subs + io::Write
+    {
+        let e = match ctx.template_params_to_args.entry(self) {
+            Entry::Occupied(e) => e.into_mut(),
+            Entry::Vacant(e) => {
+                let arg = try!(stack.get_template_arg(self.0)
+                               .map_err(|e| io::Error::new(io::ErrorKind::Other,
+                                                           e.description())));
+                e.insert(arg)
+            }
+        };
+
+        Ok(*e)
+    }
+}
+
+impl<'a> Hash for &'a TemplateParam {
+    fn hash<H>(&self, state: &mut H)
+        where H: Hasher
+    {
+        let self_ref: &TemplateParam = *self;
+        let self_ptr = self_ref as *const _;
+        self_ptr.hash(state);
     }
 }
 
@@ -3013,7 +3054,7 @@ impl<'subs, W> Demangle<'subs, W> for TemplateParam
 /// <template-template-param> ::= <template-param>
 ///                           ::= <substitution>
 /// ```
-#[derive(Clone, Debug, Hash, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct TemplateTemplateParam(TemplateParam);
 
 define_handle! {
@@ -3078,7 +3119,7 @@ impl<'subs, W> Demangle<'subs, W> for TemplateTemplateParam
 ///                  ::= fL <L-1 non-negative number> p <top-level CV-qualifiers> <parameter-2 non-negative number> _
 ///                          # L > 0, second and later parameters
 /// ```
-#[derive(Clone, Debug, Hash, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct FunctionParam(usize, CvQualifiers, Option<usize>);
 
 impl Parse for FunctionParam {
@@ -3135,7 +3176,7 @@ impl<'subs, W> Demangle<'subs, W> for FunctionParam
 /// ```text
 /// <template-args> ::= I <template-arg>+ E
 /// ```
-#[derive(Clone, Debug, Hash, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct TemplateArgs(Vec<TemplateArg>);
 
 impl Parse for TemplateArgs {
@@ -3193,7 +3234,7 @@ impl<'subs> ArgScope<'subs, 'subs> for TemplateArgs {
 ///                ::= <expr-primary>        # simple expressions
 ///                ::= J <template-arg>* E   # argument pack
 /// ```
-#[derive(Clone, Debug, Hash, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum TemplateArg {
     /// A type or template.
     Type(TypeHandle),
@@ -3313,7 +3354,7 @@ impl<'subs, W> Demangle<'subs, W> for TemplateArg
 ///                                                                # objectless nonstatic member reference
 ///               ::= <expr-primary>
 /// ```
-#[derive(Clone, Debug, Hash, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Expression {
     /// A unary operator expression.
     Unary(OperatorName, Box<Expression>),
@@ -4089,7 +4130,7 @@ impl<'subs, W> Demangle<'subs, W> for Expression
 ///                   ::= [gs] sr <unresolved-qualifier-level>+ E <base-unresolved-name>
 ///                          # A::x, N::y, A<T>::z; "gs" means leading "::"
 /// ```
-#[derive(Clone, Debug, Hash, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum UnresolvedName {
     /// `x`
     Name(BaseUnresolvedName),
@@ -4204,7 +4245,7 @@ impl<'subs, W> Demangle<'subs, W> for UnresolvedName
 ///                   ::= <decltype>                            # decltype(p)::
 ///                   ::= <substitution>
 /// ```
-#[derive(Clone, Debug, Hash, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum UnresolvedType {
     /// An unresolved template type.
     Template(TemplateParam, Option<TemplateArgs>),
@@ -4290,7 +4331,7 @@ impl<'subs, W> Demangle<'subs, W> for UnresolvedType
 /// ```text
 /// <unresolved-qualifier-level> ::= <simple-id>
 /// ```
-#[derive(Clone, Debug, Hash, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct UnresolvedQualifierLevel(SimpleId);
 
 impl Parse for UnresolvedQualifierLevel {
@@ -4323,7 +4364,7 @@ impl<'subs, W> Demangle<'subs, W> for UnresolvedQualifierLevel
 /// ```text
 /// <simple-id> ::= <source-name> [ <template-args> ]
 /// ```
-#[derive(Clone, Debug, Hash, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SimpleId(SourceName, Option<TemplateArgs>);
 
 impl Parse for SimpleId {
@@ -4368,7 +4409,7 @@ impl<'subs, W> Demangle<'subs, W> for SimpleId
 ///                        ::= dn <destructor-name>               # destructor or pseudo-destructor;
 ///                                                               # e.g. ~X or ~X<N-1>
 /// ```
-#[derive(Clone, Debug, Hash, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum BaseUnresolvedName {
     /// An unresolved name.
     Name(SimpleId),
@@ -4436,7 +4477,7 @@ impl<'subs, W> Demangle<'subs, W> for BaseUnresolvedName
 /// <destructor-name> ::= <unresolved-type> # e.g., ~T or ~decltype(f())
 ///                   ::= <simple-id>       # e.g., ~A<2*N>
 /// ```
-#[derive(Clone, Debug, Hash, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum DestructorName {
     /// A destructor for an unresolved type.
     Unresolved(UnresolvedTypeHandle),
@@ -4488,7 +4529,7 @@ impl<'subs, W> Demangle<'subs, W> for DestructorName
 ///                ::= L <type> <real-part float> _ <imag-part float> E # complex floating point literal (C 2000)
 ///                ::= L <mangled-name> E                               # external name
 /// ```
-#[derive(Clone, Debug, Hash, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ExprPrimary {
     /// A type literal.
     Literal(TypeHandle, usize, usize),
@@ -4563,7 +4604,7 @@ impl<'subs, W> Demangle<'subs, W> for ExprPrimary
 /// ```text
 /// <initializer> ::= pi <expression>* E # parenthesized initialization
 /// ```
-#[derive(Clone, Debug, Hash, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Initializer(Vec<Expression>);
 
 impl Parse for Initializer {
@@ -4609,7 +4650,7 @@ impl<'subs, W> Demangle<'subs, W> for Initializer
 ///              := Z <function encoding> E s [<discriminator>]
 ///              := Z <function encoding> Ed [ <parameter number> ] _ <entity name>
 /// ```
-#[derive(Clone, Debug, Hash, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum LocalName {
     /// The mangling of the enclosing function, the mangling of the entity
     /// relative to the function, and an optional discriminator.
@@ -4706,7 +4747,7 @@ impl GetTemplateArgs for LocalName {
 /// <discriminator> := _ <non-negative number>      # when number < 10
 ///                 := __ <non-negative number> _   # when number >= 10
 /// ```
-#[derive(Clone, Debug, Hash, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Discriminator(usize);
 
 impl Parse for Discriminator {
@@ -4753,7 +4794,7 @@ impl Parse for Discriminator {
 /// ```text
 /// <closure-type-name> ::= Ul <lambda-sig> E [ <nonnegative number> ] _
 /// ```
-#[derive(Clone, Debug, Hash, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ClosureTypeName(LambdaSig, Option<usize>);
 
 impl Parse for ClosureTypeName {
@@ -4796,7 +4837,7 @@ impl<'subs, W> Demangle<'subs, W> for ClosureTypeName
 /// ```text
 /// <lambda-sig> ::= <parameter type>+  # Parameter types or "v" if the lambda has no parameters
 /// ```
-#[derive(Clone, Debug, Hash, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct LambdaSig(Vec<TypeHandle>);
 
 impl Parse for LambdaSig {
@@ -4840,7 +4881,7 @@ impl<'subs, W> Demangle<'subs, W> for LambdaSig
 /// ```text
 /// <data-member-prefix> := <member source-name> M
 /// ```
-#[derive(Clone, Debug, Hash, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct DataMemberPrefix(SourceName);
 
 impl Parse for DataMemberPrefix {
@@ -4891,7 +4932,7 @@ impl<'subs, W> Demangle<'subs, W> for DataMemberPrefix
 ///                ::= So # ::std::basic_ostream<char,  std::char_traits<char> >
 ///                ::= Sd # ::std::basic_iostream<char, std::char_traits<char> >
 /// ```
-#[derive(Clone, Debug, Hash, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Substitution {
     /// A reference to an entity that already occurred, ie the `S_` and `S
     /// <seq-id> _` forms.
@@ -4934,7 +4975,7 @@ define_vocabulary! {
 /// The `<substitution>` variants that are encoded directly in the grammar,
 /// rather than as back references to other components in the substitution
 /// table.
-    #[derive(Clone, Debug, Hash, PartialEq, Eq)]
+    #[derive(Clone, Debug, PartialEq, Eq)]
     pub enum WellKnownComponent {
         Std          (b"St", "std"),
         StdAllocator (b"Sa", "std::allocator"),
@@ -4985,7 +5026,7 @@ define_vocabulary! {
 /// <special-name> ::= GR <object name> _             # First temporary
 /// <special-name> ::= GR <object name> <seq-id> _    # Subsequent temporaries
 /// ```
-#[derive(Clone, Debug, Hash, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum SpecialName {
     /// A virtual table.
     VirtualTable(TypeHandle),
