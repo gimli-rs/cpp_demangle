@@ -29,6 +29,7 @@ script:
   if [[ "$FUZZ" == "true" ]]; then
       travis-cargo --only nightly build -- --features fuzz
   else
+      travis-cargo build -- --features logging
       travis-cargo build
       travis-cargo test
       travis-cargo bench
