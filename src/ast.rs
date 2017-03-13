@@ -1721,15 +1721,102 @@ impl Parse for SeqId {
     }
 }
 
-// TODO: support the rest of <operator-name>:
-//
-// ::= cv <type>               # (cast)
-// ::= li <source-name>        # operator ""
-// ::= v <digit> <source-name> # vendor extended operator
+/// The `<operator-name>` production.
+///
+/// ```text
+/// <operator-name> ::= <simple-operator-name>
+///                 ::= cv <type>               # (cast)
+///                 ::= li <source-name>        # operator ""
+///                 ::= v <digit> <source-name> # vendor extended operator
+/// ```
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum OperatorName {
+    /// A simple operator name.
+    Simple(SimpleOperatorName),
+
+    /// A type cast.
+    Cast(TypeHandle),
+
+    /// Operator literal, ie `operator ""`.
+    Literal(SourceName),
+
+    /// A non-standard, vendor extension operator.
+    VendorExtension(u8, SourceName),
+}
+
+impl StartsWith for OperatorName {
+    fn starts_with(byte: u8) -> bool {
+        byte == b'c' || byte == b'l' || byte == b'v' ||
+        SimpleOperatorName::starts_with(byte)
+    }
+}
+
+impl Parse for OperatorName {
+    fn parse<'a, 'b>(subs: &'a mut SubstitutionTable,
+                     input: IndexStr<'b>)
+                     -> Result<(OperatorName, IndexStr<'b>)> {
+        log_parse!("OperatorName", input);
+
+        if let Ok((simple, tail)) = SimpleOperatorName::parse(subs, input) {
+            return Ok((OperatorName::Simple(simple), tail));
+        }
+
+        if let Ok(tail) = consume(b"cv", input) {
+            let (ty, tail) = try!(TypeHandle::parse(subs, tail));
+            return Ok((OperatorName::Cast(ty), tail));
+        }
+
+        if let Ok(tail) = consume(b"li", input) {
+            let (name, tail) = try!(SourceName::parse(subs, tail));
+            return Ok((OperatorName::Literal(name), tail));
+        }
+
+        let tail = try!(consume(b"v", input));
+        let (arity, tail) = match tail.peek() {
+            Some(c) if b'0' <= c && c <= b'9' => (c - b'0', tail.range_from(1..)),
+            None => return Err(error::Error::UnexpectedEnd),
+            _ => return Err(error::Error::UnexpectedText),
+        };
+        let (name, tail) = try!(SourceName::parse(subs, tail));
+        Ok((OperatorName::VendorExtension(arity, name), tail))
+    }
+}
+
+impl<'subs, W> Demangle<'subs, W> for OperatorName
+    where W: 'subs + io::Write
+{
+    fn demangle<'prev, 'ctx>(&'subs self,
+                             ctx: &'ctx mut DemangleContext<'subs, W>,
+                             stack: Option<ArgScopeStack<'prev, 'subs>>)
+                             -> io::Result<()> {
+        log_demangle!(self, ctx, stack);
+
+        match *self {
+            OperatorName::Simple(ref simple) => simple.demangle(ctx, stack),
+            OperatorName::Cast(ref ty) => {
+                try!(ctx.ensure_space());
+                try!(ty.demangle(ctx, stack));
+                Ok(())
+            }
+            OperatorName::Literal(ref name) => {
+                try!(name.demangle(ctx, stack));
+                try!(write!(ctx, "::operator \"\""));
+                Ok(())
+            }
+            OperatorName::VendorExtension(arity, ref name) => {
+                // TODO: no idea how this should be demangled...
+                try!(name.demangle(ctx, stack));
+                try!(write!(ctx, "::operator {}", arity));
+                Ok(())
+            }
+        }
+    }
+}
+
 define_vocabulary! {
-    /// The `<operator-name>` production.
+    /// The `<simple-operator-name>` production.
     #[derive(Clone, Debug, PartialEq, Eq)]
-    pub enum OperatorName {
+    pub enum SimpleOperatorName {
         New              (b"nw",  "new"),
         NewArray         (b"na",  "new[]"),
         Delete           (b"dl",  "delete"),
@@ -3799,7 +3886,7 @@ impl<'subs, W> Demangle<'subs, W> for Expression
                 try!(write!(ctx, ")"));
                 Ok(())
             }
-            Expression::Ternary(OperatorName::Question,
+            Expression::Ternary(OperatorName::Simple(SimpleOperatorName::Question),
                                 ref condition,
                                 ref consequent,
                                 ref alternative) => {
@@ -5283,25 +5370,24 @@ fn parse_number(base: u32,
 
 #[cfg(test)]
 mod tests {
+    use super::{ArrayType, BareFunctionType, BaseUnresolvedName, BuiltinType, CallOffset,
+                ClassEnumType, ClosureTypeName, CtorDtorName, CvQualifiers,
+                DataMemberPrefix, Decltype, DestructorName, Discriminator, Encoding,
+                ExprPrimary, Expression, FunctionParam, FunctionType, Identifier,
+                Initializer, LambdaSig, LocalName, MangledName, Name, NestedName, Number,
+                NvOffset, OperatorName, Parse, PointerToMemberType, Prefix, PrefixHandle,
+                RefQualifier, SeqId, SimpleId, SimpleOperatorName, SourceName,
+                SpecialName, StandardBuiltinType, Substitution, TemplateArg, TemplateArgs,
+                TemplateParam, TemplateTemplateParam, TemplateTemplateParamHandle, Type,
+                TypeHandle, UnnamedTypeName, UnqualifiedName, UnresolvedName,
+                UnresolvedQualifierLevel, UnresolvedType, UnresolvedTypeHandle,
+                UnscopedName, UnscopedTemplateName, UnscopedTemplateNameHandle, VOffset,
+                WellKnownComponent};
     use error::Error;
     use index_str::IndexStr;
     use std::fmt::Debug;
     use std::iter::FromIterator;
     use subs::{Substitutable, SubstitutionTable};
-    use super::{ArrayType, BareFunctionType, BaseUnresolvedName, BuiltinType,
-                CallOffset, ClassEnumType, ClosureTypeName, CtorDtorName, CvQualifiers,
-                DataMemberPrefix, Decltype, DestructorName,
-                Discriminator, Encoding, ExprPrimary, Expression, FunctionParam,
-                FunctionType, Identifier, Initializer, LambdaSig, LocalName,
-                MangledName, Name, NestedName, Number, NvOffset, OperatorName, Parse,
-                PointerToMemberType, Prefix, PrefixHandle, RefQualifier, SeqId,
-                SimpleId, SourceName, SpecialName, StandardBuiltinType, Substitution,
-                TemplateArg, TemplateArgs, TemplateParam, TemplateTemplateParam,
-                TemplateTemplateParamHandle, Type, TypeHandle, UnnamedTypeName,
-                UnqualifiedName, UnresolvedName, UnresolvedQualifierLevel,
-                UnresolvedType, UnresolvedTypeHandle, UnscopedName,
-                UnscopedTemplateName, UnscopedTemplateNameHandle, VOffset,
-                WellKnownComponent};
 
     fn assert_parse_ok<P, S1, S2, I1, I2>(production: &'static str,
                                           subs: S1,
@@ -5565,10 +5651,10 @@ mod tests {
             with subs [
                 Substitutable::Prefix(
                     Prefix::Unqualified(
-                        UnqualifiedName::Operator(OperatorName::New))),
+                        UnqualifiedName::Operator(OperatorName::Simple(SimpleOperatorName::New)))),
                 Substitutable::Prefix(
                     Prefix::Nested(PrefixHandle::BackReference(0),
-                                   UnqualifiedName::Operator(OperatorName::New))),
+                                   UnqualifiedName::Operator(OperatorName::Simple(SimpleOperatorName::New)))),
             ] => {
                 Ok => {
                     b"NS0_E..." => {
@@ -5603,7 +5689,8 @@ mod tests {
                                 UnscopedTemplateName(
                                     UnscopedName::Unqualified(
                                         UnqualifiedName::Operator(
-                                            OperatorName::Delete)))),
+                                            OperatorName::Simple(
+                                                SimpleOperatorName::Delete))))),
                         ]
                     }
                     b"Z3abcEs..." => {
@@ -5647,7 +5734,8 @@ mod tests {
                     UnscopedTemplateName(
                         UnscopedName::Unqualified(
                             UnqualifiedName::Operator(
-                                OperatorName::New)))),
+                                OperatorName::Simple(
+                                    SimpleOperatorName::New))))),
             ] => {
                 Ok => {
                     b"S_..." => {
@@ -5663,7 +5751,8 @@ mod tests {
                                 UnscopedTemplateName(
                                     UnscopedName::Unqualified(
                                         UnqualifiedName::Operator(
-                                            OperatorName::Delete))))
+                                            OperatorName::Simple(
+                                                SimpleOperatorName::Delete)))))
                         ]
                     }
                 }
@@ -5684,7 +5773,8 @@ mod tests {
                 Substitutable::Prefix(
                     Prefix::Unqualified(
                         UnqualifiedName::Operator(
-                            OperatorName::New))),
+                            OperatorName::Simple(
+                                SimpleOperatorName::New)))),
             ] => {
                 Ok => {
                     b"NKOS_3abcE..." => {
@@ -5862,7 +5952,8 @@ mod tests {
                 Substitutable::Prefix(
                     Prefix::Unqualified(
                         UnqualifiedName::Operator(
-                            OperatorName::New))),
+                            OperatorName::Simple(
+                                SimpleOperatorName::New)))),
             ] => {
                 Ok => {
                     b"3foo..." => {
@@ -6600,7 +6691,7 @@ mod tests {
             ] => {
                 Ok => {
                     b"psLS_1E..." => {
-                        Expression::Unary(OperatorName::UnaryPlus,
+                        Expression::Unary(OperatorName::Simple(SimpleOperatorName::UnaryPlus),
                                           Box::new(Expression::Primary(
                                               ExprPrimary::Literal(
                                                   TypeHandle::BackReference(0),
@@ -6610,7 +6701,7 @@ mod tests {
                         []
                     }
                     b"rsLS_1ELS_1E..." => {
-                        Expression::Binary(OperatorName::Shr,
+                        Expression::Binary(OperatorName::Simple(SimpleOperatorName::Shr),
                                            Box::new(Expression::Primary(
                                                ExprPrimary::Literal(
                                                    TypeHandle::BackReference(0),
@@ -6625,7 +6716,7 @@ mod tests {
                         []
                     }
                     b"quLS_1ELS_2ELS_3E..." => {
-                        Expression::Ternary(OperatorName::Question,
+                        Expression::Ternary(OperatorName::Simple(SimpleOperatorName::Question),
                                             Box::new(Expression::Primary(
                                                 ExprPrimary::Literal(
                                                     TypeHandle::BackReference(0),
@@ -7337,14 +7428,15 @@ mod tests {
                         []
                     }
                     b"onnw..." => {
-                        BaseUnresolvedName::Operator(OperatorName::New, None),
+                        BaseUnresolvedName::Operator(OperatorName::Simple(SimpleOperatorName::New), None),
                         b"...",
                         []
                     }
                     b"onnwIS_E..." => {
-                        BaseUnresolvedName::Operator(OperatorName::New, Some(TemplateArgs(vec![
-                            TemplateArg::Type(TypeHandle::BackReference(0))
-                        ]))),
+                        BaseUnresolvedName::Operator(OperatorName::Simple(SimpleOperatorName::New),
+                                                     Some(TemplateArgs(vec![
+                                                         TemplateArg::Type(TypeHandle::BackReference(0))
+                                                     ]))),
                         b"...",
                         []
                     }
@@ -8071,7 +8163,7 @@ mod tests {
         assert_parse!(UnqualifiedName {
             Ok => {
                 b"qu.." => {
-                    UnqualifiedName::Operator(OperatorName::Question),
+                    UnqualifiedName::Operator(OperatorName::Simple(SimpleOperatorName::Question)),
                     b".."
                 }
                 b"C1.." => {
@@ -8335,12 +8427,58 @@ mod tests {
     fn parse_operator_name() {
         assert_parse!(OperatorName {
             Ok => {
+                b"qu..." => {
+                    OperatorName::Simple(SimpleOperatorName::Question),
+                    b"..."
+                }
+                b"cvi..." => {
+                    OperatorName::Cast(
+                        TypeHandle::Builtin(
+                            BuiltinType::Standard(
+                                StandardBuiltinType::Int))),
+                    b"..."
+                }
+                b"li3Foo..." => {
+                    OperatorName::Literal(SourceName(Identifier {
+                        start: 3,
+                        end: 6,
+                    })),
+                    b"..."
+                }
+                b"v33Foo..." => {
+                    OperatorName::VendorExtension(3, SourceName(Identifier {
+                        start: 3,
+                        end: 6
+                    })),
+                    b"..."
+                }
+            }
+            Err => {
+                b"cv" => Error::UnexpectedEnd,
+                b"li3ab" => Error::UnexpectedEnd,
+                b"li" => Error::UnexpectedEnd,
+                b"v33ab" => Error::UnexpectedEnd,
+                b"v3" => Error::UnexpectedEnd,
+                b"v" => Error::UnexpectedEnd,
+                b"" => Error::UnexpectedEnd,
+                b"q" => Error::UnexpectedText,
+                b"c" => Error::UnexpectedText,
+                b"l" => Error::UnexpectedText,
+                b"zzz" => Error::UnexpectedText,
+            }
+        });
+    }
+
+    #[test]
+    fn parse_simple_operator_name() {
+        assert_parse!(SimpleOperatorName {
+            Ok => {
                 b"qu" => {
-                    OperatorName::Question,
+                    SimpleOperatorName::Question,
                     b""
                 }
                 b"quokka" => {
-                    OperatorName::Question,
+                    SimpleOperatorName::Question,
                     b"okka"
                 }
             }
