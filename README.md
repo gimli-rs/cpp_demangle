@@ -24,9 +24,9 @@ For example, suppose a C++ compilation unit has the definition:
 
 The Itanium C++ ABI specifies that the linker symbol for that function must be
 named `_ZN5space3fooEii`. This crate can parse that name into a Rust value
-representing its structure. Formatting the value with `format!` or `to_string`
-would yield the string `"space::foo(int, int)"`, which is more meaningful to the
-C++ developer.
+representing its structure. Formatting the value with the `format!` macro or the
+`std::string::ToString::to_string` trait method yields the string
+`space::foo(int, int)`, which is more meaningful to the C++ developer.
 
 ## Usage
 
@@ -42,13 +42,14 @@ And then demangle some C++ symbols!
 ```rust
 extern crate cpp_demangle;
 use cpp_demangle::Symbol;
+use std::string::ToString;
 
 let mangled = b"_ZN5space3fooEibc";
 
 let sym = Symbol::new(&mangled[..])
     .expect("Could not parse mangled symbol!");
 
-let demangled = format!("{}", sym);
+let demangled = sym.to_string();
 assert_eq!(demangled, "space::foo(int, bool, char)");
 ```
 
