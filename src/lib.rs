@@ -22,9 +22,10 @@
 //!
 //! The Itanium C++ ABI specifies that the linker symbol for that function must
 //! be named `_ZN5space3fooEii`. This crate can parse that name into a Rust
-//! value representing its structure. Formatting the value with `format!` or
-//! `to_string` would yield the string `"space::foo(int, int)"`, which is more
-//! meaningful to the C++ developer.
+//! value representing its structure. Formatting the value with the `format!`
+//! macro or the `std::string::ToString::to_string` trait method yields the
+//! string `space::foo(int, int)`, which is more meaningful to the C++
+//! developer.
 
 #![deny(missing_docs)]
 #![deny(missing_debug_implementations)]
@@ -71,6 +72,7 @@ impl<T> Symbol<T>
     ///
     /// ```
     /// use cpp_demangle::Symbol;
+    /// use std::string::ToString;
     ///
     /// // First, something easy :)
     ///
@@ -79,7 +81,7 @@ impl<T> Symbol<T>
     /// let sym = Symbol::new(&mangled[..])
     ///     .expect("Could not parse mangled symbol!");
     ///
-    /// let demangled = format!("{}", sym);
+    /// let demangled = sym.to_string();
     /// assert_eq!(demangled, "space::foo(int, bool, char)");
     ///
     /// // Now let's try something a little more complicated!
@@ -90,7 +92,7 @@ impl<T> Symbol<T>
     /// let sym = Symbol::new(&mangled[..])
     ///     .expect("Could not parse mangled symbol!");
     ///
-    /// let demangled = format!("{}", sym);
+    /// let demangled = sym.to_string();
     /// assert_eq!(
     ///     demangled,
     ///     "JS_GetPropertyDescriptorById(JSContext*, JS::Handle<JSObject*>, JS::Handle<jsid>, JS::MutableHandle<JS::PropertyDescriptor>)"
@@ -140,6 +142,7 @@ impl<T> Symbol<T> {
     ///
     /// ```
     /// use cpp_demangle::BorrowedSymbol;
+    /// use std::string::ToString;
     ///
     /// let mangled = b"_ZN5space3fooEibc and some trailing junk";
     ///
@@ -148,7 +151,7 @@ impl<T> Symbol<T> {
     ///
     /// assert_eq!(tail, b" and some trailing junk");
     ///
-    /// let demangled = format!("{}", sym);
+    /// let demangled = sym.to_string();
     /// assert_eq!(demangled, "space::foo(int, bool, char)");
     /// ```
     pub fn with_tail(input: &[u8]) -> Result<(BorrowedSymbol, &[u8])> {
