@@ -152,8 +152,8 @@ trait StartsWith {
     fn starts_with(byte: u8) -> bool;
 }
 
-/// Determine whether this AST node is an instantiated[*] template function, and
-/// get its concrete template arguments.
+/// Determine whether this AST node is an instantiated[*] template function or
+/// class, and get its concrete template arguments.
 ///
 /// [*] Note that we will never see an abstract, un-instantiated template
 /// function, since they don't end up in object files and don't get mangled
@@ -163,6 +163,31 @@ trait GetTemplateArgs {
     fn get_template_args<'a>(&'a self,
                              subs: &'a SubstitutionTable)
                              -> Option<&'a TemplateArgs>;
+}
+
+/// TODO FITZGEN
+#[derive(Debug)]
+pub struct Resolution<'subs> {
+    template_params: HashMap<&'subs TemplateParam, &'subs TemplateArg>,
+}
+
+impl<'subs> Resolution<'subs> {
+    /// TODO FITZGEN
+    pub fn new(subs: &'subs SubstitutionTable,
+               ast: &'subs MangledName)
+               -> Result<Resolution<'subs>> {
+        unimplemented!()
+    }
+}
+
+/// TODO FITZGEN
+pub trait Resolve {
+    /// TODO FITZGEN
+    fn resolve<'subs, 'prev>(&'subs self,
+                             subs: &'subs SubstitutionTable,
+                             scope: Option<ArgScopeStack<'prev, 'subs>>,
+                             resolution: &'subs mut Resolution<'subs>) -> Result<()>
+        where 'subs: 'prev;
 }
 
 /// When formatting a mangled symbol's parsed AST as a demangled symbol, we need
@@ -712,7 +737,7 @@ macro_rules! define_vocabulary {
                     } else {
                         found_prefix |= 0 < input.len() &&
                             input.len() < $mangled.len() &&
-                            input.as_ref() == &$mangled[..input.len()];
+                            *input.as_ref() == $mangled[..input.len()];
                     }
                 )*
 

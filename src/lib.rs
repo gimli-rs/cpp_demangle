@@ -36,6 +36,9 @@
 #![allow(inline_always)]
 
 #[macro_use]
+extern crate rental;
+
+#[macro_use]
 mod logging;
 
 pub mod ast;
@@ -48,6 +51,57 @@ use error::{Error, Result};
 use index_str::IndexStr;
 use std::fmt;
 
+#[allow(missing_docs)]
+mod symbol_data {
+    use std::fmt;
+
+    // XXX: TODO FITZGEN
+
+    rental! {
+        #[allow(unsafe_code)]
+        #[allow(missing_debug_implementations)]
+        mod symbol_data {
+            use ast;
+            use subs;
+
+            #[rental]
+            pub struct SymbolData {
+                parsed: Box<(subs::SubstitutionTable, ast::MangledName)>,
+                resolution: ast::Resolution<'parsed>,
+            }
+        }
+    }
+
+    pub use self::symbol_data::*;
+
+    impl fmt::Debug for SymbolData {
+        fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+            write!(f, "SymbolData {{ ... }}")
+        }
+    }
+
+    // TODO FITZGEN: implement helper methods for accessing the subs and mangled
+    // name
+
+    pub fn new(subs: super::subs::SubstitutionTable,
+               ast: super::ast::MangledName)
+               -> super::error::Result<SymbolData> {
+
+        fn new_resolution<'a>(&(ref subs, ref ast): &'a (super::subs::SubstitutionTable,
+                                                         super::ast::MangledName))
+                              -> super::error::Result<super::ast::Resolution<'a>> {
+            super::ast::Resolution::new(subs, ast)
+        }
+
+        SymbolData::try_new(Box::new((subs, ast)), new_resolution)
+            .map_err(|e| e.0)
+    }
+
+}
+
+/// TODO FITZGEN TEMPORARY
+pub use symbol_data::*;
+
 /// A `Symbol` which owns the underlying storage for the mangled name.
 pub type OwnedSymbol = Symbol<Vec<u8>>;
 
@@ -58,11 +112,10 @@ pub type BorrowedSymbol<'a> = Symbol<&'a [u8]>;
 ///
 /// This is generic over some storage type `T` which can be either owned or
 /// borrowed. See the `OwnedSymbol` and `BorrowedSymbol` type aliases.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Debug)]
 pub struct Symbol<T> {
     raw: T,
-    substitutions: subs::SubstitutionTable,
-    parsed: ast::MangledName,
+    data: symbol_data::SymbolData,
 }
 
 impl<T> Symbol<T>
@@ -111,21 +164,24 @@ impl<T> Symbol<T>
             }
         };
 
+        let data = try!(symbol_data::new(substitutions, parsed));
+
         let symbol = Symbol {
             raw: raw,
-            substitutions: substitutions,
-            parsed: parsed,
+            data: data,
         };
 
         if cfg!(feature = "logging") {
-            println!("Successfully parsed '{}' as
+            symbol.data.rent_all(|data| {
+                println!("Successfully parsed '{}' as
 
 AST = {:#?}
 
 substitutions = {:#?}",
-                     String::from_utf8_lossy(symbol.raw.as_ref()),
-                     symbol.parsed,
-                     symbol.substitutions);
+                         String::from_utf8_lossy(symbol.raw.as_ref()),
+                         data.parsed.1,
+                         data.parsed.0);
+            });
         }
 
         Ok(symbol)
@@ -159,22 +215,24 @@ impl<T> Symbol<T> {
 
         let idx_str = IndexStr::new(input);
         let (parsed, tail) = try!(ast::MangledName::parse(&mut substitutions, idx_str));
+        let data = try!(symbol_data::new(substitutions, parsed));
 
         let symbol = Symbol {
             raw: input,
-            substitutions: substitutions,
-            parsed: parsed,
+            data: data,
         };
 
         if cfg!(feature = "logging") {
-            println!("Successfully parsed '{}' as
+            symbol.data.rent_all(|data| {
+                println!("Successfully parsed '{}' as
 
 AST = {:#?}
 
 substitutions = {:#?}",
-                     String::from_utf8_lossy(symbol.raw.as_ref()),
-                     symbol.parsed,
-                     symbol.substitutions);
+                         String::from_utf8_lossy(symbol.raw.as_ref()),
+                         data.parsed.1,
+                         data.parsed.0);
+            });
         }
 
         Ok((symbol, tail.into()))
@@ -186,12 +244,14 @@ impl<T> fmt::Display for Symbol<T>
 {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         let mut out = vec![];
-        {
-            let mut ctx = ast::DemangleContext::new(&self.substitutions,
+
+        try!(self.data.rent_all(|data| {
+            let mut ctx = ast::DemangleContext::new(&data.parsed.0,
                                                     self.raw.as_ref(),
                                                     &mut out);
-            try!(self.parsed.demangle(&mut ctx, None).map_err(|_| fmt::Error));
-        }
+            data.parsed.1.demangle(&mut ctx, None).map_err(|_| fmt::Error)
+        }));
+
         write!(f, "{}", String::from_utf8_lossy(&out))
     }
 }
