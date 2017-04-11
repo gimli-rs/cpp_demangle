@@ -12,11 +12,14 @@ repository = "https://github.com/fitzgen/cpp_demangle"
 version = "0.2.1"
 
 [badges]
-travis-ci = { repository = "fitzgen/cpp_demangle" }
+
+[badges.travis-ci]
+repository = "fitzgen/cpp_demangle"
 
 [dependencies]
-fixedbitset = "0.1.5"
 clap = "2.20.5"
+fixedbitset = "0.1.5"
+stable_deref_trait = "1.0.0"
 
 [dependencies.afl]
 optional = true
