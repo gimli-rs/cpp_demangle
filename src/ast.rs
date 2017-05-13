@@ -1795,6 +1795,13 @@ impl<'subs, W> Demangle<'subs, W> for OperatorName
             OperatorName::Simple(ref simple) => simple.demangle(ctx, stack),
             OperatorName::Cast(ref ty) => {
                 try!(ctx.ensure_space());
+
+                // Cast operators can refer to template arguments before they
+                // actually appear in the AST, so we go traverse down the tree
+                // and fetch them if they exist.
+                let stack = ty.get_template_args(ctx.subs)
+                    .map_or(stack, |args| stack.push(args));
+
                 try!(ty.demangle(ctx, stack));
                 Ok(())
             }
@@ -2222,6 +2229,12 @@ impl Parse for TypeHandle {
     }
 }
 
+impl GetTemplateArgs for TypeHandle {
+    fn get_template_args<'a>(&'a self, subs: &'a SubstitutionTable) -> Option<&'a TemplateArgs> {
+        subs.get_type(self).and_then(|ty| ty.get_template_args(subs))
+    }
+}
+
 impl<'subs, W> Demangle<'subs, W> for Type
     where W: 'subs + io::Write
 {
@@ -2319,6 +2332,21 @@ impl<'subs, W> DemangleAsInner<'subs, W> for Type
 
     fn downcast_to_type(&self) -> Option<&Type> {
         Some(self)
+    }
+}
+
+impl GetTemplateArgs for Type {
+    fn get_template_args<'a>(&'a self, _subs: &'a SubstitutionTable) -> Option<&'a TemplateArgs> {
+        // TODO: This should probably recurse through all the nested type
+        // handles too.
+
+        match *self {
+            Type::VendorExtension(_, Some( ref args), _) |
+            Type::TemplateTemplate(_, ref args) => {
+                Some(args)
+            }
+            _ => None
+        }
     }
 }
 
