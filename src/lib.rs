@@ -10,7 +10,7 @@
 //! another.  Almost all platforms other than Microsoft Windows follow the
 //! [Itanium C++ ABI][itanium]'s rules for this.
 //!
-//! [itanium]: http://mentorembedded.github.io/cxx-abi/abi.html#mangling
+//! [itanium]: http://itanium-cxx-abi.github.io/cxx-abi/abi.html#mangle
 //!
 //! For example, suppose a C++ compilation unit has the definition:
 //!

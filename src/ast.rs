@@ -884,7 +884,7 @@ impl<'subs, W> Demangle<'subs, W> for Encoding
                 // whether this is a template.
                 //
                 // For the details, see
-                // http://mentorembedded.github.io/cxx-abi/abi.html#mangle.function-type
+                // http://itanium-cxx-abi.github.io/cxx-abi/abi.html#mangle.function-type
                 let stack = if let Some(template_args) = name.get_template_args(ctx.subs) {
                     let stack = stack.push(template_args);
 
