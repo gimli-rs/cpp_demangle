@@ -6,7 +6,8 @@ use error::{self, Result};
 use index_str::IndexStr;
 use self::fixedbitset::FixedBitSet;
 #[cfg(feature = "logging")]
-use std::cell::RefCell;
+use std::cell::{RefCell};
+use std::cell::Cell;
 use std::collections::HashMap;
 use std::collections::hash_map::Entry;
 use std::error::Error;
@@ -60,11 +61,17 @@ impl Drop for AutoLogParse {
     }
 }
 
-/// Automatically log start and end parsing in an s-expression format, when the
-/// `logging` feature is enabled.
-macro_rules! log_parse {
-    ( $production:expr , $input:expr ) => {
+/// Performs the two operations that begin every parse:
+///
+/// 1. Keeps track of recursion levels and early returns with an error if there
+///    is too much recursion.
+///
+/// 2. Automatically log start and end parsing in an s-expression format, when the
+///    `logging` feature is enabled.
+macro_rules! try_begin_parse {
+    ( $production:expr , $ctx:expr , $input:expr ) => {
         let _log = AutoLogParse::new($production, $input);
+        let _auto_check_recursion = try!(AutoRecursion::new($ctx));
     }
 }
 
@@ -127,6 +134,71 @@ macro_rules! log_demangle {
     }
 }
 
+/// Common context needed when parsing.
+#[derive(Debug, Clone)]
+pub struct ParseContext {
+    // Maximum amount of recursive parsing calls we will allow. If this is too
+    // large, we can blow the stack.
+    max_recursion: u32,
+    // The current recursion level. Should always be less than or equal to the
+    // maximum.
+    recursion_level: Cell<u32>,
+}
+
+impl Default for ParseContext {
+    fn default() -> ParseContext {
+        ParseContext {
+            max_recursion: 64,
+            recursion_level: Cell::new(0),
+        }
+    }
+}
+
+impl ParseContext {
+    /// Get the current recursion level for this context.
+    pub fn recursion_level(&self) -> u32 {
+        self.recursion_level.get()
+    }
+
+    #[inline]
+    fn enter_recursion(&self) -> error::Result<()> {
+        let new_recursion_level = self.recursion_level.get() + 1;
+
+        if new_recursion_level >= self.max_recursion {
+            Err(error::Error::TooMuchRecursion)
+        } else {
+            self.recursion_level.set(new_recursion_level);
+            Ok(())
+        }
+    }
+
+    #[inline]
+    fn exit_recursion(&self) {
+        debug_assert!(self.recursion_level.get() >= 1);
+        self.recursion_level.set(self.recursion_level.get() - 1);
+    }
+}
+
+/// An RAII type to automatically check the recursion level against the
+/// maximum. If the maximum has been crossed, return an error. Otherwise,
+/// increment the level upon construction, and decrement it upon destruction.
+struct AutoRecursion<'a>(&'a ParseContext);
+
+impl<'a> AutoRecursion<'a> {
+    #[inline]
+    fn new(ctx: &'a ParseContext) -> error::Result<AutoRecursion<'a>> {
+        try!(ctx.enter_recursion());
+        Ok(AutoRecursion(ctx))
+    }
+}
+
+impl<'a> Drop for AutoRecursion<'a> {
+    #[inline]
+    fn drop(&mut self) {
+        self.0.exit_recursion();
+    }
+}
+
 /// A trait for anything that can be parsed from an `IndexStr` and return a
 /// `Result` of the parsed `Self` value and the rest of the `IndexStr` input
 /// that has not been consumed in parsing the `Self` value.
@@ -141,7 +213,8 @@ macro_rules! log_demangle {
 pub trait Parse: Sized {
     /// Parse the `Self` value from `input` and return it, updating the
     /// substitution table as needed.
-    fn parse<'a, 'b>(subs: &'a mut SubstitutionTable,
+    fn parse<'a, 'b>(ctx: &'a ParseContext,
+                     subs: &'a mut SubstitutionTable,
                      input: IndexStr<'b>)
                      -> Result<(Self, IndexStr<'b>)>;
 }
@@ -699,10 +772,11 @@ macro_rules! define_vocabulary {
         }
 
         impl Parse for $typename {
-            fn parse<'a, 'b>(_subs: &'a mut SubstitutionTable,
+            fn parse<'a, 'b>(ctx: &'a ParseContext,
+                             _subs: &'a mut SubstitutionTable,
                              input: IndexStr<'b>)
                              -> Result<($typename, IndexStr<'b>)> {
-                log_parse!(stringify!($typename), input);
+                try_begin_parse!(stringify!($typename), ctx, input);
 
                 let mut found_prefix = false;
                 $(
@@ -775,10 +849,11 @@ pub enum MangledName {
 }
 
 impl Parse for MangledName {
-    fn parse<'a, 'b>(subs: &'a mut SubstitutionTable,
+    fn parse<'a, 'b>(ctx: &'a ParseContext,
+                     subs: &'a mut SubstitutionTable,
                      input: IndexStr<'b>)
                      -> Result<(MangledName, IndexStr<'b>)> {
-        log_parse!("MangledName", input);
+        try_begin_parse!("MangledName", ctx, input);
 
         // The _Z from the spec is really just a suggestion... Sometimes there
         // is an extra leading underscore (like what we get out of `nm`) and
@@ -792,12 +867,12 @@ impl Parse for MangledName {
             input
         };
 
-        if let Ok((encoding, tail)) = Encoding::parse(subs, tail) {
+        if let Ok((encoding, tail)) = Encoding::parse(ctx, subs, tail) {
             return Ok((MangledName::Encoding(encoding), tail));
         };
 
         // The libiberty tests also specify that a type can be top level.
-        let (ty, tail) = try!(TypeHandle::parse(subs, input));
+        let (ty, tail) = try!(TypeHandle::parse(ctx, subs, input));
         Ok((MangledName::Type(ty), tail))
     }
 }
@@ -838,20 +913,21 @@ pub enum Encoding {
 }
 
 impl Parse for Encoding {
-    fn parse<'a, 'b>(subs: &'a mut SubstitutionTable,
+    fn parse<'a, 'b>(ctx: &'a ParseContext,
+                     subs: &'a mut SubstitutionTable,
                      input: IndexStr<'b>)
                      -> Result<(Encoding, IndexStr<'b>)> {
-        log_parse!("Encoding", input);
+        try_begin_parse!("Encoding", ctx, input);
 
-        if let Ok((name, tail)) = Name::parse(subs, input) {
-            if let Ok((ty, tail)) = BareFunctionType::parse(subs, tail) {
+        if let Ok((name, tail)) = Name::parse(ctx, subs, input) {
+            if let Ok((ty, tail)) = BareFunctionType::parse(ctx, subs, tail) {
                 return Ok((Encoding::Function(name, ty), tail));
             } else {
                 return Ok((Encoding::Data(name), tail));
             }
         }
 
-        let (name, tail) = try!(SpecialName::parse(subs, input));
+        let (name, tail) = try!(SpecialName::parse(ctx, subs, input));
         Ok((Encoding::Special(name), tail))
     }
 }
@@ -967,39 +1043,40 @@ pub enum Name {
 }
 
 impl Parse for Name {
-    fn parse<'a, 'b>(subs: &'a mut SubstitutionTable,
+    fn parse<'a, 'b>(ctx: &'a ParseContext,
+                     subs: &'a mut SubstitutionTable,
                      input: IndexStr<'b>)
                      -> Result<(Name, IndexStr<'b>)> {
-        log_parse!("Name", input);
+        try_begin_parse!("Name", ctx, input);
 
-        if let Ok((name, tail)) = NestedName::parse(subs, input) {
+        if let Ok((name, tail)) = NestedName::parse(ctx, subs, input) {
             return Ok((Name::Nested(name), tail));
         }
 
         if let Ok(tail) = consume(b"St", input) {
-            let (name, tail) = try!(UnqualifiedName::parse(subs, tail));
+            let (name, tail) = try!(UnqualifiedName::parse(ctx, subs, tail));
             return Ok((Name::Std(name), tail));
         }
 
-        if let Ok((name, tail)) = UnscopedName::parse(subs, input) {
+        if let Ok((name, tail)) = UnscopedName::parse(ctx, subs, input) {
             if tail.peek() == Some(b'I') {
                 let name = UnscopedTemplateName(name);
                 let idx = subs.insert(Substitutable::UnscopedTemplateName(name));
                 let handle = UnscopedTemplateNameHandle::BackReference(idx);
 
-                let (args, tail) = try!(TemplateArgs::parse(subs, tail));
+                let (args, tail) = try!(TemplateArgs::parse(ctx, subs, tail));
                 return Ok((Name::UnscopedTemplate(handle, args), tail));
             } else {
                 return Ok((Name::Unscoped(name), tail));
             }
         }
 
-        if let Ok((name, tail)) = UnscopedTemplateNameHandle::parse(subs, input) {
-            let (args, tail) = try!(TemplateArgs::parse(subs, tail));
+        if let Ok((name, tail)) = UnscopedTemplateNameHandle::parse(ctx, subs, input) {
+            let (args, tail) = try!(TemplateArgs::parse(ctx, subs, tail));
             return Ok((Name::UnscopedTemplate(name, args), tail));
         }
 
-        let (name, tail) = try!(LocalName::parse(subs, input));
+        let (name, tail) = try!(LocalName::parse(ctx, subs, input));
         Ok((Name::Local(name), tail))
     }
 }
@@ -1059,17 +1136,18 @@ pub enum UnscopedName {
 }
 
 impl Parse for UnscopedName {
-    fn parse<'a, 'b>(subs: &'a mut SubstitutionTable,
+    fn parse<'a, 'b>(ctx: &'a ParseContext,
+                     subs: &'a mut SubstitutionTable,
                      input: IndexStr<'b>)
                      -> Result<(UnscopedName, IndexStr<'b>)> {
-        log_parse!("UnscopedName", input);
+        try_begin_parse!("UnscopedName", ctx, input);
 
         if let Ok(tail) = consume(b"St", input) {
-            let (name, tail) = try!(UnqualifiedName::parse(subs, tail));
+            let (name, tail) = try!(UnqualifiedName::parse(ctx, subs, tail));
             return Ok((UnscopedName::Std(name), tail));
         }
 
-        let (name, tail) = try!(UnqualifiedName::parse(subs, input));
+        let (name, tail) = try!(UnqualifiedName::parse(ctx, subs, input));
         Ok((UnscopedName::Unqualified(name), tail))
     }
 }
@@ -1110,19 +1188,20 @@ define_handle! {
 }
 
 impl Parse for UnscopedTemplateNameHandle {
-    fn parse<'a, 'b>(subs: &'a mut SubstitutionTable,
+    fn parse<'a, 'b>(ctx: &'a ParseContext,
+                     subs: &'a mut SubstitutionTable,
                      input: IndexStr<'b>)
                      -> Result<(UnscopedTemplateNameHandle, IndexStr<'b>)> {
-        log_parse!("UnscopedTemplateNameHandle", input);
+        try_begin_parse!("UnscopedTemplateNameHandle", ctx, input);
 
-        if let Ok((name, tail)) = UnscopedName::parse(subs, input) {
+        if let Ok((name, tail)) = UnscopedName::parse(ctx, subs, input) {
             let name = UnscopedTemplateName(name);
             let idx = subs.insert(Substitutable::UnscopedTemplateName(name));
             let handle = UnscopedTemplateNameHandle::BackReference(idx);
             return Ok((handle, tail));
         }
 
-        let (sub, tail) = try!(Substitution::parse(subs, input));
+        let (sub, tail) = try!(Substitution::parse(ctx, subs, input));
 
         match sub {
             Substitution::WellKnown(component) => {
@@ -1160,28 +1239,29 @@ impl<'subs, W> Demangle<'subs, W> for UnscopedTemplateName
 pub struct NestedName(CvQualifiers, Option<RefQualifier>, PrefixHandle);
 
 impl Parse for NestedName {
-    fn parse<'a, 'b>(subs: &'a mut SubstitutionTable,
+    fn parse<'a, 'b>(ctx: &'a ParseContext,
+                     subs: &'a mut SubstitutionTable,
                      input: IndexStr<'b>)
                      -> Result<(NestedName, IndexStr<'b>)> {
-        log_parse!("NestedName", input);
+        try_begin_parse!("NestedName", ctx, input);
 
         let tail = try!(consume(b"N", input));
 
-        let (cv_qualifiers, tail) = if let Ok((q, tail)) = CvQualifiers::parse(subs,
+        let (cv_qualifiers, tail) = if let Ok((q, tail)) = CvQualifiers::parse(ctx, subs,
                                                                                tail) {
             (q, tail)
         } else {
             (Default::default(), tail)
         };
 
-        let (ref_qualifier, tail) = if let Ok((r, tail)) = RefQualifier::parse(subs,
+        let (ref_qualifier, tail) = if let Ok((r, tail)) = RefQualifier::parse(ctx, subs,
                                                                                tail) {
             (Some(r), tail)
         } else {
             (None, tail)
         };
 
-        let (prefix, tail) = try!(PrefixHandle::parse(subs, tail));
+        let (prefix, tail) = try!(PrefixHandle::parse(ctx, subs, tail));
         if let PrefixHandle::BackReference(idx) = prefix {
             match (*subs)[idx] {
                 // The <nested-name> must end with one of these kinds of prefix
@@ -1291,10 +1371,11 @@ define_handle! {
 }
 
 impl Parse for PrefixHandle {
-    fn parse<'a, 'b>(subs: &'a mut SubstitutionTable,
+    fn parse<'a, 'b>(ctx: &'a ParseContext,
+                     subs: &'a mut SubstitutionTable,
                      input: IndexStr<'b>)
                      -> Result<(PrefixHandle, IndexStr<'b>)> {
-        log_parse!("PrefixHandle", input);
+        try_begin_parse!("PrefixHandle", ctx, input);
 
         fn add_to_subs(subs: &mut SubstitutionTable, prefix: Prefix) -> PrefixHandle {
             let idx = subs.insert(Substitutable::Prefix(prefix));
@@ -1305,7 +1386,7 @@ impl Parse for PrefixHandle {
         let mut current = None;
 
         loop {
-            log_parse!("PrefixHandle iteration", tail);
+            try_begin_parse!("PrefixHandle iteration", ctx, tail);
 
             match tail.peek() {
                 None => {
@@ -1317,7 +1398,7 @@ impl Parse for PrefixHandle {
                 }
                 Some(b'S') => {
                     // <prefix> ::= <substitution>
-                    let (sub, tail_tail) = try!(Substitution::parse(subs, tail));
+                    let (sub, tail_tail) = try!(Substitution::parse(ctx, subs, tail));
                     current = Some(match sub {
                         Substitution::WellKnown(component) => {
                             PrefixHandle::WellKnown(component)
@@ -1332,7 +1413,7 @@ impl Parse for PrefixHandle {
                 }
                 Some(b'T') => {
                     // <prefix> ::= <template-param>
-                    let (param, tail_tail) = try!(TemplateParam::parse(subs, tail));
+                    let (param, tail_tail) = try!(TemplateParam::parse(ctx, subs, tail));
                     current = Some(add_to_subs(subs, Prefix::TemplateParam(param)));
                     tail = tail_tail;
                 }
@@ -1344,11 +1425,11 @@ impl Parse for PrefixHandle {
                     // or
                     //
                     //     <prefix> ::= <unqualified-name> ::= <ctor-dtor-name>
-                    if let Ok((decltype, tail_tail)) = Decltype::parse(subs, tail) {
+                    if let Ok((decltype, tail_tail)) = Decltype::parse(ctx, subs, tail) {
                         current = Some(add_to_subs(subs, Prefix::Decltype(decltype)));
                         tail = tail_tail;
                     } else {
-                        let (name, tail_tail) = try!(UnqualifiedName::parse(subs, tail));
+                        let (name, tail_tail) = try!(UnqualifiedName::parse(ctx, subs, tail));
                         let prefix = match current {
                             None => Prefix::Unqualified(name),
                             Some(handle) => Prefix::Nested(handle, name),
@@ -1360,7 +1441,7 @@ impl Parse for PrefixHandle {
                 Some(b'I') if current.is_some() &&
                               current.as_ref().unwrap().is_template_prefix(subs) => {
                     // <prefix> ::= <template-prefix> <template-args>
-                    let (args, tail_tail) = try!(TemplateArgs::parse(subs, tail));
+                    let (args, tail_tail) = try!(TemplateArgs::parse(ctx, subs, tail));
                     let prefix = Prefix::Template(current.unwrap(), args);
                     current = Some(add_to_subs(subs, prefix));
                     tail = tail_tail;
@@ -1376,7 +1457,7 @@ impl Parse for PrefixHandle {
                     debug_assert!(UnqualifiedName::starts_with(c));
                     debug_assert!(DataMemberPrefix::starts_with(c));
 
-                    let (name, tail_tail) = try!(SourceName::parse(subs, tail));
+                    let (name, tail_tail) = try!(SourceName::parse(ctx, subs, tail));
                     if tail_tail.peek() == Some(b'M') {
                         let prefix = Prefix::DataMember(current.unwrap(),
                                                         DataMemberPrefix(name));
@@ -1394,7 +1475,7 @@ impl Parse for PrefixHandle {
                 }
                 Some(c) if UnqualifiedName::starts_with(c) => {
                     // <prefix> ::= <unqualified-name>
-                    let (name, tail_tail) = try!(UnqualifiedName::parse(subs, tail));
+                    let (name, tail_tail) = try!(UnqualifiedName::parse(ctx, subs, tail));
                     let prefix = match current {
                         None => Prefix::Unqualified(name),
                         Some(handle) => Prefix::Nested(handle, name),
@@ -1513,24 +1594,25 @@ pub enum UnqualifiedName {
 }
 
 impl Parse for UnqualifiedName {
-    fn parse<'a, 'b>(subs: &'a mut SubstitutionTable,
+    fn parse<'a, 'b>(ctx: &'a ParseContext,
+                     subs: &'a mut SubstitutionTable,
                      input: IndexStr<'b>)
                      -> Result<(UnqualifiedName, IndexStr<'b>)> {
-        log_parse!("UnqualifiedName", input);
+        try_begin_parse!("UnqualifiedName", ctx, input);
 
-        if let Ok((op, tail)) = OperatorName::parse(subs, input) {
+        if let Ok((op, tail)) = OperatorName::parse(ctx, subs, input) {
             return Ok((UnqualifiedName::Operator(op), tail));
         }
 
-        if let Ok((ctor_dtor, tail)) = CtorDtorName::parse(subs, input) {
+        if let Ok((ctor_dtor, tail)) = CtorDtorName::parse(ctx, subs, input) {
             return Ok((UnqualifiedName::CtorDtor(ctor_dtor), tail));
         }
 
-        if let Ok((source, tail)) = SourceName::parse(subs, input) {
+        if let Ok((source, tail)) = SourceName::parse(ctx, subs, input) {
             return Ok((UnqualifiedName::Source(source), tail));
         }
 
-        UnnamedTypeName::parse(subs, input)
+        UnnamedTypeName::parse(ctx, subs, input)
             .map(|(unnamed, tail)| (UnqualifiedName::UnnamedType(unnamed), tail))
     }
 }
@@ -1573,10 +1655,11 @@ impl<'subs, W> Demangle<'subs, W> for UnqualifiedName
 pub struct SourceName(Identifier);
 
 impl Parse for SourceName {
-    fn parse<'a, 'b>(subs: &'a mut SubstitutionTable,
+    fn parse<'a, 'b>(ctx: &'a ParseContext,
+                     subs: &'a mut SubstitutionTable,
                      input: IndexStr<'b>)
                      -> Result<(SourceName, IndexStr<'b>)> {
-        log_parse!("SourceName", input);
+        try_begin_parse!("SourceName", ctx, input);
 
         let (source_name_len, input) = try!(parse_number(10, false, input));
         debug_assert!(source_name_len >= 0);
@@ -1589,7 +1672,7 @@ impl Parse for SourceName {
             None => return Err(error::Error::UnexpectedEnd),
         };
 
-        let (identifier, empty) = try!(Identifier::parse(subs, head));
+        let (identifier, empty) = try!(Identifier::parse(ctx, subs, head));
         if !empty.is_empty() {
             return Err(error::Error::UnexpectedText);
         }
@@ -1639,10 +1722,11 @@ pub struct Identifier {
 }
 
 impl Parse for Identifier {
-    fn parse<'a, 'b>(_subs: &'a mut SubstitutionTable,
+    fn parse<'a, 'b>(ctx: &'a ParseContext,
+                     _subs: &'a mut SubstitutionTable,
                      input: IndexStr<'b>)
                      -> Result<(Identifier, IndexStr<'b>)> {
-        log_parse!("Identifier", input);
+        try_begin_parse!("Identifier", ctx, input);
 
         if input.is_empty() {
             return Err(error::Error::UnexpectedEnd);
@@ -1695,10 +1779,11 @@ impl Identifier {
 type Number = isize;
 
 impl Parse for Number {
-    fn parse<'a, 'b>(_subs: &'a mut SubstitutionTable,
+    fn parse<'a, 'b>(ctx: &'a ParseContext,
+                     _subs: &'a mut SubstitutionTable,
                      input: IndexStr<'b>)
                      -> Result<(isize, IndexStr<'b>)> {
-        log_parse!("Number", input);
+        try_begin_parse!("Number", ctx, input);
 
         parse_number(10, true, input)
     }
@@ -1713,10 +1798,11 @@ impl Parse for Number {
 pub struct SeqId(usize);
 
 impl Parse for SeqId {
-    fn parse<'a, 'b>(_subs: &'a mut SubstitutionTable,
+    fn parse<'a, 'b>(ctx: &'a ParseContext,
+                     _subs: &'a mut SubstitutionTable,
                      input: IndexStr<'b>)
                      -> Result<(SeqId, IndexStr<'b>)> {
-        log_parse!("SeqId", input);
+        try_begin_parse!("SeqId", ctx, input);
 
         parse_number(36, false, input).map(|(num, tail)| (SeqId(num as _), tail))
     }
@@ -1753,22 +1839,23 @@ impl StartsWith for OperatorName {
 }
 
 impl Parse for OperatorName {
-    fn parse<'a, 'b>(subs: &'a mut SubstitutionTable,
+    fn parse<'a, 'b>(ctx: &'a ParseContext,
+                     subs: &'a mut SubstitutionTable,
                      input: IndexStr<'b>)
                      -> Result<(OperatorName, IndexStr<'b>)> {
-        log_parse!("OperatorName", input);
+        try_begin_parse!("OperatorName", ctx, input);
 
-        if let Ok((simple, tail)) = SimpleOperatorName::parse(subs, input) {
+        if let Ok((simple, tail)) = SimpleOperatorName::parse(ctx, subs, input) {
             return Ok((OperatorName::Simple(simple), tail));
         }
 
         if let Ok(tail) = consume(b"cv", input) {
-            let (ty, tail) = try!(TypeHandle::parse(subs, tail));
+            let (ty, tail) = try!(TypeHandle::parse(ctx, subs, tail));
             return Ok((OperatorName::Cast(ty), tail));
         }
 
         if let Ok(tail) = consume(b"li", input) {
-            let (name, tail) = try!(SourceName::parse(subs, tail));
+            let (name, tail) = try!(SourceName::parse(ctx, subs, tail));
             return Ok((OperatorName::Literal(name), tail));
         }
 
@@ -1778,7 +1865,7 @@ impl Parse for OperatorName {
             None => return Err(error::Error::UnexpectedEnd),
             _ => return Err(error::Error::UnexpectedText),
         };
-        let (name, tail) = try!(SourceName::parse(subs, tail));
+        let (name, tail) = try!(SourceName::parse(ctx, subs, tail));
         Ok((OperatorName::VendorExtension(arity, name), tail))
     }
 }
@@ -1890,23 +1977,24 @@ pub enum CallOffset {
 }
 
 impl Parse for CallOffset {
-    fn parse<'a, 'b>(subs: &'a mut SubstitutionTable,
+    fn parse<'a, 'b>(ctx: &'a ParseContext,
+                     subs: &'a mut SubstitutionTable,
                      input: IndexStr<'b>)
                      -> Result<(CallOffset, IndexStr<'b>)> {
-        log_parse!("CallOffset", input);
+        try_begin_parse!("CallOffset", ctx, input);
 
         if input.is_empty() {
             return Err(error::Error::UnexpectedEnd);
         }
 
         if let Ok(tail) = consume(b"h", input) {
-            let (offset, tail) = try!(NvOffset::parse(subs, tail));
+            let (offset, tail) = try!(NvOffset::parse(ctx, subs, tail));
             let tail = try!(consume(b"_", tail));
             return Ok((CallOffset::NonVirtual(offset), tail));
         }
 
         if let Ok(tail) = consume(b"v", input) {
-            let (offset, tail) = try!(VOffset::parse(subs, tail));
+            let (offset, tail) = try!(VOffset::parse(ctx, subs, tail));
             let tail = try!(consume(b"_", tail));
             return Ok((CallOffset::Virtual(offset), tail));
         }
@@ -1945,12 +2033,13 @@ impl<'subs, W> Demangle<'subs, W> for CallOffset
 pub struct NvOffset(isize);
 
 impl Parse for NvOffset {
-    fn parse<'a, 'b>(subs: &'a mut SubstitutionTable,
+    fn parse<'a, 'b>(ctx: &'a ParseContext,
+                     subs: &'a mut SubstitutionTable,
                      input: IndexStr<'b>)
                      -> Result<(NvOffset, IndexStr<'b>)> {
-        log_parse!("NvOffset", input);
+        try_begin_parse!("NvOffset", ctx, input);
 
-        Number::parse(subs, input).map(|(num, tail)| (NvOffset(num), tail))
+        Number::parse(ctx, subs, input).map(|(num, tail)| (NvOffset(num), tail))
     }
 }
 
@@ -1963,14 +2052,15 @@ impl Parse for NvOffset {
 pub struct VOffset(isize, isize);
 
 impl Parse for VOffset {
-    fn parse<'a, 'b>(subs: &'a mut SubstitutionTable,
+    fn parse<'a, 'b>(ctx: &'a ParseContext,
+                     subs: &'a mut SubstitutionTable,
                      input: IndexStr<'b>)
                      -> Result<(VOffset, IndexStr<'b>)> {
-        log_parse!("VOffset", input);
+        try_begin_parse!("VOffset", ctx, input);
 
-        let (offset, tail) = try!(Number::parse(subs, input));
+        let (offset, tail) = try!(Number::parse(ctx, subs, input));
         let tail = try!(consume(b"_", tail));
-        let (virtual_offset, tail) = try!(Number::parse(subs, tail));
+        let (virtual_offset, tail) = try!(Number::parse(ctx, subs, tail));
         Ok((VOffset(offset, virtual_offset), tail))
     }
 }
@@ -2087,12 +2177,13 @@ impl TypeHandle {
 }
 
 impl Parse for TypeHandle {
-    fn parse<'a, 'b>(subs: &'a mut SubstitutionTable,
+    fn parse<'a, 'b>(ctx: &'a ParseContext,
+                     subs: &'a mut SubstitutionTable,
                      input: IndexStr<'b>)
                      -> Result<(TypeHandle, IndexStr<'b>)> {
-        log_parse!("TypeHandle", input);
+        try_begin_parse!("TypeHandle", ctx, input);
 
-        if let Ok((sub, tail)) = Substitution::parse(subs, input) {
+        if let Ok((sub, tail)) = Substitution::parse(ctx, subs, input) {
             // If we see an 'I', then this is actually a substitution for a
             // <template-template-param>, and the template args are what
             // follows. Throw away what we just parsed, and re-parse it in
@@ -2124,34 +2215,34 @@ impl Parse for TypeHandle {
             Ok((handle, tail))
         }
 
-        if let Ok((builtin, tail)) = BuiltinType::parse(subs, input) {
+        if let Ok((builtin, tail)) = BuiltinType::parse(ctx, subs, input) {
             // Builtin types are one of two exceptions that do not end up in the
             // substitutions table.
             let handle = TypeHandle::Builtin(builtin);
             return Ok((handle, tail));
         }
 
-        if let Ok((funty, tail)) = FunctionType::parse(subs, input) {
+        if let Ok((funty, tail)) = FunctionType::parse(ctx, subs, input) {
             let ty = Type::Function(funty);
             return insert_and_return_handle(ty, subs, tail);
         }
 
-        if let Ok((ty, tail)) = ClassEnumType::parse(subs, input) {
+        if let Ok((ty, tail)) = ClassEnumType::parse(ctx, subs, input) {
             let ty = Type::ClassEnum(ty);
             return insert_and_return_handle(ty, subs, tail);
         }
 
-        if let Ok((ty, tail)) = ArrayType::parse(subs, input) {
+        if let Ok((ty, tail)) = ArrayType::parse(ctx, subs, input) {
             let ty = Type::Array(ty);
             return insert_and_return_handle(ty, subs, tail);
         }
 
-        if let Ok((ty, tail)) = PointerToMemberType::parse(subs, input) {
+        if let Ok((ty, tail)) = PointerToMemberType::parse(ctx, subs, input) {
             let ty = Type::PointerToMember(ty);
             return insert_and_return_handle(ty, subs, tail);
         }
 
-        if let Ok((param, tail)) = TemplateParam::parse(subs, input) {
+        if let Ok((param, tail)) = TemplateParam::parse(ctx, subs, input) {
             // Same situation as with `Substitution::parse` at the top of this
             // function: this is actually a <template-template-param> and
             // <template-args>.
@@ -2161,23 +2252,23 @@ impl Parse for TypeHandle {
             }
         }
 
-        if let Ok((ttp, tail)) = TemplateTemplateParamHandle::parse(subs, input) {
-            let (args, tail) = try!(TemplateArgs::parse(subs, tail));
+        if let Ok((ttp, tail)) = TemplateTemplateParamHandle::parse(ctx, subs, input) {
+            let (args, tail) = try!(TemplateArgs::parse(ctx, subs, tail));
             let ty = Type::TemplateTemplate(ttp, args);
             return insert_and_return_handle(ty, subs, tail);
         }
 
-        if let Ok((param, tail)) = Decltype::parse(subs, input) {
+        if let Ok((param, tail)) = Decltype::parse(ctx, subs, input) {
             let ty = Type::Decltype(param);
             return insert_and_return_handle(ty, subs, tail);
         }
 
-        if let Ok((qualifiers, tail)) = CvQualifiers::parse(subs, input) {
+        if let Ok((qualifiers, tail)) = CvQualifiers::parse(ctx, subs, input) {
             // CvQualifiers can parse successfully without consuming any input,
             // but we don't want to recurse unless we know we did consume some
             // input, lest we go into an infinite loop and blow the stack.
             if tail.len() < input.len() {
-                let (ty, tail) = try!(TypeHandle::parse(subs, tail));
+                let (ty, tail) = try!(TypeHandle::parse(ctx, subs, tail));
 
                 // Qualified built-in types don't go in the substitutions table
                 // either.
@@ -2192,50 +2283,50 @@ impl Parse for TypeHandle {
         }
 
         if let Ok(tail) = consume(b"P", input) {
-            let (ty, tail) = try!(TypeHandle::parse(subs, tail));
+            let (ty, tail) = try!(TypeHandle::parse(ctx, subs, tail));
             let ty = Type::PointerTo(ty);
             return insert_and_return_handle(ty, subs, tail);
         }
 
         if let Ok(tail) = consume(b"R", input) {
-            let (ty, tail) = try!(TypeHandle::parse(subs, tail));
+            let (ty, tail) = try!(TypeHandle::parse(ctx, subs, tail));
             let ty = Type::LvalueRef(ty);
             return insert_and_return_handle(ty, subs, tail);
         }
 
         if let Ok(tail) = consume(b"O", input) {
-            let (ty, tail) = try!(TypeHandle::parse(subs, tail));
+            let (ty, tail) = try!(TypeHandle::parse(ctx, subs, tail));
             let ty = Type::RvalueRef(ty);
             return insert_and_return_handle(ty, subs, tail);
         }
 
         if let Ok(tail) = consume(b"C", input) {
-            let (ty, tail) = try!(TypeHandle::parse(subs, tail));
+            let (ty, tail) = try!(TypeHandle::parse(ctx, subs, tail));
             let ty = Type::Complex(ty);
             return insert_and_return_handle(ty, subs, tail);
         }
 
         if let Ok(tail) = consume(b"G", input) {
-            let (ty, tail) = try!(TypeHandle::parse(subs, tail));
+            let (ty, tail) = try!(TypeHandle::parse(ctx, subs, tail));
             let ty = Type::Imaginary(ty);
             return insert_and_return_handle(ty, subs, tail);
         }
 
         if let Ok(tail) = consume(b"U", input) {
-            let (name, tail) = try!(SourceName::parse(subs, tail));
-            let (args, tail) = if let Ok((args, tail)) = TemplateArgs::parse(subs,
+            let (name, tail) = try!(SourceName::parse(ctx, subs, tail));
+            let (args, tail) = if let Ok((args, tail)) = TemplateArgs::parse(ctx, subs,
                                                                              tail) {
                 (Some(args), tail)
             } else {
                 (None, tail)
             };
-            let (ty, tail) = try!(TypeHandle::parse(subs, tail));
+            let (ty, tail) = try!(TypeHandle::parse(ctx, subs, tail));
             let ty = Type::VendorExtension(name, args, ty);
             return insert_and_return_handle(ty, subs, tail);
         }
 
         let tail = try!(consume(b"Dp", input));
-        let (ty, tail) = try!(TypeHandle::parse(subs, tail));
+        let (ty, tail) = try!(TypeHandle::parse(ctx, subs, tail));
         let ty = Type::PackExpansion(ty);
         insert_and_return_handle(ty, subs, tail)
     }
@@ -2378,10 +2469,11 @@ pub struct CvQualifiers {
 }
 
 impl Parse for CvQualifiers {
-    fn parse<'a, 'b>(_subs: &'a mut SubstitutionTable,
+    fn parse<'a, 'b>(ctx: &'a ParseContext,
+                     _subs: &'a mut SubstitutionTable,
                      input: IndexStr<'b>)
                      -> Result<(CvQualifiers, IndexStr<'b>)> {
-        log_parse!("CvQualifiers", input);
+        try_begin_parse!("CvQualifiers", ctx, input);
 
         let (restrict, tail) = if let Ok(tail) = consume(b"r", input) {
             (true, tail)
@@ -2549,17 +2641,18 @@ pub enum BuiltinType {
 }
 
 impl Parse for BuiltinType {
-    fn parse<'a, 'b>(subs: &'a mut SubstitutionTable,
+    fn parse<'a, 'b>(ctx: &'a ParseContext,
+                     subs: &'a mut SubstitutionTable,
                      input: IndexStr<'b>)
                      -> Result<(BuiltinType, IndexStr<'b>)> {
-        log_parse!("BuiltinType", input);
+        try_begin_parse!("BuiltinType", ctx, input);
 
-        if let Ok((ty, tail)) = StandardBuiltinType::parse(subs, input) {
+        if let Ok((ty, tail)) = StandardBuiltinType::parse(ctx, subs, input) {
             return Ok((BuiltinType::Standard(ty), tail));
         }
 
         let tail = try!(consume(b"u", input));
-        let (name, tail) = try!(SourceName::parse(subs, tail));
+        let (name, tail) = try!(SourceName::parse(ctx, subs, tail));
         Ok((BuiltinType::Extension(name), tail))
     }
 }
@@ -2624,13 +2717,14 @@ pub struct FunctionType {
 }
 
 impl Parse for FunctionType {
-    fn parse<'a, 'b>(subs: &'a mut SubstitutionTable,
+    fn parse<'a, 'b>(ctx: &'a ParseContext,
+                     subs: &'a mut SubstitutionTable,
                      input: IndexStr<'b>)
                      -> Result<(FunctionType, IndexStr<'b>)> {
-        log_parse!("FunctionType", input);
+        try_begin_parse!("FunctionType", ctx, input);
 
         let (cv_qualifiers, tail) = if let Ok((cv_qualifiers, tail)) =
-            CvQualifiers::parse(subs, input) {
+            CvQualifiers::parse(ctx, subs, input) {
             (cv_qualifiers, tail)
         } else {
             (Default::default(), input)
@@ -2650,10 +2744,10 @@ impl Parse for FunctionType {
             (false, tail)
         };
 
-        let (bare, tail) = try!(BareFunctionType::parse(subs, tail));
+        let (bare, tail) = try!(BareFunctionType::parse(ctx, subs, tail));
 
         let (ref_qualifier, tail) = if let Ok((ref_qualifier, tail)) =
-            RefQualifier::parse(subs, tail) {
+            RefQualifier::parse(ctx, subs, tail) {
             (Some(ref_qualifier), tail)
         } else {
             (None, tail)
@@ -2710,12 +2804,13 @@ impl BareFunctionType {
 }
 
 impl Parse for BareFunctionType {
-    fn parse<'a, 'b>(subs: &'a mut SubstitutionTable,
+    fn parse<'a, 'b>(ctx: &'a ParseContext,
+                     subs: &'a mut SubstitutionTable,
                      input: IndexStr<'b>)
                      -> Result<(BareFunctionType, IndexStr<'b>)> {
-        log_parse!("BareFunctionType", input);
+        try_begin_parse!("BareFunctionType", ctx, input);
 
-        let (types, tail) = try!(one_or_more::<TypeHandle>(subs, input));
+        let (types, tail) = try!(one_or_more::<TypeHandle>(ctx, subs, input));
         Ok((BareFunctionType(types), tail))
     }
 }
@@ -2771,21 +2866,22 @@ pub enum Decltype {
 }
 
 impl Parse for Decltype {
-    fn parse<'a, 'b>(subs: &'a mut SubstitutionTable,
+    fn parse<'a, 'b>(ctx: &'a ParseContext,
+                     subs: &'a mut SubstitutionTable,
                      input: IndexStr<'b>)
                      -> Result<(Decltype, IndexStr<'b>)> {
-        log_parse!("Decltype", input);
+        try_begin_parse!("Decltype", ctx, input);
 
         let tail = try!(consume(b"D", input));
 
         if let Ok(tail) = consume(b"t", tail) {
-            let (expr, tail) = try!(Expression::parse(subs, tail));
+            let (expr, tail) = try!(Expression::parse(ctx, subs, tail));
             let tail = try!(consume(b"E", tail));
             return Ok((Decltype::IdExpression(expr), tail));
         }
 
         let tail = try!(consume(b"T", tail));
-        let (expr, tail) = try!(Expression::parse(subs, tail));
+        let (expr, tail) = try!(Expression::parse(ctx, subs, tail));
         let tail = try!(consume(b"E", tail));
         Ok((Decltype::Expression(expr), tail))
     }
@@ -2837,29 +2933,30 @@ pub enum ClassEnumType {
 }
 
 impl Parse for ClassEnumType {
-    fn parse<'a, 'b>(subs: &'a mut SubstitutionTable,
+    fn parse<'a, 'b>(ctx: &'a ParseContext,
+                     subs: &'a mut SubstitutionTable,
                      input: IndexStr<'b>)
                      -> Result<(ClassEnumType, IndexStr<'b>)> {
-        log_parse!("ClassEnumType", input);
+        try_begin_parse!("ClassEnumType", ctx, input);
 
-        if let Ok((name, tail)) = Name::parse(subs, input) {
+        if let Ok((name, tail)) = Name::parse(ctx, subs, input) {
             return Ok((ClassEnumType::Named(name), tail));
         }
 
         let tail = try!(consume(b"T", input));
 
         if let Ok(tail) = consume(b"s", tail) {
-            let (name, tail) = try!(Name::parse(subs, tail));
+            let (name, tail) = try!(Name::parse(ctx, subs, tail));
             return Ok((ClassEnumType::ElaboratedStruct(name), tail));
         }
 
         if let Ok(tail) = consume(b"u", tail) {
-            let (name, tail) = try!(Name::parse(subs, tail));
+            let (name, tail) = try!(Name::parse(ctx, subs, tail));
             return Ok((ClassEnumType::ElaboratedUnion(name), tail));
         }
 
         let tail = try!(consume(b"e", tail));
-        let (name, tail) = try!(Name::parse(subs, tail));
+        let (name, tail) = try!(Name::parse(ctx, subs, tail));
         Ok((ClassEnumType::ElaboratedEnum(name), tail))
     }
 }
@@ -2903,10 +3000,11 @@ impl<'subs, W> Demangle<'subs, W> for ClassEnumType
 pub struct UnnamedTypeName(Option<usize>);
 
 impl Parse for UnnamedTypeName {
-    fn parse<'a, 'b>(_subs: &'a mut SubstitutionTable,
+    fn parse<'a, 'b>(ctx: &'a ParseContext,
+                     _subs: &'a mut SubstitutionTable,
                      input: IndexStr<'b>)
                      -> Result<(UnnamedTypeName, IndexStr<'b>)> {
-        log_parse!("UnnamedTypeName", input);
+        try_begin_parse!("UnnamedTypeName", ctx, input);
 
         let input = try!(consume(b"Ut", input));
         let (number, input) = match parse_number(10, false, input) {
@@ -2958,28 +3056,29 @@ pub enum ArrayType {
 }
 
 impl Parse for ArrayType {
-    fn parse<'a, 'b>(subs: &'a mut SubstitutionTable,
+    fn parse<'a, 'b>(ctx: &'a ParseContext,
+                     subs: &'a mut SubstitutionTable,
                      input: IndexStr<'b>)
                      -> Result<(ArrayType, IndexStr<'b>)> {
-        log_parse!("ArrayType", input);
+        try_begin_parse!("ArrayType", ctx, input);
 
         let tail = try!(consume(b"A", input));
 
         if let Ok((num, tail)) = parse_number(10, false, tail) {
             debug_assert!(num >= 0);
             let tail = try!(consume(b"_", tail));
-            let (ty, tail) = try!(TypeHandle::parse(subs, tail));
+            let (ty, tail) = try!(TypeHandle::parse(ctx, subs, tail));
             return Ok((ArrayType::DimensionNumber(num as _, ty), tail));
         }
 
-        if let Ok((expr, tail)) = Expression::parse(subs, tail) {
+        if let Ok((expr, tail)) = Expression::parse(ctx, subs, tail) {
             let tail = try!(consume(b"_", tail));
-            let (ty, tail) = try!(TypeHandle::parse(subs, tail));
+            let (ty, tail) = try!(TypeHandle::parse(ctx, subs, tail));
             return Ok((ArrayType::DimensionExpression(expr, ty), tail));
         }
 
         let tail = try!(consume(b"_", tail));
-        let (ty, tail) = try!(TypeHandle::parse(subs, tail));
+        let (ty, tail) = try!(TypeHandle::parse(ctx, subs, tail));
         Ok((ArrayType::NoDimension(ty), tail))
     }
 }
@@ -3071,14 +3170,15 @@ impl<'subs, W> DemangleAsInner<'subs, W> for ArrayType
 pub struct PointerToMemberType(TypeHandle, TypeHandle);
 
 impl Parse for PointerToMemberType {
-    fn parse<'a, 'b>(subs: &'a mut SubstitutionTable,
+    fn parse<'a, 'b>(ctx: &'a ParseContext,
+                     subs: &'a mut SubstitutionTable,
                      input: IndexStr<'b>)
                      -> Result<(PointerToMemberType, IndexStr<'b>)> {
-        log_parse!("PointerToMemberType", input);
+        try_begin_parse!("PointerToMemberType", ctx, input);
 
         let tail = try!(consume(b"M", input));
-        let (ty1, tail) = try!(TypeHandle::parse(subs, tail));
-        let (ty2, tail) = try!(TypeHandle::parse(subs, tail));
+        let (ty1, tail) = try!(TypeHandle::parse(ctx, subs, tail));
+        let (ty2, tail) = try!(TypeHandle::parse(ctx, subs, tail));
         Ok((PointerToMemberType(ty1, ty2), tail))
     }
 }
@@ -3134,10 +3234,11 @@ impl<'subs, W> DemangleAsInner<'subs, W> for PointerToMemberType
 pub struct TemplateParam(usize);
 
 impl Parse for TemplateParam {
-    fn parse<'a, 'b>(_subs: &'a mut SubstitutionTable,
+    fn parse<'a, 'b>(ctx: &'a ParseContext,
+                     _subs: &'a mut SubstitutionTable,
                      input: IndexStr<'b>)
                      -> Result<(TemplateParam, IndexStr<'b>)> {
-        log_parse!("TemplateParam", input);
+        try_begin_parse!("TemplateParam", ctx, input);
 
         let input = try!(consume(b"T", input));
         let (number, input) = match parse_number(10, false, input) {
@@ -3210,13 +3311,14 @@ define_handle! {
 }
 
 impl Parse for TemplateTemplateParamHandle {
-    fn parse<'a, 'b>(subs: &'a mut SubstitutionTable,
+    fn parse<'a, 'b>(ctx: &'a ParseContext,
+                     subs: &'a mut SubstitutionTable,
                      input: IndexStr<'b>)
                      -> Result<(TemplateTemplateParamHandle, IndexStr<'b>)> {
-        log_parse!("TemplateTemplateParamHandle", input);
+        try_begin_parse!("TemplateTemplateParamHandle", ctx, input);
 
 
-        if let Ok((sub, tail)) = Substitution::parse(subs, input) {
+        if let Ok((sub, tail)) = Substitution::parse(ctx, subs, input) {
             match sub {
                 Substitution::WellKnown(component) => {
                     return Ok((TemplateTemplateParamHandle::WellKnown(component), tail));
@@ -3230,7 +3332,7 @@ impl Parse for TemplateTemplateParamHandle {
             }
         }
 
-        let (param, tail) = try!(TemplateParam::parse(subs, input));
+        let (param, tail) = try!(TemplateParam::parse(ctx, subs, input));
         let ttp = TemplateTemplateParam(param);
         let ttp = Substitutable::TemplateTemplateParam(ttp);
         let idx = subs.insert(ttp);
@@ -3269,10 +3371,11 @@ impl<'subs, W> Demangle<'subs, W> for TemplateTemplateParam
 pub struct FunctionParam(usize, CvQualifiers, Option<usize>);
 
 impl Parse for FunctionParam {
-    fn parse<'a, 'b>(subs: &'a mut SubstitutionTable,
+    fn parse<'a, 'b>(ctx: &'a ParseContext,
+                     subs: &'a mut SubstitutionTable,
                      input: IndexStr<'b>)
                      -> Result<(FunctionParam, IndexStr<'b>)> {
-        log_parse!("FunctionParam", input);
+        try_begin_parse!("FunctionParam", ctx, input);
 
         let tail = try!(consume(b"f", input));
         if tail.is_empty() {
@@ -3287,7 +3390,7 @@ impl Parse for FunctionParam {
 
         let tail = try!(consume(b"p", tail));
 
-        let (qualifiers, tail) = try!(CvQualifiers::parse(subs, tail));
+        let (qualifiers, tail) = try!(CvQualifiers::parse(ctx, subs, tail));
 
         let (param, tail) = if let Ok((num, tail)) = parse_number(10, false, tail) {
             (Some(num as _), tail)
@@ -3325,14 +3428,15 @@ impl<'subs, W> Demangle<'subs, W> for FunctionParam
 pub struct TemplateArgs(Vec<TemplateArg>);
 
 impl Parse for TemplateArgs {
-    fn parse<'a, 'b>(subs: &'a mut SubstitutionTable,
+    fn parse<'a, 'b>(ctx: &'a ParseContext,
+                     subs: &'a mut SubstitutionTable,
                      input: IndexStr<'b>)
                      -> Result<(TemplateArgs, IndexStr<'b>)> {
-        log_parse!("TemplateArgs", input);
+        try_begin_parse!("TemplateArgs", ctx, input);
 
         let tail = try!(consume(b"I", input));
 
-        let (args, tail) = try!(one_or_more::<TemplateArg>(subs, tail));
+        let (args, tail) = try!(one_or_more::<TemplateArg>(ctx, subs, tail));
         let tail = try!(consume(b"E", tail));
         Ok((TemplateArgs(args), tail))
     }
@@ -3395,22 +3499,23 @@ pub enum TemplateArg {
 }
 
 impl Parse for TemplateArg {
-    fn parse<'a, 'b>(subs: &'a mut SubstitutionTable,
+    fn parse<'a, 'b>(ctx: &'a ParseContext,
+                     subs: &'a mut SubstitutionTable,
                      input: IndexStr<'b>)
                      -> Result<(TemplateArg, IndexStr<'b>)> {
-        log_parse!("TemplateArg", input);
+        try_begin_parse!("TemplateArg", ctx, input);
 
         if let Ok(tail) = consume(b"X", input) {
-            let (expr, tail) = try!(Expression::parse(subs, tail));
+            let (expr, tail) = try!(Expression::parse(ctx, subs, tail));
             let tail = try!(consume(b"E", tail));
             return Ok((TemplateArg::Expression(expr), tail));
         }
 
-        if let Ok((expr, tail)) = ExprPrimary::parse(subs, input) {
+        if let Ok((expr, tail)) = ExprPrimary::parse(ctx, subs, input) {
             return Ok((TemplateArg::SimpleExpression(expr), tail));
         }
 
-        if let Ok((ty, tail)) = TypeHandle::parse(subs, input) {
+        if let Ok((ty, tail)) = TypeHandle::parse(ctx, subs, input) {
             return Ok((TemplateArg::Type(ty), tail));
         }
 
@@ -3418,7 +3523,7 @@ impl Parse for TemplateArg {
         let (args, tail) = if tail.peek() == Some(b'E') {
             (vec![], tail)
         } else {
-            try!(zero_or_more::<TemplateArg>(subs, tail))
+            try!(zero_or_more::<TemplateArg>(ctx, subs, tail))
         };
         let tail = try!(consume(b"E", tail));
         Ok((TemplateArg::ArgPack(args), tail))
@@ -3632,19 +3737,20 @@ pub enum Expression {
 
 impl Parse for Expression {
     #[allow(cyclomatic_complexity)]
-    fn parse<'a, 'b>(subs: &'a mut SubstitutionTable,
+    fn parse<'a, 'b>(ctx: &'a ParseContext,
+                     subs: &'a mut SubstitutionTable,
                      input: IndexStr<'b>)
                      -> Result<(Expression, IndexStr<'b>)> {
-        log_parse!("Expression", input);
+        try_begin_parse!("Expression", ctx, input);
 
         if let Ok(tail) = consume(b"pp_", input) {
-            let (expr, tail) = try!(Expression::parse(subs, tail));
+            let (expr, tail) = try!(Expression::parse(ctx, subs, tail));
             let expr = Expression::PrefixInc(Box::new(expr));
             return Ok((expr, tail));
         }
 
         if let Ok(tail) = consume(b"mm_", input) {
-            let (expr, tail) = try!(Expression::parse(subs, tail));
+            let (expr, tail) = try!(Expression::parse(ctx, subs, tail));
             let expr = Expression::PrefixDec(Box::new(expr));
             return Ok((expr, tail));
         }
@@ -3652,138 +3758,138 @@ impl Parse for Expression {
         if let Some((head, tail)) = input.try_split_at(2) {
             match head.as_ref() {
                 b"cl" => {
-                    let (func, tail) = try!(Expression::parse(subs, tail));
-                    let (args, tail) = try!(zero_or_more::<Expression>(subs, tail));
+                    let (func, tail) = try!(Expression::parse(ctx, subs, tail));
+                    let (args, tail) = try!(zero_or_more::<Expression>(ctx, subs, tail));
                     let expr = Expression::Call(Box::new(func), args);
                     return Ok((expr, tail));
                 }
                 b"cv" => {
-                    let (ty, tail) = try!(TypeHandle::parse(subs, tail));
+                    let (ty, tail) = try!(TypeHandle::parse(ctx, subs, tail));
                     if let Ok(tail) = consume(b"_", tail) {
-                        let (exprs, tail) = try!(zero_or_more::<Expression>(subs, tail));
+                        let (exprs, tail) = try!(zero_or_more::<Expression>(ctx, subs, tail));
                         let tail = try!(consume(b"E", tail));
                         let expr = Expression::ConversionMany(ty, exprs);
                         return Ok((expr, tail));
                     } else {
-                        let (expr, tail) = try!(Expression::parse(subs, tail));
+                        let (expr, tail) = try!(Expression::parse(ctx, subs, tail));
                         let expr = Expression::ConversionOne(ty, Box::new(expr));
                         return Ok((expr, tail));
                     }
                 }
                 b"tl" => {
-                    let (ty, tail) = try!(TypeHandle::parse(subs, tail));
-                    let (exprs, tail) = try!(zero_or_more::<Expression>(subs, tail));
+                    let (ty, tail) = try!(TypeHandle::parse(ctx, subs, tail));
+                    let (exprs, tail) = try!(zero_or_more::<Expression>(ctx, subs, tail));
                     let expr = Expression::ConversionBraced(ty, exprs);
                     let tail = try!(consume(b"E", tail));
                     return Ok((expr, tail));
                 }
                 b"il" => {
-                    let (expr, tail) = try!(Expression::parse(subs, tail));
+                    let (expr, tail) = try!(Expression::parse(ctx, subs, tail));
                     let tail = try!(consume(b"E", tail));
                     let expr = Expression::BracedInitList(Box::new(expr));
                     return Ok((expr, tail));
                 }
                 b"dc" => {
-                    let (ty, tail) = try!(TypeHandle::parse(subs, tail));
-                    let (expr, tail) = try!(Expression::parse(subs, tail));
+                    let (ty, tail) = try!(TypeHandle::parse(ctx, subs, tail));
+                    let (expr, tail) = try!(Expression::parse(ctx, subs, tail));
                     let expr = Expression::DynamicCast(ty, Box::new(expr));
                     return Ok((expr, tail));
                 }
                 b"sc" => {
-                    let (ty, tail) = try!(TypeHandle::parse(subs, tail));
-                    let (expr, tail) = try!(Expression::parse(subs, tail));
+                    let (ty, tail) = try!(TypeHandle::parse(ctx, subs, tail));
+                    let (expr, tail) = try!(Expression::parse(ctx, subs, tail));
                     let expr = Expression::StaticCast(ty, Box::new(expr));
                     return Ok((expr, tail));
                 }
                 b"cc" => {
-                    let (ty, tail) = try!(TypeHandle::parse(subs, tail));
-                    let (expr, tail) = try!(Expression::parse(subs, tail));
+                    let (ty, tail) = try!(TypeHandle::parse(ctx, subs, tail));
+                    let (expr, tail) = try!(Expression::parse(ctx, subs, tail));
                     let expr = Expression::ConstCast(ty, Box::new(expr));
                     return Ok((expr, tail));
                 }
                 b"rc" => {
-                    let (ty, tail) = try!(TypeHandle::parse(subs, tail));
-                    let (expr, tail) = try!(Expression::parse(subs, tail));
+                    let (ty, tail) = try!(TypeHandle::parse(ctx, subs, tail));
+                    let (expr, tail) = try!(Expression::parse(ctx, subs, tail));
                     let expr = Expression::ReinterpretCast(ty, Box::new(expr));
                     return Ok((expr, tail));
                 }
                 b"ti" => {
-                    let (ty, tail) = try!(TypeHandle::parse(subs, tail));
+                    let (ty, tail) = try!(TypeHandle::parse(ctx, subs, tail));
                     let expr = Expression::TypeidType(ty);
                     return Ok((expr, tail));
                 }
                 b"te" => {
-                    let (expr, tail) = try!(Expression::parse(subs, tail));
+                    let (expr, tail) = try!(Expression::parse(ctx, subs, tail));
                     let expr = Expression::TypeidExpr(Box::new(expr));
                     return Ok((expr, tail));
                 }
                 b"st" => {
-                    let (ty, tail) = try!(TypeHandle::parse(subs, tail));
+                    let (ty, tail) = try!(TypeHandle::parse(ctx, subs, tail));
                     let expr = Expression::SizeofType(ty);
                     return Ok((expr, tail));
                 }
                 b"sz" => {
-                    let (expr, tail) = try!(Expression::parse(subs, tail));
+                    let (expr, tail) = try!(Expression::parse(ctx, subs, tail));
                     let expr = Expression::SizeofExpr(Box::new(expr));
                     return Ok((expr, tail));
                 }
                 b"at" => {
-                    let (ty, tail) = try!(TypeHandle::parse(subs, tail));
+                    let (ty, tail) = try!(TypeHandle::parse(ctx, subs, tail));
                     let expr = Expression::AlignofType(ty);
                     return Ok((expr, tail));
                 }
                 b"az" => {
-                    let (expr, tail) = try!(Expression::parse(subs, tail));
+                    let (expr, tail) = try!(Expression::parse(ctx, subs, tail));
                     let expr = Expression::AlignofExpr(Box::new(expr));
                     return Ok((expr, tail));
                 }
                 b"nx" => {
-                    let (expr, tail) = try!(Expression::parse(subs, tail));
+                    let (expr, tail) = try!(Expression::parse(ctx, subs, tail));
                     let expr = Expression::Noexcept(Box::new(expr));
                     return Ok((expr, tail));
                 }
                 b"dt" => {
-                    let (expr, tail) = try!(Expression::parse(subs, tail));
-                    let (name, tail) = try!(UnresolvedName::parse(subs, tail));
+                    let (expr, tail) = try!(Expression::parse(ctx, subs, tail));
+                    let (name, tail) = try!(UnresolvedName::parse(ctx, subs, tail));
                     let expr = Expression::Member(Box::new(expr), name);
                     return Ok((expr, tail));
                 }
                 b"pt" => {
-                    let (expr, tail) = try!(Expression::parse(subs, tail));
-                    let (name, tail) = try!(UnresolvedName::parse(subs, tail));
+                    let (expr, tail) = try!(Expression::parse(ctx, subs, tail));
+                    let (name, tail) = try!(UnresolvedName::parse(ctx, subs, tail));
                     let expr = Expression::DerefMember(Box::new(expr), name);
                     return Ok((expr, tail));
                 }
                 b"ds" => {
-                    let (first, tail) = try!(Expression::parse(subs, tail));
-                    let (second, tail) = try!(Expression::parse(subs, tail));
+                    let (first, tail) = try!(Expression::parse(ctx, subs, tail));
+                    let (second, tail) = try!(Expression::parse(ctx, subs, tail));
                     let expr = Expression::PointerToMember(Box::new(first),
                                                            Box::new(second));
                     return Ok((expr, tail));
                 }
                 b"sZ" => {
-                    if let Ok((param, tail)) = TemplateParam::parse(subs, tail) {
+                    if let Ok((param, tail)) = TemplateParam::parse(ctx, subs, tail) {
                         let expr = Expression::SizeofTemplatePack(param);
                         return Ok((expr, tail));
                     }
 
-                    let (param, tail) = try!(FunctionParam::parse(subs, tail));
+                    let (param, tail) = try!(FunctionParam::parse(ctx, subs, tail));
                     let expr = Expression::SizeofFunctionPack(param);
                     return Ok((expr, tail));
                 }
                 b"sP" => {
-                    let (args, tail) = try!(zero_or_more::<TemplateArg>(subs, tail));
+                    let (args, tail) = try!(zero_or_more::<TemplateArg>(ctx, subs, tail));
                     let expr = Expression::SizeofCapturedTemplatePack(args);
                     let tail = try!(consume(b"E", tail));
                     return Ok((expr, tail));
                 }
                 b"sp" => {
-                    let (expr, tail) = try!(Expression::parse(subs, tail));
+                    let (expr, tail) = try!(Expression::parse(ctx, subs, tail));
                     let expr = Expression::PackExpansion(Box::new(expr));
                     return Ok((expr, tail));
                 }
                 b"tw" => {
-                    let (expr, tail) = try!(Expression::parse(subs, tail));
+                    let (expr, tail) = try!(Expression::parse(ctx, subs, tail));
                     let expr = Expression::Throw(Box::new(expr));
                     return Ok((expr, tail));
                 }
@@ -3792,32 +3898,32 @@ impl Parse for Expression {
                     return Ok((expr, tail));
                 }
                 b"gs" => {
-                    return can_be_global(true, subs, tail);
+                    return can_be_global(true, ctx, subs, tail);
                 }
                 _ => {}
             }
         }
 
-        if let Ok((expr, tail)) = can_be_global(false, subs, input) {
+        if let Ok((expr, tail)) = can_be_global(false, ctx, subs, input) {
             return Ok((expr, tail));
         }
 
-        if let Ok((param, tail)) = TemplateParam::parse(subs, input) {
+        if let Ok((param, tail)) = TemplateParam::parse(ctx, subs, input) {
             let expr = Expression::TemplateParam(param);
             return Ok((expr, tail));
         }
 
-        if let Ok((param, tail)) = FunctionParam::parse(subs, input) {
+        if let Ok((param, tail)) = FunctionParam::parse(ctx, subs, input) {
             let expr = Expression::FunctionParam(param);
             return Ok((expr, tail));
         }
 
-        if let Ok((name, tail)) = UnresolvedName::parse(subs, input) {
+        if let Ok((name, tail)) = UnresolvedName::parse(ctx, subs, input) {
             let expr = Expression::UnresolvedName(name);
             return Ok((expr, tail));
         }
 
-        if let Ok((prim, tail)) = ExprPrimary::parse(subs, input) {
+        if let Ok((prim, tail)) = ExprPrimary::parse(ctx, subs, input) {
             let expr = Expression::Primary(prim);
             return Ok((expr, tail));
         }
@@ -3828,10 +3934,10 @@ impl Parse for Expression {
         // and parse unary/binary/ternary expressions last.
         //
         // TODO: Should we check if the operator matches the arity here?
-        let (opname, tail) = try!(OperatorName::parse(subs, input));
-        let (first, tail) = try!(Expression::parse(subs, tail));
-        return if let Ok((second, tail)) = Expression::parse(subs, tail) {
-            if let Ok((third, tail)) = Expression::parse(subs, tail) {
+        let (opname, tail) = try!(OperatorName::parse(ctx, subs, input));
+        let (first, tail) = try!(Expression::parse(ctx, subs, tail));
+        return if let Ok((second, tail)) = Expression::parse(ctx, subs, tail) {
+            if let Ok((third, tail)) = Expression::parse(ctx, subs, tail) {
                 let expr = Expression::Ternary(opname,
                                                Box::new(first),
                                                Box::new(second),
@@ -3851,6 +3957,7 @@ impl Parse for Expression {
         // we have already detected consumed the optional "gs" and if we did
         // find it, then `is_global` should be true.
         fn can_be_global<'a, 'b>(is_global: bool,
+                                 ctx: &'a ParseContext,
                                  subs: &'a mut SubstitutionTable,
                                  input: IndexStr<'b>)
                                  -> Result<(Expression, IndexStr<'b>)> {
@@ -3859,10 +3966,11 @@ impl Parse for Expression {
                 Some((head, tail)) => {
                     match head.as_ref() {
                         b"nw" => {
-                            let (exprs, tail) = try!(zero_or_more::<Expression>(subs,
+                            let (exprs, tail) = try!(zero_or_more::<Expression>(ctx,
+                                                                                subs,
                                                                                 tail));
                             let tail = try!(consume(b"_", tail));
-                            let (ty, tail) = try!(TypeHandle::parse(subs, tail));
+                            let (ty, tail) = try!(TypeHandle::parse(ctx, subs, tail));
                             if let Ok(tail) = consume(b"E", tail) {
                                 let expr = if is_global {
                                     Expression::GlobalNew(exprs, ty, None)
@@ -3871,7 +3979,7 @@ impl Parse for Expression {
                                 };
                                 Ok((expr, tail))
                             } else {
-                                let (init, tail) = try!(Initializer::parse(subs, tail));
+                                let (init, tail) = try!(Initializer::parse(ctx, subs, tail));
                                 let expr = if is_global {
                                     Expression::GlobalNew(exprs, ty, Some(init))
                                 } else {
@@ -3881,10 +3989,11 @@ impl Parse for Expression {
                             }
                         }
                         b"na" => {
-                            let (exprs, tail) = try!(zero_or_more::<Expression>(subs,
+                            let (exprs, tail) = try!(zero_or_more::<Expression>(ctx,
+                                                                                subs,
                                                                                 tail));
                             let tail = try!(consume(b"_", tail));
-                            let (ty, tail) = try!(TypeHandle::parse(subs, tail));
+                            let (ty, tail) = try!(TypeHandle::parse(ctx, subs, tail));
                             if let Ok(tail) = consume(b"E", tail) {
                                 let expr = if is_global {
                                     Expression::GlobalNewArray(exprs, ty, None)
@@ -3893,7 +4002,7 @@ impl Parse for Expression {
                                 };
                                 Ok((expr, tail))
                             } else {
-                                let (init, tail) = try!(Initializer::parse(subs, tail));
+                                let (init, tail) = try!(Initializer::parse(ctx, subs, tail));
                                 let expr = if is_global {
                                     Expression::GlobalNewArray(exprs, ty, Some(init))
                                 } else {
@@ -3903,7 +4012,7 @@ impl Parse for Expression {
                             }
                         }
                         b"dl" => {
-                            let (expr, tail) = try!(Expression::parse(subs, tail));
+                            let (expr, tail) = try!(Expression::parse(ctx, subs, tail));
                             let expr = if is_global {
                                 Expression::GlobalDelete(Box::new(expr))
                             } else {
@@ -3912,7 +4021,7 @@ impl Parse for Expression {
                             Ok((expr, tail))
                         }
                         b"da" => {
-                            let (expr, tail) = try!(Expression::parse(subs, tail));
+                            let (expr, tail) = try!(Expression::parse(ctx, subs, tail));
                             let expr = if is_global {
                                 Expression::GlobalDeleteArray(Box::new(expr))
                             } else {
@@ -4294,25 +4403,27 @@ pub enum UnresolvedName {
 }
 
 impl Parse for UnresolvedName {
-    fn parse<'a, 'b>(subs: &'a mut SubstitutionTable,
+    fn parse<'a, 'b>(ctx: &'a ParseContext,
+                     subs: &'a mut SubstitutionTable,
                      input: IndexStr<'b>)
                      -> Result<(UnresolvedName, IndexStr<'b>)> {
-        log_parse!("UnresolvedName", input);
+        try_begin_parse!("UnresolvedName", ctx, input);
 
         if let Ok(tail) = consume(b"gs", input) {
-            if let Ok((name, tail)) = BaseUnresolvedName::parse(subs, tail) {
+            if let Ok((name, tail)) = BaseUnresolvedName::parse(ctx, subs, tail) {
                 return Ok((UnresolvedName::Global(name), tail));
             }
 
             let tail = try!(consume(b"sr", tail));
-            let (levels, tail) = try!(one_or_more::<UnresolvedQualifierLevel>(subs,
+            let (levels, tail) = try!(one_or_more::<UnresolvedQualifierLevel>(ctx,
+                                                                              subs,
                                                                               tail));
             let tail = try!(consume(b"E", tail));
-            let (name, tail) = try!(BaseUnresolvedName::parse(subs, tail));
+            let (name, tail) = try!(BaseUnresolvedName::parse(ctx, subs, tail));
             return Ok((UnresolvedName::GlobalNested2(levels, name), tail));
         }
 
-        if let Ok((name, tail)) = BaseUnresolvedName::parse(subs, input) {
+        if let Ok((name, tail)) = BaseUnresolvedName::parse(ctx, subs, input) {
             return Ok((UnresolvedName::Name(name), tail));
         }
 
@@ -4320,22 +4431,23 @@ impl Parse for UnresolvedName {
 
         if tail.peek() == Some(b'N') {
             let tail = consume(b"N", tail).unwrap();
-            let (ty, tail) = try!(UnresolvedTypeHandle::parse(subs, tail));
-            let (levels, tail) = try!(one_or_more::<UnresolvedQualifierLevel>(subs,
+            let (ty, tail) = try!(UnresolvedTypeHandle::parse(ctx, subs, tail));
+            let (levels, tail) = try!(one_or_more::<UnresolvedQualifierLevel>(ctx,
+                                                                              subs,
                                                                               tail));
             let tail = try!(consume(b"E", tail));
-            let (name, tail) = try!(BaseUnresolvedName::parse(subs, tail));
+            let (name, tail) = try!(BaseUnresolvedName::parse(ctx, subs, tail));
             return Ok((UnresolvedName::Nested1(ty, levels, name), tail));
         }
 
-        if let Ok((ty, tail)) = UnresolvedTypeHandle::parse(subs, tail) {
-            let (name, tail) = try!(BaseUnresolvedName::parse(subs, tail));
+        if let Ok((ty, tail)) = UnresolvedTypeHandle::parse(ctx, subs, tail) {
+            let (name, tail) = try!(BaseUnresolvedName::parse(ctx, subs, tail));
             return Ok((UnresolvedName::Nested1(ty, vec![], name), tail));
         }
 
-        let (levels, tail) = try!(one_or_more::<UnresolvedQualifierLevel>(subs, tail));
+        let (levels, tail) = try!(one_or_more::<UnresolvedQualifierLevel>(ctx, subs, tail));
         let tail = try!(consume(b"E", tail));
-        let (name, tail) = try!(BaseUnresolvedName::parse(subs, tail));
+        let (name, tail) = try!(BaseUnresolvedName::parse(ctx, subs, tail));
         Ok((UnresolvedName::Nested2(levels, name), tail))
     }
 }
@@ -4405,13 +4517,14 @@ define_handle! {
 }
 
 impl Parse for UnresolvedTypeHandle {
-    fn parse<'a, 'b>(subs: &'a mut SubstitutionTable,
+    fn parse<'a, 'b>(ctx: &'a ParseContext,
+                     subs: &'a mut SubstitutionTable,
                      input: IndexStr<'b>)
                      -> Result<(UnresolvedTypeHandle, IndexStr<'b>)> {
-        log_parse!("UnresolvedTypeHandle", input);
+        try_begin_parse!("UnresolvedTypeHandle", ctx, input);
 
-        if let Ok((param, tail)) = TemplateParam::parse(subs, input) {
-            let (args, tail) = if let Ok((args, tail)) = TemplateArgs::parse(subs,
+        if let Ok((param, tail)) = TemplateParam::parse(ctx, subs, input) {
+            let (args, tail) = if let Ok((args, tail)) = TemplateArgs::parse(ctx, subs,
                                                                              tail) {
                 (Some(args), tail)
             } else {
@@ -4424,7 +4537,7 @@ impl Parse for UnresolvedTypeHandle {
             return Ok((handle, tail));
         }
 
-        if let Ok((decltype, tail)) = Decltype::parse(subs, input) {
+        if let Ok((decltype, tail)) = Decltype::parse(ctx, subs, input) {
             let ty = UnresolvedType::Decltype(decltype);
             let ty = Substitutable::UnresolvedType(ty);
             let idx = subs.insert(ty);
@@ -4432,7 +4545,7 @@ impl Parse for UnresolvedTypeHandle {
             return Ok((handle, tail));
         }
 
-        let (sub, tail) = try!(Substitution::parse(subs, input));
+        let (sub, tail) = try!(Substitution::parse(ctx, subs, input));
         match sub {
             Substitution::WellKnown(component) => {
                 Ok((UnresolvedTypeHandle::WellKnown(component), tail))
@@ -4480,12 +4593,13 @@ impl<'subs, W> Demangle<'subs, W> for UnresolvedType
 pub struct UnresolvedQualifierLevel(SimpleId);
 
 impl Parse for UnresolvedQualifierLevel {
-    fn parse<'a, 'b>(subs: &'a mut SubstitutionTable,
+    fn parse<'a, 'b>(ctx: &'a ParseContext,
+                     subs: &'a mut SubstitutionTable,
                      input: IndexStr<'b>)
                      -> Result<(UnresolvedQualifierLevel, IndexStr<'b>)> {
-        log_parse!("UnresolvedQualifierLevel", input);
+        try_begin_parse!("UnresolvedQualifierLevel", ctx, input);
 
-        let (id, tail) = try!(SimpleId::parse(subs, input));
+        let (id, tail) = try!(SimpleId::parse(ctx, subs, input));
         Ok((UnresolvedQualifierLevel(id), tail))
     }
 }
@@ -4513,13 +4627,14 @@ impl<'subs, W> Demangle<'subs, W> for UnresolvedQualifierLevel
 pub struct SimpleId(SourceName, Option<TemplateArgs>);
 
 impl Parse for SimpleId {
-    fn parse<'a, 'b>(subs: &'a mut SubstitutionTable,
+    fn parse<'a, 'b>(ctx: &'a ParseContext,
+                     subs: &'a mut SubstitutionTable,
                      input: IndexStr<'b>)
                      -> Result<(SimpleId, IndexStr<'b>)> {
-        log_parse!("SimpleId", input);
+        try_begin_parse!("SimpleId", ctx, input);
 
-        let (name, tail) = try!(SourceName::parse(subs, input));
-        let (args, tail) = if let Ok((args, tail)) = TemplateArgs::parse(subs, tail) {
+        let (name, tail) = try!(SourceName::parse(ctx, subs, input));
+        let (args, tail) = if let Ok((args, tail)) = TemplateArgs::parse(ctx, subs, tail) {
             (Some(args), tail)
         } else {
             (None, tail)
@@ -4567,18 +4682,19 @@ pub enum BaseUnresolvedName {
 }
 
 impl Parse for BaseUnresolvedName {
-    fn parse<'a, 'b>(subs: &'a mut SubstitutionTable,
+    fn parse<'a, 'b>(ctx: &'a ParseContext,
+                     subs: &'a mut SubstitutionTable,
                      input: IndexStr<'b>)
                      -> Result<(BaseUnresolvedName, IndexStr<'b>)> {
-        log_parse!("BaseUnresolvedName", input);
+        try_begin_parse!("BaseUnresolvedName", ctx, input);
 
-        if let Ok((name, tail)) = SimpleId::parse(subs, input) {
+        if let Ok((name, tail)) = SimpleId::parse(ctx, subs, input) {
             return Ok((BaseUnresolvedName::Name(name), tail));
         }
 
         if let Ok(tail) = consume(b"on", input) {
-            let (opname, tail) = try!(OperatorName::parse(subs, tail));
-            let (args, tail) = if let Ok((args, tail)) = TemplateArgs::parse(subs,
+            let (opname, tail) = try!(OperatorName::parse(ctx, subs, tail));
+            let (args, tail) = if let Ok((args, tail)) = TemplateArgs::parse(ctx, subs,
                                                                              tail) {
                 (Some(args), tail)
             } else {
@@ -4588,7 +4704,7 @@ impl Parse for BaseUnresolvedName {
         }
 
         let tail = try!(consume(b"dn", input));
-        let (name, tail) = try!(DestructorName::parse(subs, tail));
+        let (name, tail) = try!(DestructorName::parse(ctx, subs, tail));
         Ok((BaseUnresolvedName::Destructor(name), tail))
     }
 }
@@ -4632,16 +4748,17 @@ pub enum DestructorName {
 }
 
 impl Parse for DestructorName {
-    fn parse<'a, 'b>(subs: &'a mut SubstitutionTable,
+    fn parse<'a, 'b>(ctx: &'a ParseContext,
+                     subs: &'a mut SubstitutionTable,
                      input: IndexStr<'b>)
                      -> Result<(DestructorName, IndexStr<'b>)> {
-        log_parse!("DestructorName", input);
+        try_begin_parse!("DestructorName", ctx, input);
 
-        if let Ok((ty, tail)) = UnresolvedTypeHandle::parse(subs, input) {
+        if let Ok((ty, tail)) = UnresolvedTypeHandle::parse(ctx, subs, input) {
             return Ok((DestructorName::Unresolved(ty), tail));
         }
 
-        let (name, tail) = try!(SimpleId::parse(subs, input));
+        let (name, tail) = try!(SimpleId::parse(ctx, subs, input));
         Ok((DestructorName::Name(name), tail))
     }
 }
@@ -4684,14 +4801,15 @@ pub enum ExprPrimary {
 }
 
 impl Parse for ExprPrimary {
-    fn parse<'a, 'b>(subs: &'a mut SubstitutionTable,
+    fn parse<'a, 'b>(ctx: &'a ParseContext,
+                     subs: &'a mut SubstitutionTable,
                      input: IndexStr<'b>)
                      -> Result<(ExprPrimary, IndexStr<'b>)> {
-        log_parse!("ExprPrimary", input);
+        try_begin_parse!("ExprPrimary", ctx, input);
 
         let tail = try!(consume(b"L", input));
 
-        if let Ok((ty, tail)) = TypeHandle::parse(subs, tail) {
+        if let Ok((ty, tail)) = TypeHandle::parse(ctx, subs, tail) {
             let start = tail.index();
             let num_bytes_in_literal = tail.as_ref()
                 .iter()
@@ -4704,7 +4822,7 @@ impl Parse for ExprPrimary {
             return Ok((expr, tail));
         }
 
-        let (name, tail) = try!(MangledName::parse(subs, tail));
+        let (name, tail) = try!(MangledName::parse(ctx, subs, tail));
         let tail = try!(consume(b"E", tail));
         let expr = ExprPrimary::External(name);
         Ok((expr, tail))
@@ -4753,13 +4871,14 @@ impl<'subs, W> Demangle<'subs, W> for ExprPrimary
 pub struct Initializer(Vec<Expression>);
 
 impl Parse for Initializer {
-    fn parse<'a, 'b>(subs: &'a mut SubstitutionTable,
+    fn parse<'a, 'b>(ctx: &'a ParseContext,
+                     subs: &'a mut SubstitutionTable,
                      input: IndexStr<'b>)
                      -> Result<(Initializer, IndexStr<'b>)> {
-        log_parse!("Initializer", input);
+        try_begin_parse!("Initializer", ctx, input);
 
         let tail = try!(consume(b"pi", input));
-        let (exprs, tail) = try!(zero_or_more::<Expression>(subs, tail));
+        let (exprs, tail) = try!(zero_or_more::<Expression>(ctx, subs, tail));
         let tail = try!(consume(b"E", tail));
         Ok((Initializer(exprs), tail))
     }
@@ -4806,17 +4925,18 @@ pub enum LocalName {
 }
 
 impl Parse for LocalName {
-    fn parse<'a, 'b>(subs: &'a mut SubstitutionTable,
+    fn parse<'a, 'b>(ctx: &'a ParseContext,
+                     subs: &'a mut SubstitutionTable,
                      input: IndexStr<'b>)
                      -> Result<(LocalName, IndexStr<'b>)> {
-        log_parse!("LocalName", input);
+        try_begin_parse!("LocalName", ctx, input);
 
         let tail = try!(consume(b"Z", input));
-        let (encoding, tail) = try!(Encoding::parse(subs, tail));
+        let (encoding, tail) = try!(Encoding::parse(ctx, subs, tail));
         let tail = try!(consume(b"E", tail));
 
         if let Ok(tail) = consume(b"s", tail) {
-            let (disc, tail) = if let Ok((disc, tail)) = Discriminator::parse(subs,
+            let (disc, tail) = if let Ok((disc, tail)) = Discriminator::parse(ctx, subs,
                                                                               tail) {
                 (Some(disc), tail)
             } else {
@@ -4826,19 +4946,19 @@ impl Parse for LocalName {
         }
 
         if let Ok(tail) = consume(b"d", tail) {
-            let (param, tail) = if let Ok((num, tail)) = Number::parse(subs, tail) {
+            let (param, tail) = if let Ok((num, tail)) = Number::parse(ctx, subs, tail) {
                 (Some(num as _), tail)
             } else {
                 (None, tail)
             };
             let tail = try!(consume(b"_", tail));
-            let (name, tail) = try!(Name::parse(subs, tail));
+            let (name, tail) = try!(Name::parse(ctx, subs, tail));
             return Ok((LocalName::Default(Box::new(encoding), param, Box::new(name)),
                        tail));
         }
 
-        let (name, tail) = try!(Name::parse(subs, tail));
-        let (disc, tail) = if let Ok((disc, tail)) = Discriminator::parse(subs, tail) {
+        let (name, tail) = try!(Name::parse(ctx, subs, tail));
+        let (disc, tail) = if let Ok((disc, tail)) = Discriminator::parse(ctx, subs, tail) {
             (Some(disc), tail)
         } else {
             (None, tail)
@@ -4896,10 +5016,11 @@ impl GetTemplateArgs for LocalName {
 pub struct Discriminator(usize);
 
 impl Parse for Discriminator {
-    fn parse<'a, 'b>(_subs: &'a mut SubstitutionTable,
+    fn parse<'a, 'b>(ctx: &'a ParseContext,
+                     _subs: &'a mut SubstitutionTable,
                      input: IndexStr<'b>)
                      -> Result<(Discriminator, IndexStr<'b>)> {
-        log_parse!("Discriminator", input);
+        try_begin_parse!("Discriminator", ctx, input);
 
         let tail = try!(consume(b"_", input));
 
@@ -4943,13 +5064,14 @@ impl Parse for Discriminator {
 pub struct ClosureTypeName(LambdaSig, Option<usize>);
 
 impl Parse for ClosureTypeName {
-    fn parse<'a, 'b>(subs: &'a mut SubstitutionTable,
+    fn parse<'a, 'b>(ctx: &'a ParseContext,
+                     subs: &'a mut SubstitutionTable,
                      input: IndexStr<'b>)
                      -> Result<(ClosureTypeName, IndexStr<'b>)> {
-        log_parse!("ClosureTypeName", input);
+        try_begin_parse!("ClosureTypeName", ctx, input);
 
         let tail = try!(consume(b"Ul", input));
-        let (sig, tail) = try!(LambdaSig::parse(subs, tail));
+        let (sig, tail) = try!(LambdaSig::parse(ctx, subs, tail));
         let tail = try!(consume(b"E", tail));
         let (num, tail) = if let Ok((num, tail)) = parse_number(10, false, tail) {
             (Some(num as _), tail)
@@ -4986,15 +5108,16 @@ impl<'subs, W> Demangle<'subs, W> for ClosureTypeName
 pub struct LambdaSig(Vec<TypeHandle>);
 
 impl Parse for LambdaSig {
-    fn parse<'a, 'b>(subs: &'a mut SubstitutionTable,
+    fn parse<'a, 'b>(ctx: &'a ParseContext,
+                     subs: &'a mut SubstitutionTable,
                      input: IndexStr<'b>)
                      -> Result<(LambdaSig, IndexStr<'b>)> {
-        log_parse!("LambdaSig", input);
+        try_begin_parse!("LambdaSig", ctx, input);
 
         let (types, tail) = if let Ok(tail) = consume(b"v", input) {
             (vec![], tail)
         } else {
-            try!(one_or_more::<TypeHandle>(subs, input))
+            try!(one_or_more::<TypeHandle>(ctx, subs, input))
         };
         Ok((LambdaSig(types), tail))
     }
@@ -5030,12 +5153,13 @@ impl<'subs, W> Demangle<'subs, W> for LambdaSig
 pub struct DataMemberPrefix(SourceName);
 
 impl Parse for DataMemberPrefix {
-    fn parse<'a, 'b>(subs: &'a mut SubstitutionTable,
+    fn parse<'a, 'b>(ctx: &'a ParseContext,
+                     subs: &'a mut SubstitutionTable,
                      input: IndexStr<'b>)
                      -> Result<(DataMemberPrefix, IndexStr<'b>)> {
-        log_parse!("DataMemberPrefix", input);
+        try_begin_parse!("DataMemberPrefix", ctx, input);
 
-        let (name, tail) = try!(SourceName::parse(subs, input));
+        let (name, tail) = try!(SourceName::parse(ctx, subs, input));
         let tail = try!(consume(b"M", tail));
         Ok((DataMemberPrefix(name), tail))
     }
@@ -5090,17 +5214,18 @@ pub enum Substitution {
 }
 
 impl Parse for Substitution {
-    fn parse<'a, 'b>(subs: &'a mut SubstitutionTable,
+    fn parse<'a, 'b>(ctx: &'a ParseContext,
+                     subs: &'a mut SubstitutionTable,
                      input: IndexStr<'b>)
                      -> Result<(Substitution, IndexStr<'b>)> {
-        log_parse!("Substitution", input);
+        try_begin_parse!("Substitution", ctx, input);
 
-        if let Ok((well_known, tail)) = WellKnownComponent::parse(subs, input) {
+        if let Ok((well_known, tail)) = WellKnownComponent::parse(ctx, subs, input) {
             return Ok((Substitution::WellKnown(well_known), tail));
         }
 
         let tail = try!(consume(b"S", input));
-        let (idx, tail) = if let Ok((idx, tail)) = SeqId::parse(subs, tail) {
+        let (idx, tail) = if let Ok((idx, tail)) = SeqId::parse(ctx, subs, tail) {
             (idx.0 + 1, tail)
         } else {
             (0, tail)
@@ -5200,10 +5325,11 @@ pub enum SpecialName {
 }
 
 impl Parse for SpecialName {
-    fn parse<'a, 'b>(subs: &'a mut SubstitutionTable,
+    fn parse<'a, 'b>(ctx: &'a ParseContext,
+                     subs: &'a mut SubstitutionTable,
                      input: IndexStr<'b>)
                      -> Result<(SpecialName, IndexStr<'b>)> {
-        log_parse!("SpecialName", input);
+        try_begin_parse!("SpecialName", ctx, input);
 
         let (head, tail) = match input.try_split_at(2) {
             None => return Err(error::Error::UnexpectedEnd),
@@ -5212,40 +5338,40 @@ impl Parse for SpecialName {
 
         match head.as_ref() {
             b"TV" => {
-                let (ty, tail) = try!(TypeHandle::parse(subs, tail));
+                let (ty, tail) = try!(TypeHandle::parse(ctx, subs, tail));
                 Ok((SpecialName::VirtualTable(ty), tail))
             }
             b"TT" => {
-                let (ty, tail) = try!(TypeHandle::parse(subs, tail));
+                let (ty, tail) = try!(TypeHandle::parse(ctx, subs, tail));
                 Ok((SpecialName::Vtt(ty), tail))
             }
             b"TI" => {
-                let (ty, tail) = try!(TypeHandle::parse(subs, tail));
+                let (ty, tail) = try!(TypeHandle::parse(ctx, subs, tail));
                 Ok((SpecialName::Typeinfo(ty), tail))
             }
             b"TS" => {
-                let (ty, tail) = try!(TypeHandle::parse(subs, tail));
+                let (ty, tail) = try!(TypeHandle::parse(ctx, subs, tail));
                 Ok((SpecialName::TypeinfoName(ty), tail))
             }
             b"Tc" => {
-                let (first, tail) = try!(CallOffset::parse(subs, tail));
-                let (second, tail) = try!(CallOffset::parse(subs, tail));
-                let (base, tail) = try!(Encoding::parse(subs, tail));
+                let (first, tail) = try!(CallOffset::parse(ctx, subs, tail));
+                let (second, tail) = try!(CallOffset::parse(ctx, subs, tail));
+                let (base, tail) = try!(Encoding::parse(ctx, subs, tail));
                 Ok((SpecialName::VirtualOverrideThunkCovariant(first,
                                                                second,
                                                                Box::new(base)),
                     tail))
             }
             b"GV" => {
-                let (name, tail) = try!(Name::parse(subs, tail));
+                let (name, tail) = try!(Name::parse(ctx, subs, tail));
                 Ok((SpecialName::Guard(name), tail))
             }
             b"GR" => {
-                let (name, tail) = try!(Name::parse(subs, tail));
+                let (name, tail) = try!(Name::parse(ctx, subs, tail));
                 let (idx, tail) = if let Ok(tail) = consume(b"_", tail) {
                     (0, tail)
                 } else {
-                    let (idx, tail) = try!(SeqId::parse(subs, tail));
+                    let (idx, tail) = try!(SeqId::parse(ctx, subs, tail));
                     let tail = try!(consume(b"_", tail));
                     (idx.0 + 1, tail)
                 };
@@ -5253,8 +5379,8 @@ impl Parse for SpecialName {
             }
             _ => {
                 if let Ok(tail) = consume(b"T", input) {
-                    let (offset, tail) = try!(CallOffset::parse(subs, tail));
-                    let (base, tail) = try!(Encoding::parse(subs, tail));
+                    let (offset, tail) = try!(CallOffset::parse(ctx, subs, tail));
+                    let (base, tail) = try!(Encoding::parse(ctx, subs, tail));
                     Ok((SpecialName::VirtualOverrideThunk(offset, Box::new(base)), tail))
                 } else {
                     Err(error::Error::UnexpectedText)
@@ -5345,15 +5471,16 @@ fn consume<'a>(expected: &[u8], input: IndexStr<'a>) -> Result<IndexStr<'a>> {
     }
 }
 
-fn one_or_more<'a, 'b, P>(subs: &'a mut SubstitutionTable,
+fn one_or_more<'a, 'b, P>(ctx: &'a ParseContext,
+                          subs: &'a mut SubstitutionTable,
                           input: IndexStr<'b>)
                           -> Result<(Vec<P>, IndexStr<'b>)>
     where P: Parse
 {
-    let (first, mut tail) = try!(P::parse(subs, input));
+    let (first, mut tail) = try!(P::parse(ctx, subs, input));
     let mut results = vec![first];
     loop {
-        if let Ok((parsed, tail_tail)) = P::parse(subs, tail) {
+        if let Ok((parsed, tail_tail)) = P::parse(ctx, subs, tail) {
             results.push(parsed);
             tail = tail_tail;
         } else {
@@ -5362,7 +5489,8 @@ fn one_or_more<'a, 'b, P>(subs: &'a mut SubstitutionTable,
     }
 }
 
-fn zero_or_more<'a, 'b, P>(subs: &'a mut SubstitutionTable,
+fn zero_or_more<'a, 'b, P>(ctx: &'a ParseContext,
+                           subs: &'a mut SubstitutionTable,
                            input: IndexStr<'b>)
                            -> Result<(Vec<P>, IndexStr<'b>)>
     where P: Parse
@@ -5370,7 +5498,7 @@ fn zero_or_more<'a, 'b, P>(subs: &'a mut SubstitutionTable,
     let mut tail = input;
     let mut results = vec![];
     loop {
-        if let Ok((parsed, tail_tail)) = P::parse(subs, tail) {
+        if let Ok((parsed, tail_tail)) = P::parse(ctx, subs, tail) {
             results.push(parsed);
             tail = tail_tail;
         } else {
@@ -5442,7 +5570,7 @@ mod tests {
                 DataMemberPrefix, Decltype, DestructorName, Discriminator, Encoding,
                 ExprPrimary, Expression, FunctionParam, FunctionType, Identifier,
                 Initializer, LambdaSig, LocalName, MangledName, Name, NestedName, Number,
-                NvOffset, OperatorName, Parse, PointerToMemberType, Prefix, PrefixHandle,
+                NvOffset, OperatorName, Parse, ParseContext, PointerToMemberType, Prefix, PrefixHandle,
                 RefQualifier, SeqId, SimpleId, SimpleOperatorName, SourceName,
                 SpecialName, StandardBuiltinType, Substitution, TemplateArg, TemplateArgs,
                 TemplateParam, TemplateTemplateParam, TemplateTemplateParamHandle, Type,
@@ -5468,6 +5596,7 @@ mod tests {
               I1: AsRef<[u8]>,
               I2: AsRef<[u8]>
     {
+        let ctx = ParseContext::default();
         let input = input.as_ref();
         let expected_tail = expected_tail.as_ref();
 
@@ -5477,7 +5606,7 @@ mod tests {
             .chain(expected_new_subs.as_ref().iter().cloned()));
         let mut subs = SubstitutionTable::from_iter(subs.as_ref().iter().cloned());
 
-        match P::parse(&mut subs, IndexStr::from(input)) {
+        match P::parse(&ctx, &mut subs, IndexStr::from(input)) {
             Err(error) => {
                 panic!("Parsing {:?} as {} failed: {}",
                        String::from_utf8_lossy(input),
@@ -5540,9 +5669,10 @@ mod tests {
               I: AsRef<[u8]>
     {
         let input = input.as_ref();
+        let ctx = ParseContext::default();
         let mut subs = SubstitutionTable::from_iter(subs.as_ref().iter().cloned());
 
-        match P::parse(&mut subs, IndexStr::from(input)) {
+        match P::parse(&ctx, &mut subs, IndexStr::from(input)) {
             Err(ref error) if *error == expected_error => {}
             Err(ref error) => {
                 panic!("Parsing {:?} as {} produced an error of kind {:?}, but we expected kind {:?}",

@@ -43,7 +43,7 @@ pub mod error;
 mod index_str;
 mod subs;
 
-use ast::{Demangle, Parse};
+use ast::{Demangle, Parse, ParseContext};
 use error::{Error, Result};
 use index_str::IndexStr;
 use std::fmt;
@@ -102,8 +102,12 @@ impl<T> Symbol<T>
         let mut substitutions = subs::SubstitutionTable::new();
 
         let parsed = {
+            let ctx = ParseContext::default();
             let input = IndexStr::new(raw.as_ref());
-            let (parsed, tail) = try!(ast::MangledName::parse(&mut substitutions, input));
+
+            let (parsed, tail) = try!(ast::MangledName::parse(&ctx, &mut substitutions, input));
+            debug_assert!(ctx.recursion_level() == 0);
+
             if tail.is_empty() {
                 parsed
             } else {
@@ -157,8 +161,10 @@ impl<T> Symbol<T> {
     pub fn with_tail(input: &[u8]) -> Result<(BorrowedSymbol, &[u8])> {
         let mut substitutions = subs::SubstitutionTable::new();
 
+        let ctx = ParseContext::default();
         let idx_str = IndexStr::new(input);
-        let (parsed, tail) = try!(ast::MangledName::parse(&mut substitutions, idx_str));
+        let (parsed, tail) = try!(ast::MangledName::parse(&ctx, &mut substitutions, idx_str));
+        debug_assert!(ctx.recursion_level() == 0);
 
         let symbol = Symbol {
             raw: input,
