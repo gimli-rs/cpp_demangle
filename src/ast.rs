@@ -614,7 +614,7 @@ macro_rules! define_handle {
         pub enum $typename:ident {
             $(
                 $( #[$extra_attr:meta] )*
-                extra $extra_variant:ident ( $extra_variant_ty:ident ),
+                extra $extra_variant:ident ( $extra_variant_ty:ty ),
             )*
         }
     ) => {
@@ -642,15 +642,16 @@ macro_rules! define_handle {
                     _ => None,
                 }
             }
+        }
 
-            // Not a `Demangle` implementation because the 'me reference to self
-            // might not have a long enough lifetime.
-            fn demangle<'me, 'prev, 'ctx, 'subs, W>(&'me self,
-                                                    ctx: &'ctx mut DemangleContext<'subs, W>,
-                                                    stack: Option<ArgScopeStack<'prev, 'subs>>)
-                                                    -> io::Result<()>
-                where W: 'subs + io::Write
-            {
+        impl<'subs, W> Demangle<'subs, W> for $typename
+            where W: 'subs + io::Write
+        {
+            #[inline]
+            fn demangle<'prev, 'ctx>(&'subs self,
+                                     ctx: &'ctx mut DemangleContext<'subs, W>,
+                                     stack: Option<ArgScopeStack<'prev, 'subs>>)
+                                     -> io::Result<()> {
                 match *self {
                     $typename::WellKnown(ref comp) => comp.demangle(ctx, stack),
                     $typename::BackReference(idx) => {
@@ -2068,8 +2069,11 @@ pub enum Type {
 define_handle! {
     /// A reference to a parsed `Type` production.
     pub enum TypeHandle {
-        /// A builtin type.
+        /// A builtin type. These don't end up in the substitutions table.
         extra Builtin(BuiltinType),
+
+        /// A CV-qualified builtin type. These don't end up in the table either.
+        extra QualifiedBuiltin(QualifiedBuiltin),
     }
 }
 
@@ -2174,8 +2178,16 @@ impl Parse for TypeHandle {
             // input, lest we go into an infinite loop and blow the stack.
             if tail.len() < input.len() {
                 let (ty, tail) = try!(TypeHandle::parse(subs, tail));
-                let ty = Type::Qualified(qualifiers, ty);
-                return insert_and_return_handle(ty, subs, tail);
+
+                // Qualified built-in types don't go in the substitutions table
+                // either.
+                return if let TypeHandle::Builtin(builtin) = ty {
+                    Ok((TypeHandle::QualifiedBuiltin(QualifiedBuiltin(qualifiers, builtin)),
+                        tail))
+                } else {
+                    let ty = Type::Qualified(qualifiers, ty);
+                    insert_and_return_handle(ty, subs, tail)
+                };
             }
         }
 
@@ -2569,6 +2581,33 @@ impl BuiltinType {
         }
     }
 }
+
+/// A built-in type with CV-qualifiers.
+///
+/// Like unqualified built-in types, CV-qualified built-in types do not go into
+/// the substitutions table.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct QualifiedBuiltin(CvQualifiers, BuiltinType);
+
+impl<'subs, W> Demangle<'subs, W> for QualifiedBuiltin
+    where W: 'subs + io::Write
+{
+    fn demangle<'prev, 'ctx>(&'subs self,
+                             ctx: &'ctx mut DemangleContext<'subs, W>,
+                             stack: Option<ArgScopeStack<'prev, 'subs>>)
+                             -> io::Result<()>
+    {
+        log_demangle!(self, ctx, stack);
+
+        ctx.inner.push(&self.0);
+        try!(self.1.demangle(ctx, stack));
+        if let Some(inner) = ctx.inner.pop() {
+            try!(inner.demangle_as_inner(ctx, stack));
+        }
+        Ok(())
+    }
+}
+
 
 /// The `<function-type>` production.
 ///
