@@ -5703,6 +5703,20 @@ mod tests {
         assert_parse_err::<P, _, _>(production, [], input, expected_error);
     }
 
+    #[test]
+    fn recursion_limit() {
+        // Build the mangled symbol for the type `*****char` where the "*****"
+        // is 10,000 pointer indirections. This is a valid type symbol, but
+        // something that would cause us to blow the stack.
+        let mut mangled = String::new();
+        for _ in 0..10_000 {
+            mangled.push('P');
+        }
+        mangled += "c";
+
+        simple_assert_parse_err::<TypeHandle, _>("TypeHandle", mangled, Error::TooMuchRecursion);
+    }
+
     macro_rules! assert_parse {
         ( $production:ident {
             $( with subs $subs:expr => {
