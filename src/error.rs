@@ -31,6 +31,9 @@ pub enum Error {
     /// The act of demangling some part of the AST attempted to demangle itself
     /// again.
     RecursiveDemangling,
+
+    /// Encountered too much recursion when demangling symbol.
+    TooMuchRecursion,
 }
 
 impl fmt::Display for Error {
@@ -55,6 +58,9 @@ impl fmt::Display for Error {
             Error::RecursiveDemangling => {
                 write!(f, "demangling some part of the AST attempted to demangle itself again")
             }
+            Error::TooMuchRecursion => {
+                write!(f, "encountered too much recursion when demangling symbol")
+            }
         }
     }
 }
@@ -69,6 +75,7 @@ impl error::Error for Error {
             Error::BadFunctionArgReference => "reference to a function arg that is either out-of-bounds, or in a context without function args",
             Error::Overflow => "an overflow or underflow would occur when parsing an integer in a mangled symbol",
             Error::RecursiveDemangling => "demangling some part of the AST attempted to demangle itself again",
+            Error::TooMuchRecursion => "encountered too much recursion when demangling symbol"
         }
     }
 }
