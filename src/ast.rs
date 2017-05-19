@@ -1714,7 +1714,7 @@ impl SourceName {
 /// > `<identifier>` is a pseudo-terminal representing the characters in the
 /// > unqualified identifier for the entity in the source code. This ABI does not
 /// > yet specify a mangling for identifiers containing characters outside of
-/// > `_A-Za-z0-9`.
+/// > `_A-Za-z0-9.`.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Identifier {
     start: usize,
@@ -1735,7 +1735,7 @@ impl Parse for Identifier {
         let end = input.as_ref()
             .iter()
             .map(|&c| c as char)
-            .take_while(|&c| c == '_' || c.is_digit(36))
+            .take_while(|&c| c == '_' || c == '.' || c.is_digit(36))
             .count();
 
         if end == 0 {
