@@ -165,6 +165,7 @@ impl ParseContext {
         let new_recursion_level = self.recursion_level.get() + 1;
 
         if new_recursion_level >= self.max_recursion {
+            log!("Hit too much recursion at level {}", self.max_recursion);
             Err(error::Error::TooMuchRecursion)
         } else {
             self.recursion_level.set(new_recursion_level);
