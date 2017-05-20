@@ -3480,6 +3480,13 @@ impl<'subs, W> Demangle<'subs, W> for TemplateArgs
             try!(arg.demangle(ctx, stack));
             need_comma = true;
         }
+
+        // Ensure "> >" because old C++ sucks and libiberty (and its tests)
+        // supports old C++.
+        if ctx.last_byte_written == Some(b'>') {
+            try!(write!(ctx, " "));
+        }
+
         try!(write!(ctx, ">"));
         Ok(())
     }
