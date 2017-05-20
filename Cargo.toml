@@ -16,6 +16,9 @@ version = "0.2.1"
 [badges.travis-ci]
 repository = "fitzgen/cpp_demangle"
 
+[build-dependencies]
+glob = "0.2.11"
+
 [dependencies]
 clap = "2.20.5"
 fixedbitset = "0.1.5"
