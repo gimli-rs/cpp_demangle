@@ -1,10 +1,11 @@
 #![allow(non_snake_case)]
 
 extern crate cpp_demangle;
+extern crate diff;
 
 use std::io::Write;
 
-fn assert_demangles_as(mangled: &str, demangled: &str) {
+fn assert_demangles_as(mangled: &str, expected: &str) {
     let sym = cpp_demangle::BorrowedSymbol::new(mangled.as_bytes())
         .expect("should parse mangled symbol ok");
 
@@ -12,7 +13,34 @@ fn assert_demangles_as(mangled: &str, demangled: &str) {
     write!(&mut actual, "{}", sym).expect("should demangle symbol ok");
     let actual = String::from_utf8(actual).expect("should demangle to valid utf-8");
 
-    assert_eq!(demangled, actual);
+    if expected != actual {
+        println!("");
+        println!("Diff:");
+        println!("--- expected");
+        print!("+++ actual");
+
+        let mut last = None;
+        for cmp in diff::chars(expected, &actual) {
+            match (last, cmp.clone()) {
+                (Some(diff::Result::Left(_)), diff::Result::Left(_)) |
+                (Some(diff::Result::Both(..)), diff::Result::Both(..)) |
+                (Some(diff::Result::Right(_)), diff::Result::Right(_)) => {}
+
+                (_, diff::Result::Left(_))  => print!("\n-"),
+                (_, diff::Result::Both(..))  => print!("\n "),
+                (_, diff::Result::Right(_)) => print!("\n+"),
+            };
+            match cmp.clone() {
+                diff::Result::Left(c) |
+                diff::Result::Both(c, _) |
+                diff::Result::Right(c) => print!("{}", c),
+            }
+            last = Some(cmp);
+        }
+        println!("");
+    }
+
+    assert_eq!(expected, actual);
 }
 
 macro_rules! demangles {

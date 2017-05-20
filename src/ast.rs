@@ -165,6 +165,7 @@ impl ParseContext {
         let new_recursion_level = self.recursion_level.get() + 1;
 
         if new_recursion_level >= self.max_recursion {
+            log!("Hit too much recursion at level {}", self.max_recursion);
             Err(error::Error::TooMuchRecursion)
         } else {
             self.recursion_level.set(new_recursion_level);
@@ -1714,7 +1715,7 @@ impl SourceName {
 /// > `<identifier>` is a pseudo-terminal representing the characters in the
 /// > unqualified identifier for the entity in the source code. This ABI does not
 /// > yet specify a mangling for identifiers containing characters outside of
-/// > `_A-Za-z0-9`.
+/// > `_A-Za-z0-9.`.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Identifier {
     start: usize,
@@ -1735,7 +1736,7 @@ impl Parse for Identifier {
         let end = input.as_ref()
             .iter()
             .map(|&c| c as char)
-            .take_while(|&c| c == '_' || c.is_digit(36))
+            .take_while(|&c| c == '_' || c == '.' || c.is_digit(36))
             .count();
 
         if end == 0 {
@@ -1766,6 +1767,25 @@ impl Identifier {
         log_demangle!(self, ctx, stack);
 
         let ident = &ctx.input[self.start..self.end];
+
+        // Handle GCC's anonymous namespace mangling.
+        let anon_namespace_prefix = b"_GLOBAL_";
+        if ident.starts_with(anon_namespace_prefix) &&
+           ident.len() >= anon_namespace_prefix.len() + 2 {
+            let first = ident[anon_namespace_prefix.len()];
+            let second = ident[anon_namespace_prefix.len() + 1];
+
+            match (first, second) {
+                (b'.', b'N') | (b'_', b'N') | (b'$', b'N') => {
+                    try!(write!(ctx, "(anonymous namespace)"));
+                    return Ok(());
+                }
+                _ => {
+                    // Fall through.
+                }
+            }
+        }
+
         try!(write!(ctx, "{}", String::from_utf8_lossy(ident)));
         Ok(())
     }
@@ -3460,6 +3480,13 @@ impl<'subs, W> Demangle<'subs, W> for TemplateArgs
             try!(arg.demangle(ctx, stack));
             need_comma = true;
         }
+
+        // Ensure "> >" because old C++ sucks and libiberty (and its tests)
+        // supports old C++.
+        if ctx.last_byte_written == Some(b'>') {
+            try!(write!(ctx, " "));
+        }
+
         try!(write!(ctx, ">"));
         Ok(())
     }
