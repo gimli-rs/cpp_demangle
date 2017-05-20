@@ -1767,6 +1767,25 @@ impl Identifier {
         log_demangle!(self, ctx, stack);
 
         let ident = &ctx.input[self.start..self.end];
+
+        // Handle GCC's anonymous namespace mangling.
+        let anon_namespace_prefix = b"_GLOBAL_";
+        if ident.starts_with(anon_namespace_prefix) &&
+           ident.len() >= anon_namespace_prefix.len() + 2 {
+            let first = ident[anon_namespace_prefix.len()];
+            let second = ident[anon_namespace_prefix.len() + 1];
+
+            match (first, second) {
+                (b'.', b'N') | (b'_', b'N') | (b'$', b'N') => {
+                    try!(write!(ctx, "(anonymous namespace)"));
+                    return Ok(());
+                }
+                _ => {
+                    // Fall through.
+                }
+            }
+        }
+
         try!(write!(ctx, "{}", String::from_utf8_lossy(ident)));
         Ok(())
     }
