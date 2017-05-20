@@ -54,3 +54,5 @@ macro_rules! demangles {
 
 demangles!(_Z20instantiate_with_intI3FooET_IiEv,
            "Foo<int> instantiate_with_int<Foo>()");
+demangles!(_Z3fooISt6vectorIiEEvv,
+           "void foo<std::vector<int> >()");

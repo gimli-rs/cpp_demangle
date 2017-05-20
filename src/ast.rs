@@ -1023,7 +1023,6 @@ impl<'subs, W> DemangleAsInner<'subs, W> for Encoding
 ///        ::= <unscoped-name>
 ///        ::= <unscoped-template-name> <template-args>
 ///        ::= <local-name>
-///        ::= St <unqualified-name> # ::std::
 /// ```
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Name {
@@ -1038,9 +1037,6 @@ pub enum Name {
 
     /// A local name.
     Local(LocalName),
-
-    /// A name in `::std::`.
-    Std(UnqualifiedName),
 }
 
 impl Parse for Name {
@@ -1052,11 +1048,6 @@ impl Parse for Name {
 
         if let Ok((name, tail)) = NestedName::parse(ctx, subs, input) {
             return Ok((Name::Nested(name), tail));
-        }
-
-        if let Ok(tail) = consume(b"St", input) {
-            let (name, tail) = try!(UnqualifiedName::parse(ctx, subs, tail));
-            return Ok((Name::Std(name), tail));
         }
 
         if let Ok((name, tail)) = UnscopedName::parse(ctx, subs, input) {
@@ -1099,10 +1090,6 @@ impl<'subs, W> Demangle<'subs, W> for Name
                 args.demangle(ctx, stack)
             }
             Name::Local(ref local) => local.demangle(ctx, stack),
-            Name::Std(ref std) => {
-                try!(write!(ctx, "std::"));
-                std.demangle(ctx, stack)
-            }
         }
     }
 }
@@ -1115,8 +1102,7 @@ impl GetTemplateArgs for Name {
             Name::UnscopedTemplate(_, ref args) => Some(args),
             Name::Nested(ref nested) => nested.get_template_args(subs),
             Name::Local(ref local) => local.get_template_args(subs),
-            Name::Unscoped(_) |
-            Name::Std(_) => None,
+            Name::Unscoped(_) => None,
         }
     }
 }
@@ -2203,6 +2189,23 @@ impl Parse for TypeHandle {
                      -> Result<(TypeHandle, IndexStr<'b>)> {
         try_begin_parse!("TypeHandle", ctx, input);
 
+        /// Insert the given type into the substitution table, and return a
+        /// handle referencing the index in the table where it ended up.
+        fn insert_and_return_handle<'a, 'b>(ty: Type,
+                                            subs: &'a mut SubstitutionTable,
+                                            tail: IndexStr<'b>)
+                                            -> Result<(TypeHandle, IndexStr<'b>)> {
+            let ty = Substitutable::Type(ty);
+            let idx = subs.insert(ty);
+            let handle = TypeHandle::BackReference(idx);
+            Ok((handle, tail))
+        }
+
+        if let Ok((ty, tail)) = ClassEnumType::parse(ctx, subs, input) {
+            let ty = Type::ClassEnum(ty);
+            return insert_and_return_handle(ty, subs, tail);
+        }
+
         if let Ok((sub, tail)) = Substitution::parse(ctx, subs, input) {
             // If we see an 'I', then this is actually a substitution for a
             // <template-template-param>, and the template args are what
@@ -2223,18 +2226,6 @@ impl Parse for TypeHandle {
             }
         }
 
-        /// Insert the given type into the substitution table, and return a
-        /// handle referencing the index in the table where it ended up.
-        fn insert_and_return_handle<'a, 'b>(ty: Type,
-                                            subs: &'a mut SubstitutionTable,
-                                            tail: IndexStr<'b>)
-                                            -> Result<(TypeHandle, IndexStr<'b>)> {
-            let ty = Substitutable::Type(ty);
-            let idx = subs.insert(ty);
-            let handle = TypeHandle::BackReference(idx);
-            Ok((handle, tail))
-        }
-
         if let Ok((builtin, tail)) = BuiltinType::parse(ctx, subs, input) {
             // Builtin types are one of two exceptions that do not end up in the
             // substitutions table.
@@ -2244,11 +2235,6 @@ impl Parse for TypeHandle {
 
         if let Ok((funty, tail)) = FunctionType::parse(ctx, subs, input) {
             let ty = Type::Function(funty);
-            return insert_and_return_handle(ty, subs, tail);
-        }
-
-        if let Ok((ty, tail)) = ClassEnumType::parse(ctx, subs, input) {
-            let ty = Type::ClassEnum(ty);
             return insert_and_return_handle(ty, subs, tail);
         }
 
@@ -5947,14 +5933,6 @@ mod tests {
                         b"...",
                         []
                     }
-                    b"St3abc..." => {
-                        Name::Std(UnqualifiedName::Source(SourceName(Identifier {
-                            start: 3,
-                            end: 6,
-                        }))),
-                        b"...",
-                        []
-                    }
                 }
                 Err => {
                     b"zzz" => Error::UnexpectedText,
@@ -8463,13 +8441,13 @@ mod tests {
                     Identifier { start: 0, end: 4 },
                     b""
                 }
-                b"_Az1..." => {
+                b"_Az1\0\0\0" => {
                     Identifier { start: 0, end: 4 },
-                    b"..."
+                    b"\0\0\0"
                 }
             }
             Err => {
-                b"..." => Error::UnexpectedText,
+                b"\0\0\0" => Error::UnexpectedText,
                 b"" => Error::UnexpectedEnd,
             }
         });
