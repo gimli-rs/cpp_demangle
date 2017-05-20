@@ -1,3 +1,6 @@
+extern crate glob;
+
+use glob::glob;
 use std::env;
 use std::fs;
 use std::io::{self, BufRead, Write};
@@ -20,7 +23,11 @@ fn get_test_path(file_name: &str) -> io::Result<path::PathBuf> {
 /// the seed test cases that we pass to AFL.rs assert (including the failing
 /// test cases historically found by AFL.rs).
 fn generate_sanity_tests_from_afl_seeds() -> io::Result<()> {
-    println!("cargo:rerun-if-changed=in/*");
+    for entry in glob("./in/*").expect("should read glob pattern") {
+        if let Ok(path) = entry {
+            println!("cargo:rerun-if-changed={}", path.display());
+        }
+    }
     println!("cargo:rerun-if-changed=tests/afl_seeds.rs");
 
     let test_path = try!(get_test_path("afl_seeds.rs"));
