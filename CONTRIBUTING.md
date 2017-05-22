@@ -76,7 +76,21 @@ like:
 $ cargo test --feature logging <some-test-you-are-debugging>
 ```
 
-## Fuzzing with AFL
+## Fuzzing
+
+### Fuzzing with `cargo-fuzz` and `libFuzzer`
+
+This is a bit easier to set up than
+AFL. See
+[the `cargo-fuzz` book for details](https://rust-fuzz.github.io/book/cargo-fuzz/tutorial.html).
+
+1. `$ cargo install cargo-fuzz`
+2. `$ cargo fuzz parse_and_stringify`
+
+Alternatively, run `cargo fuzz list` to get a list of fuzz targets to run
+instead of the `parse_and_stringify` target.
+
+### Fuzzing with AFL
 
 What follows is a TLDR, for detailed instructions see
 the [`afl.rs` book](https://rust-fuzz.github.io/afl.rs/setup.html).
