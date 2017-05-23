@@ -2384,7 +2384,7 @@ impl<'subs, W> Demangle<'subs, W> for Type
             }
             Type::Complex(ref ty) => {
                 try!(ty.demangle(ctx, stack));
-                try!(write!(ctx, " _Complex"));
+                try!(write!(ctx, " complex"));
                 Ok(())
             }
             Type::Imaginary(ref ty) => {
