@@ -20,3 +20,7 @@ members = ["."]
 [[bin]]
 name = "parse_and_stringify"
 path = "fuzzers/parse_and_stringify.rs"
+
+[[bin]]
+name = "cppfilt_differential"
+path = "fuzzers/cppfilt_differential.rs"

@@ -2201,6 +2201,13 @@ impl Parse for TypeHandle {
             Ok((handle, tail))
         }
 
+        if let Ok((builtin, tail)) = BuiltinType::parse(ctx, subs, input) {
+            // Builtin types are one of two exceptions that do not end up in the
+            // substitutions table.
+            let handle = TypeHandle::Builtin(builtin);
+            return Ok((handle, tail));
+        }
+
         if let Ok((ty, tail)) = ClassEnumType::parse(ctx, subs, input) {
             let ty = Type::ClassEnum(ty);
             return insert_and_return_handle(ty, subs, tail);
@@ -2224,13 +2231,6 @@ impl Parse for TypeHandle {
                     }
                 }
             }
-        }
-
-        if let Ok((builtin, tail)) = BuiltinType::parse(ctx, subs, input) {
-            // Builtin types are one of two exceptions that do not end up in the
-            // substitutions table.
-            let handle = TypeHandle::Builtin(builtin);
-            return Ok((handle, tail));
         }
 
         if let Ok((funty, tail)) = FunctionType::parse(ctx, subs, input) {
@@ -2384,12 +2384,12 @@ impl<'subs, W> Demangle<'subs, W> for Type
             }
             Type::Complex(ref ty) => {
                 try!(ty.demangle(ctx, stack));
-                try!(write!(ctx, " _Complex"));
+                try!(write!(ctx, " complex"));
                 Ok(())
             }
             Type::Imaginary(ref ty) => {
                 try!(ty.demangle(ctx, stack));
-                try!(write!(ctx, " _Imaginary"));
+                try!(write!(ctx, " imaginary"));
                 Ok(())
             }
             Type::VendorExtension(ref name, ref template_args, ref ty) => {
@@ -2619,11 +2619,11 @@ define_vocabulary! {
         Double           (b"d",  "double"),
         LongDouble       (b"e",  "long double"),
         Float128         (b"g",  "__float128"),
-        Ellipsis         (b"z",  "ellipsis"),
-        DecimalFloat64   (b"Dd", "_Decimal64"),
-        DecimalFloat128  (b"De", "_Decimal128"),
-        DecimalFloat32   (b"Df", "_Decimal32"),
-        DecimalFloat16   (b"Dh", "_Decimal16"),
+        Ellipsis         (b"z",  "..."),
+        DecimalFloat64   (b"Dd", "decimal64"),
+        DecimalFloat128  (b"De", "decimal128"),
+        DecimalFloat32   (b"Df", "decimal32"),
+        DecimalFloat16   (b"Dh", "decimal16"),
         Char32           (b"Di", "char32_t"),
         Char16           (b"Ds", "char16_t"),
         Auto             (b"Da", "auto"),
