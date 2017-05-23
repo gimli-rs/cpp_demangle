@@ -2389,7 +2389,7 @@ impl<'subs, W> Demangle<'subs, W> for Type
             }
             Type::Imaginary(ref ty) => {
                 try!(ty.demangle(ctx, stack));
-                try!(write!(ctx, " _Imaginary"));
+                try!(write!(ctx, " imaginary"));
                 Ok(())
             }
             Type::VendorExtension(ref name, ref template_args, ref ty) => {
