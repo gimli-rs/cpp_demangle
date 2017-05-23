@@ -2619,7 +2619,7 @@ define_vocabulary! {
         Double           (b"d",  "double"),
         LongDouble       (b"e",  "long double"),
         Float128         (b"g",  "__float128"),
-        Ellipsis         (b"z",  "ellipsis"),
+        Ellipsis         (b"z",  "..."),
         DecimalFloat64   (b"Dd", "_Decimal64"),
         DecimalFloat128  (b"De", "_Decimal128"),
         DecimalFloat32   (b"Df", "_Decimal32"),
