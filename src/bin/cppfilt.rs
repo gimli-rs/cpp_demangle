@@ -16,6 +16,10 @@ use clap::App;
 /// in the given `haystack`.
 #[allow(needless_range_loop)]
 fn find_mangled(haystack: &[u8]) -> Option<usize> {
+    if haystack.is_empty() {
+        return None;
+    }
+
     for i in 0..haystack.len() - 1 {
         if haystack[i] == b'_' {
             let next = haystack[i + 1];
@@ -73,7 +77,6 @@ fn main() {
         .about("A c++filt clone as an example of how to use the cpp_demangle crate!")
         .get_matches();
 
-    
     let stdin = io::stdin();
     let mut stdin = stdin.lock();
 
