@@ -64,3 +64,5 @@ demangles!(_Z5ccc_Z5cccmmmml,
            "ccc_Z(cccmm, unsigned long, unsigned long, long)");
 demangles!(__Z3S_Z3SGffffjjjjjjjjjjzjjjjjjojjjjjjjj,
            "S_Z(SGf, float, float, float, unsigned int, unsigned int, unsigned int, unsigned int, unsigned int, unsigned int, unsigned int, unsigned int, unsigned int, unsigned int, ..., unsigned int, unsigned int, unsigned int, unsigned int, unsigned int, unsigned int, unsigned __int128, unsigned int, unsigned int, unsigned int, unsigned int, unsigned int, unsigned int, unsigned int, unsigned int)");
+demangles!(__Z3SGfDdedddd,
+           "SGf(decimal64, long double, double, double, double, double)");
