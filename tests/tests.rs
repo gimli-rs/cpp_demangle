@@ -56,3 +56,9 @@ demangles!(_Z20instantiate_with_intI3FooET_IiEv,
            "Foo<int> instantiate_with_int<Foo>()");
 demangles!(_Z3fooISt6vectorIiEEvv,
            "void foo<std::vector<int> >()");
+
+// Test cases found via differential testing against `c++filt` with `cargo-fuzz`
+// and `libFuzzer`.
+
+demangles!(_Z5ccc_Z5cccmmmml,
+           "ccc_Z(cccmm, unsigned long, unsigned long, long)");

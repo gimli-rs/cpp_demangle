@@ -2201,6 +2201,13 @@ impl Parse for TypeHandle {
             Ok((handle, tail))
         }
 
+        if let Ok((builtin, tail)) = BuiltinType::parse(ctx, subs, input) {
+            // Builtin types are one of two exceptions that do not end up in the
+            // substitutions table.
+            let handle = TypeHandle::Builtin(builtin);
+            return Ok((handle, tail));
+        }
+
         if let Ok((ty, tail)) = ClassEnumType::parse(ctx, subs, input) {
             let ty = Type::ClassEnum(ty);
             return insert_and_return_handle(ty, subs, tail);
@@ -2224,13 +2231,6 @@ impl Parse for TypeHandle {
                     }
                 }
             }
-        }
-
-        if let Ok((builtin, tail)) = BuiltinType::parse(ctx, subs, input) {
-            // Builtin types are one of two exceptions that do not end up in the
-            // substitutions table.
-            let handle = TypeHandle::Builtin(builtin);
-            return Ok((handle, tail));
         }
 
         if let Ok((funty, tail)) = FunctionType::parse(ctx, subs, input) {
