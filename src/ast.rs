@@ -5450,10 +5450,8 @@ impl<'subs, W> Demangle<'subs, W> for SpecialName
                 ty.demangle(ctx, stack)
             }
             SpecialName::TypeinfoName(ref ty) => {
-                try!(write!(ctx, "{{typeinfo name("));
-                try!(ty.demangle(ctx, stack));
-                try!(write!(ctx, ")}}"));
-                Ok(())
+                try!(write!(ctx, "typeinfo name for "));
+                ty.demangle(ctx, stack)
             }
             SpecialName::VirtualOverrideThunk(ref offset, ref encoding) => {
                 try!(write!(ctx, "{{virtual override thunk("));
