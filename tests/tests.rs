@@ -56,6 +56,10 @@ demangles!(_Z20instantiate_with_intI3FooET_IiEv,
            "Foo<int> instantiate_with_int<Foo>()");
 demangles!(_Z3fooISt6vectorIiEEvv,
            "void foo<std::vector<int> >()");
+demangles!(__ZN3foo3barE3quxS0_,
+           "foo::bar(qux, qux)");
+demangles!(__ZN3foo3barE3quxS_,
+           "foo::bar(qux, foo)");
 
 // Test cases found via differential testing against `c++filt` with `cargo-fuzz`
 // and `libFuzzer`.
@@ -66,3 +70,5 @@ demangles!(__Z3S_Z3SGffffjjjjjjjjjjzjjjjjjojjjjjjjj,
            "S_Z(SGf, float, float, float, unsigned int, unsigned int, unsigned int, unsigned int, unsigned int, unsigned int, unsigned int, unsigned int, unsigned int, unsigned int, ..., unsigned int, unsigned int, unsigned int, unsigned int, unsigned int, unsigned int, unsigned __int128, unsigned int, unsigned int, unsigned int, unsigned int, unsigned int, unsigned int, unsigned int, unsigned int)");
 demangles!(__Z3SGfDdedddd,
            "SGf(decimal64, long double, double, double, double, double)");
+demangles!(__ZN6ISiS_Z3b_dE1ES0_7__dIFFFdhl,
+           "ISiS_Z::b_d(E, E, __dIFFF, double, unsigned char, long)");
