@@ -5501,10 +5501,8 @@ impl<'subs, W> Demangle<'subs, W> for SpecialName
                 Ok(())
             }
             SpecialName::Guard(ref name) => {
-                try!(write!(ctx, "{{static initialization guard("));
-                try!(name.demangle(ctx, stack));
-                try!(write!(ctx, ")}}"));
-                Ok(())
+                try!(write!(ctx, "guard variable for "));
+                name.demangle(ctx, stack)
             }
             SpecialName::GuardTemporary(ref name, n) => {
                 try!(write!(ctx, "{{static initialization guard temporary("));
