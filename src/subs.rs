@@ -89,6 +89,13 @@ impl SubstitutionTable {
             None
         }
     }
+
+    /// Remove the last entry from the substitutions table and return it, or
+    /// `None` if the table is empty.
+    pub fn pop(&mut self) -> Option<Substitutable> {
+        log!("SubstitutionTable::pop @ {}: {:?}", self.len(), self.last());
+        self.0.pop()
+    }
 }
 
 impl FromIterator<Substitutable> for SubstitutionTable {
