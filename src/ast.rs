@@ -377,13 +377,6 @@ pub struct DemangleContext<'a, W>
     // check too strict, and should it be relaxed?
     mark_bits: FixedBitSet,
 
-    // Remember which TemplateArg we mapped a TemplateParam to. We only have the
-    // proper argument scope the first time we visit a TemplateArg, and any
-    // substitution back references could be within a completely different
-    // scope. If we try to (re-)resolve a TemplateParam's concrete TemplateArg
-    // outside the scope it was defined in, we'll get garbage results.
-    template_params_to_args: HashMap<&'a TemplateParam, &'a TemplateArg>,
-
     // Options passed to the demangling process.
     options: &'a DemangleOptions,
 }
@@ -427,7 +420,6 @@ impl<'a, W> DemangleContext<'a, W>
             bytes_written: 0,
             last_byte_written: None,
             mark_bits: FixedBitSet::with_capacity(subs.len()),
-            template_params_to_args: HashMap::new(),
             options: options,
         }
     }
@@ -3299,17 +3291,9 @@ impl TemplateParam {
                                       -> io::Result<&'subs TemplateArg>
         where W: 'subs + io::Write
     {
-        let e = match ctx.template_params_to_args.entry(self) {
-            Entry::Occupied(e) => e.into_mut(),
-            Entry::Vacant(e) => {
-                let arg = try!(stack.get_template_arg(self.0)
-                               .map_err(|e| io::Error::new(io::ErrorKind::Other,
-                                                           e.description())));
-                e.insert(arg)
-            }
-        };
-
-        Ok(*e)
+        stack.get_template_arg(self.0)
+            .map_err(|e| io::Error::new(io::ErrorKind::Other,
+                                        e.description()))
     }
 }
 
