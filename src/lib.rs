@@ -47,6 +47,14 @@ use ast::{Demangle, Parse, ParseContext};
 use error::{Error, Result};
 use index_str::IndexStr;
 use std::fmt;
+use std::io;
+
+/// Options to control the demangling process.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct DemangleOptions {
+    /// Do not display function arguments.
+    pub no_params: bool,
+}
 
 /// A `Symbol` which owns the underlying storage for the mangled name.
 pub type OwnedSymbol = Symbol<Vec<u8>>;
@@ -134,6 +142,37 @@ substitutions = {:#?}",
 
         Ok(symbol)
     }
+
+    /// Demangle the symbol and return it as a String.
+    ///
+    /// Unlike the `ToString` implementation, this function allows options to
+    /// be specified.
+    /// ```
+    /// use cpp_demangle::{DemangleOptions, Symbol};
+    /// use std::string::ToString;
+    ///
+    /// let mangled = b"_ZN5space3fooEibc";
+    ///
+    /// let sym = Symbol::new(&mangled[..])
+    ///     .expect("Could not parse mangled symbol!");
+    ///
+    /// let demangled = sym.to_string();
+    /// let options = DemangleOptions::default();
+    /// let demangled_again = sym.demangle(&options).unwrap();
+    /// assert_eq!(demangled_again, demangled);
+    /// ```
+    pub fn demangle(&self, options: &DemangleOptions) -> io::Result<String> {
+        let mut out = vec![];
+        {
+            let mut ctx = ast::DemangleContext::new(&self.substitutions,
+                                                    self.raw.as_ref(),
+                                                    options,
+                                                    &mut out);
+            try!(self.parsed.demangle(&mut ctx, None));
+        }
+
+        Ok(String::from_utf8(out).unwrap())
+    }
 }
 
 impl<T> Symbol<T> {
@@ -193,8 +232,10 @@ impl<T> fmt::Display for Symbol<T>
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         let mut out = vec![];
         {
+            let options = DemangleOptions::default();
             let mut ctx = ast::DemangleContext::new(&self.substitutions,
                                                     self.raw.as_ref(),
+                                                    &options,
                                                     &mut out);
             try!(self.parsed.demangle(&mut ctx, None).map_err(|_| fmt::Error));
         }

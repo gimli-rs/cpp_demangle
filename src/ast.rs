@@ -17,6 +17,7 @@ use std::io::{self, Write};
 use std::mem;
 use std::ops;
 use subs::{Substitutable, SubstitutionTable};
+use super::DemangleOptions;
 
 struct AutoLogParse;
 
@@ -381,6 +382,9 @@ pub struct DemangleContext<'a, W>
     // scope. If we try to (re-)resolve a TemplateParam's concrete TemplateArg
     // outside the scope it was defined in, we'll get garbage results.
     template_params_to_args: HashMap<&'a TemplateParam, &'a TemplateArg>,
+
+    // Options passed to the demangling process.
+    options: &'a DemangleOptions,
 }
 
 impl<'a, W> io::Write for DemangleContext<'a, W>
@@ -411,6 +415,7 @@ impl<'a, W> DemangleContext<'a, W>
     /// Construct a new `DemangleContext`.
     pub fn new(subs: &'a SubstitutionTable,
                input: &'a [u8],
+               options: &'a DemangleOptions,
                out: W)
                -> DemangleContext<'a, W> {
         DemangleContext {
@@ -422,6 +427,7 @@ impl<'a, W> DemangleContext<'a, W>
             last_byte_written: None,
             mark_bits: FixedBitSet::with_capacity(subs.len()),
             template_params_to_args: HashMap::new(),
+            options: options,
         }
     }
 
@@ -559,6 +565,10 @@ impl<'subs, W> Demangle<'subs, W> for FunctionArgSlice
                              stack: Option<ArgScopeStack<'prev, 'subs>>)
                              -> io::Result<()> {
         log_demangle!(self, ctx, stack);
+
+        if ctx.options.no_params && stack.is_none() {
+            return Ok(());
+        }
 
         let mut saw_needs_paren = false;
         let (needs_space, needs_paren) = ctx.inner
