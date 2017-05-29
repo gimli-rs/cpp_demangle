@@ -8,7 +8,7 @@ extern crate cpp_demangle;
 extern crate clap;
 
 use cpp_demangle::{BorrowedSymbol, DemangleOptions};
-use std::io::{self, BufRead, Write};
+use std::io::{self, BufRead, Cursor, Write};
 use std::process;
 use clap::{Arg, App};
 
@@ -80,6 +80,9 @@ fn main() {
              .short("p")
              .long("no-params")
              .help("Do not display function arguments"))
+        .arg(Arg::with_name("mangled_names")
+             .multiple(true)
+             .value_delimiter(" "))
         .get_matches();
 
     let stdin = io::stdin();
@@ -95,7 +98,18 @@ fn main() {
         no_params: matches.is_present("noparams"),
     };
 
-    let code = match demangle_all(&mut stdin, &mut stdout, &options) {
+    let demangle_result = if let Some(names) = matches.values_of("mangled_names") {
+        let mut input = Cursor::new(names.fold(String::new(), |mut accumulated, name| {
+            accumulated.push_str(&name);
+            accumulated.push_str("\n");
+            accumulated
+        }));
+        demangle_all(&mut input, &mut stdout, &options)
+    } else {
+        demangle_all(&mut stdin, &mut stdout, &options)
+    };
+
+    let code = match demangle_result {
         Ok(_) => 0,
         Err(e) => {
             let _ = writeln!(&mut stderr, "error: {}", e);
