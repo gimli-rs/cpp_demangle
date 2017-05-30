@@ -2092,14 +2092,24 @@ define_vocabulary! {
     ///                  ::= D1  # complete object destructor
     ///                  ::= D2  # base object destructor
     /// ```
+    ///
+    /// GCC also emits a C4 constructor under some conditions when building
+    /// an optimized binary. GCC's source says:
+    /// /* This is the old-style "[unified]" constructor.
+    ///    In some cases, we may emit this function and call
+    ///    it from the clones in order to share code and save space.  */
+    /// Based on the GCC source we'll call this the "maybe in-charge constructor".
+    /// Similarly, there is a D4 destructor, the "maybe in-charge destructor".
     #[derive(Clone, Debug, PartialEq, Eq)]
     pub enum CtorDtorName {
         CompleteConstructor             (b"C1", "complete object constructor"),
         BaseConstructor                 (b"C2", "base object constructor"),
         CompleteAllocatingConstructor   (b"C3", "complete object allocating constructor"),
+        MaybeInChargeConstructor        (b"C4", "maybe in-charge constructor"),
         DeletingDestructor              (b"D0", "deleting destructor"),
         CompleteDestructor              (b"D1", "complete object destructor"),
-        BaseDestructor                  (b"D2", "base object destructor")
+        BaseDestructor                  (b"D2", "base object destructor"),
+        MaybeInChargeDestructor         (b"D4", "maybe in-charge destructor")
     }
 }
 
