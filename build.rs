@@ -11,9 +11,22 @@ fn get_crate_dir() -> io::Result<path::PathBuf> {
         .map_err(|_| io::Error::new(io::ErrorKind::Other, "no CARGO_MANIFEST_DIR")))))
 }
 
-fn get_test_path(file_name: &str) -> io::Result<path::PathBuf> {
+
+fn get_out_dir() -> io::Result<path::PathBuf> {
+    Ok(path::PathBuf::from(try!(env::var("OUT_DIR")
+        .map_err(|_| io::Error::new(io::ErrorKind::Other, "no OUT_DIR")))))
+}
+
+fn get_crate_test_path(file_name: &str) -> io::Result<path::PathBuf> {
     let mut test_path = try!(get_crate_dir());
     test_path.push("tests");
+    assert!(test_path.is_dir());
+    test_path.push(file_name);
+    Ok(test_path)
+}
+
+fn get_test_path(file_name: &str) -> io::Result<path::PathBuf> {
+    let mut test_path = try!(get_out_dir());
     assert!(test_path.is_dir());
     test_path.push(file_name);
     Ok(test_path)
@@ -98,7 +111,7 @@ extern crate diff;
 use std::fmt::Write;
 "));
 
-    let libiberty_tests = try!(get_test_path("libiberty-demangle-expected"));
+    let libiberty_tests = try!(get_crate_test_path("libiberty-demangle-expected"));
     let libiberty_tests = try!(fs::File::open(libiberty_tests));
     let libiberty_tests = io::BufReader::new(libiberty_tests);
 
