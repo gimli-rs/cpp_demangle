@@ -1749,6 +1749,8 @@ impl SourceName {
 /// > unqualified identifier for the entity in the source code. This ABI does not
 /// > yet specify a mangling for identifiers containing characters outside of
 /// > `_A-Za-z0-9.`.
+///
+/// Mangled symbols' identifiers also have `$` characters in the wild.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Identifier {
     start: usize,
@@ -1769,7 +1771,7 @@ impl Parse for Identifier {
         let end = input.as_ref()
             .iter()
             .map(|&c| c as char)
-            .take_while(|&c| c == '_' || c == '.' || c.is_digit(36))
+            .take_while(|&c| c == '$' || c == '_' || c == '.' || c.is_digit(36))
             .count();
 
         if end == 0 {
@@ -8478,6 +8480,10 @@ mod tests {
                 }
                 b"_Az1\0\0\0" => {
                     Identifier { start: 0, end: 4 },
+                    b"\0\0\0"
+                }
+                b"$_0\0\0\0" => {
+                    Identifier { start: 0, end: 3 },
                     b"\0\0\0"
                 }
             }
