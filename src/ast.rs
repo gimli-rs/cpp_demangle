@@ -4544,7 +4544,7 @@ impl<'subs, W> Demangle<'subs, W> for UnresolvedName
                 }
                 name.demangle(ctx, stack)
             }
-            /// `::A::x` or `::N::y` or `::A<T>::z`
+            // `::A::x` or `::N::y` or `::A<T>::z`
             UnresolvedName::GlobalNested2(ref levels, ref name) => {
                 try!(write!(ctx, "::"));
                 for lvl in &levels[..] {
