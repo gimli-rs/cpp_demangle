@@ -9,7 +9,7 @@ license = "Apache-2.0/MIT"
 name = "cpp_demangle"
 readme = "./README.md"
 repository = "https://github.com/fitzgen/cpp_demangle"
-version = "0.2.4"
+version = "0.2.5"
 
 [badges]
 
