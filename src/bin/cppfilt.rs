@@ -7,10 +7,10 @@ extern crate cpp_demangle;
 #[macro_use]
 extern crate clap;
 
+use clap::{App, Arg};
 use cpp_demangle::{BorrowedSymbol, DemangleOptions};
 use std::io::{self, BufRead, Cursor, Write};
 use std::process;
-use clap::{Arg, App};
 
 /// Find the index of the first (potential) occurrence of a mangled C++ symbol
 /// in the given `haystack`.
@@ -35,19 +35,20 @@ fn find_mangled(haystack: &[u8]) -> Option<usize> {
 /// Print the given `line` to `out`, with all mangled C++ symbols replaced with
 /// their demangled form.
 fn demangle_line<W>(out: &mut W, line: &[u8], options: &DemangleOptions) -> io::Result<()>
-    where W: Write
+where
+    W: Write,
 {
     let mut line = line;
 
     while let Some(idx) = find_mangled(line) {
-        try!(write!(out, "{}", String::from_utf8_lossy(&line[..idx])));
+        write!(out, "{}", String::from_utf8_lossy(&line[..idx]))?;
 
         if let Ok((sym, tail)) = BorrowedSymbol::with_tail(&line[idx..]) {
-            let demangled = try!(sym.demangle(options));
-            try!(write!(out, "{}", demangled));
+            let demangled = sym.demangle(options)?;
+            write!(out, "{}", demangled)?;
             line = tail;
         } else {
-            try!(write!(out, "_Z"));
+            write!(out, "_Z")?;
             line = &line[2..];
         }
     }
@@ -57,14 +58,19 @@ fn demangle_line<W>(out: &mut W, line: &[u8], options: &DemangleOptions) -> io::
 
 /// Print all the lines from the given `input` to `out`, with all mangled C++
 /// symbols replaced with their demangled form.
-fn demangle_all<R, W>(input: &mut R, out: &mut W, options: &DemangleOptions) -> io::Result<()>
-    where R: BufRead,
-          W: Write
+fn demangle_all<R, W>(
+    input: &mut R,
+    out: &mut W,
+    options: &DemangleOptions,
+) -> io::Result<()>
+where
+    R: BufRead,
+    W: Write,
 {
     let mut buf = vec![];
 
-    while try!(input.read_until(b'\n', &mut buf)) > 0 {
-        try!(demangle_line(out, &buf[..], options));
+    while input.read_until(b'\n', &mut buf)? > 0 {
+        demangle_line(out, &buf[..], options)?;
         buf.clear();
     }
 
@@ -76,13 +82,17 @@ fn main() {
         .version(crate_version!())
         .author(crate_authors!())
         .about("A c++filt clone as an example of how to use the cpp_demangle crate!")
-        .arg(Arg::with_name("noparams")
-             .short("p")
-             .long("no-params")
-             .help("Do not display function arguments"))
-        .arg(Arg::with_name("mangled_names")
-             .multiple(true)
-             .value_delimiter(" "))
+        .arg(
+            Arg::with_name("noparams")
+                .short("p")
+                .long("no-params")
+                .help("Do not display function arguments"),
+        )
+        .arg(
+            Arg::with_name("mangled_names")
+                .multiple(true)
+                .value_delimiter(" "),
+        )
         .get_matches();
 
     let stdin = io::stdin();
