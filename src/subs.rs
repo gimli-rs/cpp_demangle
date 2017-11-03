@@ -50,12 +50,21 @@ where
 /// which there are potential back-references.
 #[doc(hidden)]
 #[derive(Clone, Default, PartialEq, Eq)]
-pub struct SubstitutionTable(Vec<Substitutable>);
+pub struct SubstitutionTable {
+    substitutions: Vec<Substitutable>,
+    // There are components which are typically candidates for substitution, but
+    // in some particular circumstances are not. Instances of such components
+    // which are not candidates for substitution end up in this part of the
+    // table. See `<prefix>` parsing for further details.
+    non_substitutions: Vec<Substitutable>,
+}
 
 impl fmt::Debug for SubstitutionTable {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         f.pad("SubstitutionTable ")?;
-        f.debug_map().entries(self.0.iter().enumerate()).finish()
+        f.debug_map()
+            .entries(self.substitutions.iter().enumerate())
+            .finish()
     }
 }
 
@@ -68,22 +77,30 @@ impl SubstitutionTable {
     /// Insert a freshly-parsed substitutable component into the table and
     /// return the index at which it now lives.
     pub fn insert(&mut self, entity: Substitutable) -> usize {
-        let idx = self.0.len();
+        let idx = self.substitutions.len();
         log!("SubstitutionTable::insert @ {}: {:?}", idx, entity);
-        self.0.push(entity);
+        self.substitutions.push(entity);
+        idx
+    }
+
+    /// Insert a an entity into the table that is not a candidate for
+    /// substitution.
+    pub fn insert_non_substitution(&mut self, entity: Substitutable) -> usize {
+        let idx = self.non_substitutions.len();
+        self.non_substitutions.push(entity);
         idx
     }
 
     /// Does this substitution table contain a component at the given index?
     pub fn contains(&self, idx: usize) -> bool {
-        idx < self.0.len()
+        idx < self.substitutions.len()
     }
 
     /// Get the type referenced by the given handle, or None if there is no such
     /// entry, or there is an entry that is not a type.
     pub fn get_type(&self, handle: &ast::TypeHandle) -> Option<&ast::Type> {
         if let ast::TypeHandle::BackReference(idx) = *handle {
-            self.0.get(idx).and_then(|s| match *s {
+            self.substitutions.get(idx).and_then(|s| match *s {
                 Substitutable::Type(ref ty) => Some(ty),
                 _ => None,
             })
@@ -96,13 +113,28 @@ impl SubstitutionTable {
     /// `None` if the table is empty.
     pub fn pop(&mut self) -> Option<Substitutable> {
         log!("SubstitutionTable::pop @ {}: {:?}", self.len(), self.last());
-        self.0.pop()
+        self.substitutions.pop()
+    }
+
+    /// Get the `idx`th entity that is not a candidate for substitution. Panics
+    /// if `idx` is out of bounds.
+    pub fn non_substitution(&self, idx: usize) -> &Substitutable {
+        &self.non_substitutions[idx]
+    }
+
+    /// Get the `idx`th entity that is not a candidate for substitution. Returns
+    /// `None` if `idx` is out of bounds.
+    pub fn get_non_substitution(&self, idx: usize) -> Option<&Substitutable> {
+        self.non_substitutions.get(idx)
     }
 }
 
 impl FromIterator<Substitutable> for SubstitutionTable {
     fn from_iter<I: IntoIterator<Item = Substitutable>>(iter: I) -> Self {
-        SubstitutionTable(Vec::from_iter(iter))
+        SubstitutionTable {
+            substitutions: Vec::from_iter(iter),
+            non_substitutions: vec![],
+        }
     }
 }
 
@@ -110,6 +142,6 @@ impl Deref for SubstitutionTable {
     type Target = [Substitutable];
 
     fn deref(&self) -> &Self::Target {
-        &self.0[..]
+        &self.substitutions[..]
     }
 }

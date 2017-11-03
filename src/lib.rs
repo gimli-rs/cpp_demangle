@@ -247,7 +247,10 @@ where
                 &options,
                 &mut out,
             );
-            self.parsed.demangle(&mut ctx, None).map_err(|_| fmt::Error)?;
+            self.parsed.demangle(&mut ctx, None).map_err(|err| {
+                log!("Demangling error: {:#?}", err);
+                fmt::Error
+            })?;
         }
         write!(f, "{}", String::from_utf8_lossy(&out))
     }
