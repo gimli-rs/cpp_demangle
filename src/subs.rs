@@ -28,12 +28,14 @@ pub enum Substitutable {
 }
 
 impl<'subs, W> ast::Demangle<'subs, W> for Substitutable
-    where W: 'subs + io::Write
+where
+    W: 'subs + io::Write,
 {
-    fn demangle<'prev, 'ctx>(&'subs self,
-                             ctx: &'ctx mut ast::DemangleContext<'subs, W>,
-                             stack: Option<ast::ArgScopeStack<'prev, 'subs>>)
-                             -> io::Result<()> {
+    fn demangle<'prev, 'ctx>(
+        &'subs self,
+        ctx: &'ctx mut ast::DemangleContext<'subs, W>,
+        stack: Option<ast::ArgScopeStack<'prev, 'subs>>,
+    ) -> io::Result<()> {
         match *self {
             Substitutable::UnscopedTemplateName(ref name) => name.demangle(ctx, stack),
             Substitutable::Type(ref ty) => ty.demangle(ctx, stack),
@@ -52,7 +54,7 @@ pub struct SubstitutionTable(Vec<Substitutable>);
 
 impl fmt::Debug for SubstitutionTable {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        try!(f.pad("SubstitutionTable "));
+        f.pad("SubstitutionTable ")?;
         f.debug_map().entries(self.0.iter().enumerate()).finish()
     }
 }

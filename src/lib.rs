@@ -30,7 +30,6 @@
 #![deny(missing_docs)]
 #![deny(missing_debug_implementations)]
 #![deny(unsafe_code)]
-
 // Clippy stuff.
 #![allow(unknown_lints)]
 #![allow(inline_always)]
@@ -74,7 +73,8 @@ pub struct Symbol<T> {
 }
 
 impl<T> Symbol<T>
-    where T: AsRef<[u8]>
+where
+    T: AsRef<[u8]>,
 {
     /// Given some raw storage, parse the mangled symbol from it.
     ///
@@ -113,7 +113,8 @@ impl<T> Symbol<T>
             let ctx = ParseContext::default();
             let input = IndexStr::new(raw.as_ref());
 
-            let (parsed, tail) = try!(ast::MangledName::parse(&ctx, &mut substitutions, input));
+            let (parsed, tail) =
+                ast::MangledName::parse(&ctx, &mut substitutions, input)?;
             debug_assert!(ctx.recursion_level() == 0);
 
             if tail.is_empty() {
@@ -130,14 +131,16 @@ impl<T> Symbol<T>
         };
 
         if cfg!(feature = "logging") {
-            println!("Successfully parsed '{}' as
+            println!(
+                "Successfully parsed '{}' as
 
 AST = {:#?}
 
 substitutions = {:#?}",
-                     String::from_utf8_lossy(symbol.raw.as_ref()),
-                     symbol.parsed,
-                     symbol.substitutions);
+                String::from_utf8_lossy(symbol.raw.as_ref()),
+                symbol.parsed,
+                symbol.substitutions
+            );
         }
 
         Ok(symbol)
@@ -164,11 +167,13 @@ substitutions = {:#?}",
     pub fn demangle(&self, options: &DemangleOptions) -> io::Result<String> {
         let mut out = vec![];
         {
-            let mut ctx = ast::DemangleContext::new(&self.substitutions,
-                                                    self.raw.as_ref(),
-                                                    options,
-                                                    &mut out);
-            try!(self.parsed.demangle(&mut ctx, None));
+            let mut ctx = ast::DemangleContext::new(
+                &self.substitutions,
+                self.raw.as_ref(),
+                options,
+                &mut out,
+            );
+            self.parsed.demangle(&mut ctx, None)?;
         }
 
         Ok(String::from_utf8(out).unwrap())
@@ -202,7 +207,7 @@ impl<T> Symbol<T> {
 
         let ctx = ParseContext::default();
         let idx_str = IndexStr::new(input);
-        let (parsed, tail) = try!(ast::MangledName::parse(&ctx, &mut substitutions, idx_str));
+        let (parsed, tail) = ast::MangledName::parse(&ctx, &mut substitutions, idx_str)?;
         debug_assert!(ctx.recursion_level() == 0);
 
         let symbol = Symbol {
@@ -212,14 +217,16 @@ impl<T> Symbol<T> {
         };
 
         if cfg!(feature = "logging") {
-            println!("Successfully parsed '{}' as
+            println!(
+                "Successfully parsed '{}' as
 
 AST = {:#?}
 
 substitutions = {:#?}",
-                     String::from_utf8_lossy(symbol.raw.as_ref()),
-                     symbol.parsed,
-                     symbol.substitutions);
+                String::from_utf8_lossy(symbol.raw.as_ref()),
+                symbol.parsed,
+                symbol.substitutions
+            );
         }
 
         Ok((symbol, tail.into()))
@@ -227,17 +234,20 @@ substitutions = {:#?}",
 }
 
 impl<T> fmt::Display for Symbol<T>
-    where T: AsRef<[u8]>
+where
+    T: AsRef<[u8]>,
 {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         let mut out = vec![];
         {
             let options = DemangleOptions::default();
-            let mut ctx = ast::DemangleContext::new(&self.substitutions,
-                                                    self.raw.as_ref(),
-                                                    &options,
-                                                    &mut out);
-            try!(self.parsed.demangle(&mut ctx, None).map_err(|_| fmt::Error));
+            let mut ctx = ast::DemangleContext::new(
+                &self.substitutions,
+                self.raw.as_ref(),
+                &options,
+                &mut out,
+            );
+            self.parsed.demangle(&mut ctx, None).map_err(|_| fmt::Error)?;
         }
         write!(f, "{}", String::from_utf8_lossy(&out))
     }

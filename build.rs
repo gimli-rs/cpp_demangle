@@ -15,8 +15,10 @@ fn get_crate_dir() -> io::Result<path::PathBuf> {
 }
 
 fn get_out_dir() -> io::Result<path::PathBuf> {
-    Ok(path::PathBuf::from(env::var("OUT_DIR")
-        .map_err(|_| io::Error::new(io::ErrorKind::Other, "no OUT_DIR"))?))
+    Ok(path::PathBuf::from(
+        env::var("OUT_DIR")
+            .map_err(|_| io::Error::new(io::ErrorKind::Other, "no OUT_DIR"))?,
+    ))
 }
 
 fn get_crate_test_path(file_name: &str) -> io::Result<path::PathBuf> {
