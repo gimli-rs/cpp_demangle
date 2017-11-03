@@ -6,7 +6,7 @@ use error::{self, Result};
 use index_str::IndexStr;
 use self::fixedbitset::FixedBitSet;
 #[cfg(feature = "logging")]
-use std::cell::{RefCell};
+use std::cell::RefCell;
 use std::cell::Cell;
 use std::error::Error;
 use std::fmt;
