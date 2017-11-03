@@ -41,23 +41,26 @@ impl fmt::Display for Error {
         match *self {
             Error::UnexpectedEnd => write!(f, "mangled symbol ends abruptly"),
             Error::UnexpectedText => write!(f, "mangled symbol is not well-formed"),
-            Error::BadBackReference => {
-                write!(f,
-                       "back reference that is out-of-bounds of the substitution table")
-            }
-            Error::BadTemplateArgReference => {
-                write!(f, "reference to a template arg that is either out-of-bounds, or in a context without template args")
-            }
-            Error::BadFunctionArgReference => {
-                write!(f, "reference to a function arg that is either out-of-bounds, or in a context without function args")
-            }
-            Error::Overflow => {
-                write!(f,
-                       "an overflow or underflow would occur when parsing an integer in a mangled symbol")
-            }
-            Error::RecursiveDemangling => {
-                write!(f, "demangling some part of the AST attempted to demangle itself again")
-            }
+            Error::BadBackReference => write!(
+                f,
+                "back reference that is out-of-bounds of the substitution table"
+            ),
+            Error::BadTemplateArgReference => write!(
+                f,
+                "reference to a template arg that is either out-of-bounds, or in a context without template args"
+            ),
+            Error::BadFunctionArgReference => write!(
+                f,
+                "reference to a function arg that is either out-of-bounds, or in a context without function args"
+            ),
+            Error::Overflow => write!(
+                f,
+                "an overflow or underflow would occur when parsing an integer in a mangled symbol"
+            ),
+            Error::RecursiveDemangling => write!(
+                f,
+                "demangling some part of the AST attempted to demangle itself again"
+            ),
             Error::TooMuchRecursion => {
                 write!(f, "encountered too much recursion when demangling symbol")
             }
@@ -70,12 +73,24 @@ impl error::Error for Error {
         match *self {
             Error::UnexpectedEnd => "mangled symbol ends abruptly",
             Error::UnexpectedText => "mangled symbol is not well-formed",
-            Error::BadBackReference => "back reference that is out-of-bounds of the substitution table",
-            Error::BadTemplateArgReference => "reference to a template arg that is either out-of-bounds, or in a context without template args",
-            Error::BadFunctionArgReference => "reference to a function arg that is either out-of-bounds, or in a context without function args",
-            Error::Overflow => "an overflow or underflow would occur when parsing an integer in a mangled symbol",
-            Error::RecursiveDemangling => "demangling some part of the AST attempted to demangle itself again",
-            Error::TooMuchRecursion => "encountered too much recursion when demangling symbol"
+            Error::BadBackReference => {
+                "back reference that is out-of-bounds of the substitution table"
+            }
+            Error::BadTemplateArgReference => {
+                "reference to a template arg that is either out-of-bounds, or in a context without template args"
+            }
+            Error::BadFunctionArgReference => {
+                "reference to a function arg that is either out-of-bounds, or in a context without function args"
+            }
+            Error::Overflow => {
+                "an overflow or underflow would occur when parsing an integer in a mangled symbol"
+            }
+            Error::RecursiveDemangling => {
+                "demangling some part of the AST attempted to demangle itself again"
+            }
+            Error::TooMuchRecursion => {
+                "encountered too much recursion when demangling symbol"
+            }
         }
     }
 }
