@@ -100,6 +100,7 @@ demangles!(
     _ZN2Ty6methodIS_EEvMT_FvPKcES5_,
     "void Ty::method<Ty>(void (Ty::*)(char const*), void (Ty::*)(char const*))"
 );
+demangles!(_ZNK1fB5cxx11Ev,"f[abi:cxx11]() const");
 
 // Test cases found via differential testing against `c++filt` with `cargo-fuzz`
 // and `libFuzzer`.

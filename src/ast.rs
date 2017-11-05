@@ -1394,7 +1394,9 @@ where
 
         self.prefix().demangle(ctx, stack)?;
         if let NestedName::Unqualified(_, _, _, ref name) = *self {
-            ctx.write(b"::")?;
+            if name.accepts_double_colon() {
+                ctx.write(b"::")?;
+            }
             name.demangle(ctx, stack)?;
         }
 
@@ -1726,6 +1728,7 @@ where
 ///                    ::= <ctor-dtor-name>
 ///                    ::= <source-name>
 ///                    ::= <unnamed-type-name>
+///                    ::= <abi-tag>
 /// ```
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum UnqualifiedName {
@@ -1737,6 +1740,8 @@ pub enum UnqualifiedName {
     Source(SourceName),
     /// A generated name for an unnamed type.
     UnnamedType(UnnamedTypeName),
+    /// An ABI tag.
+    ABITag(TaggedName),
 }
 
 impl Parse for UnqualifiedName {
@@ -1759,6 +1764,10 @@ impl Parse for UnqualifiedName {
             return Ok((UnqualifiedName::Source(source), tail));
         }
 
+        if let Ok((tagged, tail)) = TaggedName::parse(ctx, subs, input) {
+            return Ok((UnqualifiedName::ABITag(tagged), tail));
+        }
+
         UnnamedTypeName::parse(ctx, subs, input).map(|(unnamed, tail)| {
             (UnqualifiedName::UnnamedType(unnamed), tail)
         })
@@ -1770,6 +1779,7 @@ impl StartsWith for UnqualifiedName {
     fn starts_with(byte: u8) -> bool {
         OperatorName::starts_with(byte) || CtorDtorName::starts_with(byte)
             || SourceName::starts_with(byte) || UnnamedTypeName::starts_with(byte)
+            || TaggedName::starts_with(byte)
     }
 }
 
@@ -1792,6 +1802,19 @@ where
             UnqualifiedName::CtorDtor(ref ctor_dtor) => ctor_dtor.demangle(ctx, stack),
             UnqualifiedName::Source(ref name) => name.demangle(ctx, stack),
             UnqualifiedName::UnnamedType(ref unnamed) => unnamed.demangle(ctx, stack),
+            UnqualifiedName::ABITag(ref tagged) => tagged.demangle(ctx, stack),
+        }
+    }
+}
+
+impl UnqualifiedName {
+    fn accepts_double_colon(&self) -> bool {
+        match *self {
+            UnqualifiedName::Operator(_) |
+            UnqualifiedName::CtorDtor(_) |
+            UnqualifiedName::Source(_) |
+            UnqualifiedName::UnnamedType(_) => true,
+            UnqualifiedName::ABITag(_) => false,
         }
     }
 }
@@ -1855,6 +1878,52 @@ impl SourceName {
         log_demangle!(self, ctx, stack);
 
         self.0.demangle(ctx, stack)
+    }
+}
+
+/// The `<tagged-name>` non-terminal.
+///
+/// ```text
+/// <tagged-name> ::= <name> B <source-name>
+/// ```
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct TaggedName(SourceName);
+
+impl Parse for TaggedName {
+    fn parse<'a, 'b>(
+        ctx: &'a ParseContext,
+        subs: &'a mut SubstitutionTable,
+        input: IndexStr<'b>,
+    ) -> Result<(TaggedName, IndexStr<'b>)> {
+        try_begin_parse!("TaggedName", ctx, input);
+
+        let tail = consume(b"B", input)?;
+        let (source_name, tail) = SourceName::parse(ctx, subs, tail)?;
+        Ok((TaggedName(source_name), tail))
+    }
+}
+
+impl StartsWith for TaggedName {
+    #[inline]
+    fn starts_with(byte: u8) -> bool {
+        byte == b'B'
+    }
+}
+
+impl<'subs, W> Demangle<'subs, W> for TaggedName
+where
+    W: 'subs + io::Write,
+{
+    fn demangle<'prev, 'ctx>(
+        &'subs self,
+        ctx: &'ctx mut DemangleContext<'subs, W>,
+        stack: Option<ArgScopeStack<'prev, 'subs>>,
+    ) -> io::Result<()> {
+        log_demangle!(self, ctx, stack);
+
+        write!(ctx, "[abi:")?;
+        self.0.demangle(ctx, stack)?;
+        write!(ctx, "]")
     }
 }
 
@@ -5885,7 +5954,7 @@ mod tests {
                 NonSubstitution, Number, NvOffset, OperatorName, Parse, ParseContext,
                 PointerToMemberType, Prefix, PrefixHandle, RefQualifier, SeqId,
                 SimpleId, SimpleOperatorName, SourceName, SpecialName,
-                StandardBuiltinType, Substitution, TemplateArg, TemplateArgs,
+                StandardBuiltinType, Substitution, TaggedName, TemplateArg, TemplateArgs,
                 TemplateParam, TemplateTemplateParam, TemplateTemplateParamHandle, Type,
                 TypeHandle, UnnamedTypeName, UnqualifiedName, UnresolvedName,
                 UnresolvedQualifierLevel, UnresolvedType, UnresolvedTypeHandle,
@@ -8693,6 +8762,13 @@ mod tests {
                 }
                 b"Ut5_..." => {
                     UnqualifiedName::UnnamedType(UnnamedTypeName(Some(5))),
+                    b"..."
+                }
+                b"B5cxx11..." => {
+                    UnqualifiedName::ABITag(TaggedName(SourceName(Identifier {
+                        start: 2,
+                        end: 7,
+                    }))),
                     b"..."
                 }
             }
