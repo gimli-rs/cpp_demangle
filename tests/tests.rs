@@ -101,6 +101,10 @@ demangles!(
     "void Ty::method<Ty>(void (Ty::*)(char const*), void (Ty::*)(char const*))"
 );
 demangles!(_ZNK1fB5cxx11Ev,"f[abi:cxx11]() const");
+demangles!(
+    _ZN4base8internal14CheckedSubImplIlEENSt9enable_ifIXsrSt14numeric_limitsIT_E10is_integerEbE4typeES4_S4_PS4_,
+    "std::enable_if<std::numeric_limits<long>::is_integer, bool>::type base::internal::CheckedSubImpl<long>(long, long, long*)"
+);
 
 // Test cases found via differential testing against `c++filt` with `cargo-fuzz`
 // and `libFuzzer`.
