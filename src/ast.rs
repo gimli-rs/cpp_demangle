@@ -226,12 +226,6 @@ pub trait Parse: Sized {
     ) -> Result<(Self, IndexStr<'b>)>;
 }
 
-/// A trait to abstract looking ahead one byte during parsing.
-trait StartsWith {
-    /// Does this production start with the given byte?
-    fn starts_with(byte: u8) -> bool;
-}
-
 /// Determine whether this AST node is an instantiated[*] template function, and
 /// get its concrete template arguments.
 ///
@@ -799,7 +793,6 @@ where
 ///
 /// - the enum itself
 /// - a `Parse` impl
-/// - a `StartsWith` impl
 /// - a `Demangle` impl
 ///
 /// See the definition of `CTorDtorName` for an example of its use.
@@ -861,9 +854,8 @@ macro_rules! define_vocabulary {
                     ),*
                 })
             }
-        }
 
-        impl StartsWith for $typename {
+            #[allow(dead_code)]
             #[inline]
             fn starts_with(byte: u8) -> bool {
                 $(
@@ -1592,7 +1584,7 @@ impl Parse for PrefixHandle {
                     // or
                     //
                     //     <prefix> ::= <data-member-prefix> ::= <prefix> <source-name> M
-                    debug_assert!(UnqualifiedName::starts_with(c));
+                    debug_assert!(SourceName::starts_with(c));
                     debug_assert!(DataMemberPrefix::starts_with(c));
 
                     let (name, tail_tail) = SourceName::parse(ctx, subs, tail)?;
@@ -1611,7 +1603,7 @@ impl Parse for PrefixHandle {
                         tail = tail_tail;
                     }
                 }
-                Some(c) if UnqualifiedName::starts_with(c) => {
+                Some(c) if UnqualifiedName::starts_with(c, &tail) => {
                     // <prefix> ::= <unqualified-name>
                     let (name, tail_tail) = UnqualifiedName::parse(ctx, subs, tail)?;
                     let prefix = match current {
@@ -1729,6 +1721,7 @@ where
 ///                    ::= <source-name>
 ///                    ::= <unnamed-type-name>
 ///                    ::= <abi-tag>
+///                    ::= <closure-type-name>
 /// ```
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum UnqualifiedName {
@@ -1742,6 +1735,8 @@ pub enum UnqualifiedName {
     UnnamedType(UnnamedTypeName),
     /// An ABI tag.
     ABITag(TaggedName),
+    /// A closure type name
+    ClosureType(ClosureTypeName),
 }
 
 impl Parse for UnqualifiedName {
@@ -1768,18 +1763,13 @@ impl Parse for UnqualifiedName {
             return Ok((UnqualifiedName::ABITag(tagged), tail));
         }
 
+        if let Ok((closure, tail)) = ClosureTypeName::parse(ctx, subs, input) {
+            return Ok((UnqualifiedName::ClosureType(closure), tail));
+        }
+
         UnnamedTypeName::parse(ctx, subs, input).map(|(unnamed, tail)| {
             (UnqualifiedName::UnnamedType(unnamed), tail)
         })
-    }
-}
-
-impl StartsWith for UnqualifiedName {
-    #[inline]
-    fn starts_with(byte: u8) -> bool {
-        OperatorName::starts_with(byte) || CtorDtorName::starts_with(byte)
-            || SourceName::starts_with(byte) || UnnamedTypeName::starts_with(byte)
-            || TaggedName::starts_with(byte)
     }
 }
 
@@ -1803,17 +1793,26 @@ where
             UnqualifiedName::Source(ref name) => name.demangle(ctx, stack),
             UnqualifiedName::UnnamedType(ref unnamed) => unnamed.demangle(ctx, stack),
             UnqualifiedName::ABITag(ref tagged) => tagged.demangle(ctx, stack),
+            UnqualifiedName::ClosureType(ref closure) => closure.demangle(ctx, stack),
         }
     }
 }
 
 impl UnqualifiedName {
+    #[inline]
+    fn starts_with(byte: u8, input: &IndexStr) -> bool {
+        OperatorName::starts_with(byte) || CtorDtorName::starts_with(byte)
+            || SourceName::starts_with(byte) || UnnamedTypeName::starts_with(byte)
+            || TaggedName::starts_with(byte) || ClosureTypeName::starts_with(byte, input)
+    }
+
     fn accepts_double_colon(&self) -> bool {
         match *self {
             UnqualifiedName::Operator(_) |
             UnqualifiedName::CtorDtor(_) |
             UnqualifiedName::Source(_) |
-            UnqualifiedName::UnnamedType(_) => true,
+            UnqualifiedName::UnnamedType(_) |
+            UnqualifiedName::ClosureType(_) => true,
             UnqualifiedName::ABITag(_) => false,
         }
     }
@@ -1856,14 +1855,12 @@ impl Parse for SourceName {
     }
 }
 
-impl StartsWith for SourceName {
+impl SourceName {
     #[inline]
     fn starts_with(byte: u8) -> bool {
         byte == b'0' || (b'0' <= byte && byte <= b'9')
     }
-}
 
-impl SourceName {
     // Not a `Demangle` impl because the 'me reference to self may not live long
     // enough.
     #[inline]
@@ -1903,13 +1900,6 @@ impl Parse for TaggedName {
     }
 }
 
-impl StartsWith for TaggedName {
-    #[inline]
-    fn starts_with(byte: u8) -> bool {
-        byte == b'B'
-    }
-}
-
 impl<'subs, W> Demangle<'subs, W> for TaggedName
 where
     W: 'subs + io::Write,
@@ -1924,6 +1914,13 @@ where
         write!(ctx, "[abi:")?;
         self.0.demangle(ctx, stack)?;
         write!(ctx, "]")
+    }
+}
+
+impl TaggedName {
+    #[inline]
+    fn starts_with(byte: u8) -> bool {
+        byte == b'B'
     }
 }
 
@@ -2081,7 +2078,7 @@ pub enum OperatorName {
     VendorExtension(u8, SourceName),
 }
 
-impl StartsWith for OperatorName {
+impl OperatorName {
     fn starts_with(byte: u8) -> bool {
         byte == b'c' || byte == b'l' || byte == b'v'
             || SimpleOperatorName::starts_with(byte)
@@ -3310,7 +3307,7 @@ impl Parse for UnnamedTypeName {
     }
 }
 
-impl StartsWith for UnnamedTypeName {
+impl UnnamedTypeName {
     #[inline]
     fn starts_with(byte: u8) -> bool {
         byte == b'U'
@@ -5493,6 +5490,13 @@ where
     }
 }
 
+impl ClosureTypeName {
+    #[inline]
+    fn starts_with(byte: u8, input: &IndexStr) -> bool {
+        byte == b'U' && input.peek_second().map(|b| b == b'l').unwrap_or(false)
+    }
+}
+
 /// The `<lambda-sig>` production.
 ///
 /// ```text
@@ -5563,7 +5567,7 @@ impl Parse for DataMemberPrefix {
     }
 }
 
-impl StartsWith for DataMemberPrefix {
+impl DataMemberPrefix {
     fn starts_with(byte: u8) -> bool {
         SourceName::starts_with(byte)
     }
@@ -8821,6 +8825,17 @@ mod tests {
                     })),
                     b"..."
                 }
+                b"UllE_..." => {
+                    UnqualifiedName::ClosureType(
+                        ClosureTypeName(
+                            LambdaSig(vec![
+                                TypeHandle::Builtin(
+                                    BuiltinType::Standard(
+                                        StandardBuiltinType::Long))
+                            ]),
+                            None)),
+                    b"..."
+                }
                 b"Ut5_..." => {
                     UnqualifiedName::UnnamedType(UnnamedTypeName(Some(5))),
                     b"..."
@@ -8835,6 +8850,7 @@ mod tests {
             }
             Err => {
                 b"zzz" => Error::UnexpectedText,
+                b"Uq" => Error::UnexpectedText,
                 b"C" => Error::UnexpectedEnd,
                 b"" => Error::UnexpectedEnd,
             }
