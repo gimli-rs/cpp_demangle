@@ -462,6 +462,94 @@ where
     }
 }
 
+#[doc(hidden)]
+#[derive(Debug)]
+pub struct AutoDemangleContextInnerBarrier<'ctx, 'a, W>
+where
+    W: 'a + io::Write,
+    'a: 'ctx
+{
+    ctx: &'ctx mut DemangleContext<'a, W>,
+    saved_inner: Vec<&'a DemangleAsInner<'a, W>>,
+}
+
+impl<'ctx, 'a, W> AutoDemangleContextInnerBarrier<'ctx, 'a, W>
+where
+    W: 'a + io::Write,
+    'a: 'ctx
+{
+    /// Set aside the current inner stack on the demangle context.
+    pub fn new(ctx: &'ctx mut DemangleContext<'a, W>) -> Self {
+        let mut saved_inner = Vec::new();
+        mem::swap(&mut saved_inner, &mut ctx.inner);
+        AutoDemangleContextInnerBarrier {
+            ctx: ctx,
+            saved_inner: saved_inner,
+        }
+    }
+}
+
+impl<'ctx, 'a, W> ops::Deref for AutoDemangleContextInnerBarrier<'ctx, 'a, W>
+where
+    W: 'a + io::Write,
+    'a: 'ctx
+{
+    type Target = DemangleContext<'a, W>;
+
+    fn deref(&self) -> &Self::Target {
+        self.ctx
+    }
+}
+
+impl<'ctx, 'a, W> ops::DerefMut for AutoDemangleContextInnerBarrier<'ctx, 'a, W>
+where
+    W: 'a + io::Write,
+    'a: 'ctx
+{
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        self.ctx
+    }
+}
+
+impl<'ctx, 'a, W> Drop for AutoDemangleContextInnerBarrier<'ctx, 'a, W>
+where
+    W: 'a + io::Write,
+    'a: 'ctx
+{
+    fn drop(&mut self) {
+        // NB: We cannot assert that the context's inner is empty here,
+        // because if demangling failed we'll unwind the stack without
+        // using everything that put on the inner.
+        if !self.ctx.inner.is_empty() {
+            log!("Context inner was not emptied, did demangling fail?");
+        }
+        mem::swap(&mut self.saved_inner, &mut self.ctx.inner);
+    }
+}
+
+/// The inner stack allows passing AST nodes down deeper into the tree so that
+/// nodes that logically precede something (e.g. PointerRef) can show up after
+/// that thing in the demangled output. What's on the stack may not always be
+/// intended for the first node that looks at the stack to grab, though.
+///
+/// Consider a function with template arguments and parameters, f<T>(a).
+/// The function parameters logically precede the template arguments in the AST,
+/// but they must be reversed in the output. The parameters end up on the inner
+/// stack before processing the template argument nodes. If we're not careful,
+/// a node inside the template arguments might pick the function parameters
+/// off of the inner stack!
+///
+/// To solve this, certain nodes act as "inner barriers". By using this macro,
+/// they set the existing inner stack aside and replace it with an empty stack
+/// while visiting their children. This allows these barrier nodes to have
+/// completely self-contained children.
+macro_rules! inner_barrier {
+    ( $ctx:ident ) => {
+        let mut _ctx = AutoDemangleContextInnerBarrier::new($ctx);
+        let $ctx = &mut _ctx;
+    }
+}
+
 /// Any AST node that can be printed in a demangled form.
 #[doc(hidden)]
 pub trait Demangle<'subs, W>: fmt::Debug
@@ -983,6 +1071,7 @@ where
         stack: Option<ArgScopeStack<'prev, 'subs>>,
     ) -> io::Result<()> {
         log_demangle!(self, ctx, stack);
+        inner_barrier!(ctx);
 
         match *self {
             Encoding::Function(ref name, ref fun_ty) => {
@@ -3756,6 +3845,7 @@ where
         stack: Option<ArgScopeStack<'prev, 'subs>>,
     ) -> io::Result<()> {
         log_demangle!(self, ctx, stack);
+        inner_barrier!(ctx);
 
         write!(ctx, "<")?;
         let mut need_comma = false;
