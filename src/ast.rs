@@ -1,8 +1,5 @@
 //! Abstract syntax tree types for mangled symbols.
 
-extern crate fixedbitset;
-
-use self::fixedbitset::FixedBitSet;
 use super::DemangleOptions;
 use error::{self, Result};
 use index_str::IndexStr;
@@ -375,17 +372,6 @@ where
     // The last byte written to `out`, if any.
     last_byte_written: Option<u8>,
 
-    // Any time we start demangling an entry from the substitutions table, we
-    // mark its corresponding bit here. Before we begin demangling such an
-    // entry, we check whether the bit is set. If it is set, then we have
-    // entered a substitutions reference cycle and will go into a infinite
-    // recursion and blow the stack.
-    //
-    // TODO: is this really needed? Shouldn't the check that back references are
-    // always backwards mean that there can't be cycles? Alternatively, is that
-    // check too strict, and should it be relaxed?
-    mark_bits: FixedBitSet,
-
     // Options passed to the demangling process.
     options: &'a DemangleOptions,
 }
@@ -431,21 +417,8 @@ where
             out: out,
             bytes_written: 0,
             last_byte_written: None,
-            mark_bits: FixedBitSet::with_capacity(subs.len()),
             options: options,
         }
-    }
-
-    fn set_mark_bit(&mut self, idx: usize) {
-        self.mark_bits.set(idx, true);
-    }
-
-    fn clear_mark_bit(&mut self, idx: usize) {
-        self.mark_bits.set(idx, false);
-    }
-
-    fn mark_bit_is_set(&self, idx: usize) -> bool {
-        self.mark_bits[idx]
     }
 
     fn ensure(&mut self, ch: char) -> io::Result<()> {
@@ -835,17 +808,7 @@ macro_rules! define_handle {
                                      -> io::Result<()> {
                 match *self {
                     $typename::WellKnown(ref comp) => comp.demangle(ctx, stack),
-                    $typename::BackReference(idx) => {
-                        if ctx.mark_bit_is_set(idx) {
-                            return Err(io::Error::new(io::ErrorKind::Other,
-                                                      error::Error::RecursiveDemangling.description()));
-                        }
-
-                        ctx.set_mark_bit(idx);
-                        let ret = ctx.subs[idx].demangle(ctx, stack);
-                        ctx.clear_mark_bit(idx);
-                        ret
-                    }
+                    $typename::BackReference(idx) => ctx.subs[idx].demangle(ctx, stack),
                     $(
                         $typename::$extra_variant(ref extra) => extra.demangle(ctx, stack),
                     )*
