@@ -112,6 +112,7 @@ demangles!(
     _ZSt4copyIPKcPcET0_T_S4_S3_,
     "char* std::copy<char const*, char*>(char const*, char const*, char*)"
 );
+demangles!(_Z9_mm_or_psDv4_fS_, "_mm_or_ps(float __vector(4), float __vector(4))");
 
 // Test cases found via differential testing against `c++filt` with `cargo-fuzz`
 // and `libFuzzer`.

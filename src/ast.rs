@@ -2448,6 +2448,7 @@ define_vocabulary! {
 ///        ::= <function-type>
 ///        ::= <class-enum-type>
 ///        ::= <array-type>
+///        ::= <vector-type>
 ///        ::= <pointer-to-member-type>
 ///        ::= <template-param>
 ///        ::= <template-template-param> <template-args>
@@ -2472,6 +2473,9 @@ pub enum Type {
 
     /// An array type.
     Array(ArrayType),
+
+    /// A vector type.
+    Vector(VectorType),
 
     /// A pointer-to-member type.
     PointerToMember(PointerToMemberType),
@@ -2593,6 +2597,11 @@ impl Parse for TypeHandle {
             return insert_and_return_handle(ty, subs, tail);
         }
 
+        if let Ok((ty, tail)) = VectorType::parse(ctx, subs, input) {
+            let ty = Type::Vector(ty);
+            return insert_and_return_handle(ty, subs, tail);
+        }
+
         if let Ok((ty, tail)) = PointerToMemberType::parse(ctx, subs, input) {
             let ty = Type::PointerToMember(ty);
             return insert_and_return_handle(ty, subs, tail);
@@ -2705,6 +2714,7 @@ where
             Type::Function(ref func_ty) => func_ty.demangle(ctx, stack),
             Type::ClassEnum(ref cls_enum_ty) => cls_enum_ty.demangle(ctx, stack),
             Type::Array(ref array_ty) => array_ty.demangle(ctx, stack),
+            Type::Vector(ref vector_ty) => vector_ty.demangle(ctx, stack),
             Type::PointerToMember(ref ptm) => ptm.demangle(ctx, stack),
             Type::TemplateParam(ref param) => param.demangle(ctx, stack),
             Type::TemplateTemplate(ref tt_param, ref args) => {
@@ -3545,6 +3555,100 @@ where
 
     fn downcast_to_array_type(&self) -> Option<&ArrayType> {
         Some(self)
+    }
+}
+
+/// The `<vector-type>` production.
+///
+/// ```text
+/// <vector-type> ::= Dv <number> _ <type>
+///               ::= Dv _ <expression> _ <type>
+/// ```
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum VectorType {
+    /// An vector with a number-literal dimension.
+    DimensionNumber(usize, TypeHandle),
+
+    /// An vector with an expression for its dimension.
+    DimensionExpression(Expression, TypeHandle),
+}
+
+impl Parse for VectorType {
+    fn parse<'a, 'b>(
+        ctx: &'a ParseContext,
+        subs: &'a mut SubstitutionTable,
+        input: IndexStr<'b>,
+    ) -> Result<(VectorType, IndexStr<'b>)> {
+        try_begin_parse!("VectorType", ctx, input);
+
+        let tail = consume(b"Dv", input)?;
+
+        if let Ok((num, tail)) = parse_number(10, false, tail) {
+            debug_assert!(num >= 0);
+            let tail = consume(b"_", tail)?;
+            let (ty, tail) = TypeHandle::parse(ctx, subs, tail)?;
+            return Ok((VectorType::DimensionNumber(num as _, ty), tail));
+        }
+
+        let tail = consume(b"_", tail)?;
+        let (expr, tail) = Expression::parse(ctx, subs, tail)?;
+        let tail = consume(b"_", tail)?;
+        let (ty, tail) = TypeHandle::parse(ctx, subs, tail)?;
+        Ok((VectorType::DimensionExpression(expr, ty), tail))
+    }
+}
+
+impl<'subs, W> Demangle<'subs, W> for VectorType
+where
+    W: 'subs + io::Write,
+{
+    fn demangle<'prev, 'ctx>(
+        &'subs self,
+        ctx: &'ctx mut DemangleContext<'subs, W>,
+        stack: Option<ArgScopeStack<'prev, 'subs>>,
+    ) -> io::Result<()> {
+        log_demangle!(self, ctx, stack);
+
+        ctx.inner.push(self);
+
+        match *self {
+            VectorType::DimensionNumber(_, ref ty) |
+            VectorType::DimensionExpression(_, ref ty) => {
+                ty.demangle(ctx, stack)?;
+            }
+        }
+
+        if let Some(inner) = ctx.inner.pop() {
+            inner.demangle_as_inner(ctx, stack)?;
+        }
+
+        Ok(())
+    }
+}
+
+impl<'subs, W> DemangleAsInner<'subs, W> for VectorType
+where
+    W: 'subs + io::Write,
+{
+    fn demangle_as_inner<'prev, 'ctx>(
+        &'subs self,
+        ctx: &'ctx mut DemangleContext<'subs, W>,
+        stack: Option<ArgScopeStack<'prev, 'subs>>,
+    ) -> io::Result<()> {
+        log_demangle!(self, ctx, stack);
+
+        match *self {
+            VectorType::DimensionNumber(n, _) => {
+                write!(ctx, " __vector({})", n)?;
+            }
+            VectorType::DimensionExpression(ref expr, _) => {
+                write!(ctx, " __vector(")?;
+                expr.demangle(ctx, stack)?;
+                write!(ctx, ")")?;
+            }
+        }
+
+        Ok(())
     }
 }
 
@@ -6084,8 +6188,8 @@ mod tests {
                 TemplateParam, TemplateTemplateParam, TemplateTemplateParamHandle, Type,
                 TypeHandle, UnnamedTypeName, UnqualifiedName, UnresolvedName,
                 UnresolvedQualifierLevel, UnresolvedType, UnresolvedTypeHandle,
-                UnscopedName, UnscopedTemplateName, UnscopedTemplateNameHandle, VOffset,
-                WellKnownComponent};
+                UnscopedName, UnscopedTemplateName, UnscopedTemplateNameHandle,
+                VectorType, VOffset, WellKnownComponent};
     use error::Error;
     use index_str::IndexStr;
     use std::fmt::Debug;
@@ -7236,6 +7340,45 @@ mod tests {
                     b"A10_..." => Error::UnexpectedText,
                     b"A10..." => Error::UnexpectedText,
                     b"A..." => Error::UnexpectedText,
+                    b"..." => Error::UnexpectedText,
+                }
+            }
+        });
+    }
+
+    #[test]
+    fn parse_vector_type() {
+        assert_parse!(VectorType {
+            with subs [
+                Substitutable::Type(Type::Decltype(Decltype::Expression(Expression::Rethrow)))
+            ] => {
+                Ok => {
+                    b"Dv10_S_..." => {
+                        VectorType::DimensionNumber(10, TypeHandle::BackReference(0)),
+                        b"...",
+                        []
+                    }
+                    b"Dv10_Sb..." => {
+                        VectorType::DimensionNumber(10,
+                                                    TypeHandle::WellKnown(
+                                                        WellKnownComponent::StdString1)),
+                        b"...",
+                        []
+                    }
+                    b"Dv_tr_S_..." => {
+                        VectorType::DimensionExpression(Expression::Rethrow,
+                                                        TypeHandle::BackReference(0)),
+                        b"...",
+                        []
+                    }
+                }
+                Err => {
+                    b"Dq" => Error::UnexpectedText,
+                    b"Dv" => Error::UnexpectedEnd,
+                    b"Dv42_" => Error::UnexpectedEnd,
+                    b"Dv42_..." => Error::UnexpectedText,
+                    b"Dvtr_" => Error::UnexpectedText,
+                    b"" => Error::UnexpectedEnd,
                     b"..." => Error::UnexpectedText,
                 }
             }
