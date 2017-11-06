@@ -24,9 +24,6 @@ required-features = ["cppfilt"]
 [build-dependencies]
 glob = "0.2.11"
 
-[dependencies]
-fixedbitset = "0.1.5"
-
 [dependencies.afl]
 optional = true
 version = "0.1.5"

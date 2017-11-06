@@ -1,8 +1,5 @@
 //! Abstract syntax tree types for mangled symbols.
 
-extern crate fixedbitset;
-
-use self::fixedbitset::FixedBitSet;
 use super::DemangleOptions;
 use error::{self, Result};
 use index_str::IndexStr;
@@ -226,12 +223,6 @@ pub trait Parse: Sized {
     ) -> Result<(Self, IndexStr<'b>)>;
 }
 
-/// A trait to abstract looking ahead one byte during parsing.
-trait StartsWith {
-    /// Does this production start with the given byte?
-    fn starts_with(byte: u8) -> bool;
-}
-
 /// Determine whether this AST node is an instantiated[*] template function, and
 /// get its concrete template arguments.
 ///
@@ -381,17 +372,6 @@ where
     // The last byte written to `out`, if any.
     last_byte_written: Option<u8>,
 
-    // Any time we start demangling an entry from the substitutions table, we
-    // mark its corresponding bit here. Before we begin demangling such an
-    // entry, we check whether the bit is set. If it is set, then we have
-    // entered a substitutions reference cycle and will go into a infinite
-    // recursion and blow the stack.
-    //
-    // TODO: is this really needed? Shouldn't the check that back references are
-    // always backwards mean that there can't be cycles? Alternatively, is that
-    // check too strict, and should it be relaxed?
-    mark_bits: FixedBitSet,
-
     // Options passed to the demangling process.
     options: &'a DemangleOptions,
 }
@@ -437,21 +417,8 @@ where
             out: out,
             bytes_written: 0,
             last_byte_written: None,
-            mark_bits: FixedBitSet::with_capacity(subs.len()),
             options: options,
         }
-    }
-
-    fn set_mark_bit(&mut self, idx: usize) {
-        self.mark_bits.set(idx, true);
-    }
-
-    fn clear_mark_bit(&mut self, idx: usize) {
-        self.mark_bits.set(idx, false);
-    }
-
-    fn mark_bit_is_set(&self, idx: usize) -> bool {
-        self.mark_bits[idx]
     }
 
     fn ensure(&mut self, ch: char) -> io::Result<()> {
@@ -465,6 +432,94 @@ where
 
     fn ensure_space(&mut self) -> io::Result<()> {
         self.ensure(' ')
+    }
+}
+
+#[doc(hidden)]
+#[derive(Debug)]
+pub struct AutoDemangleContextInnerBarrier<'ctx, 'a, W>
+where
+    W: 'a + io::Write,
+    'a: 'ctx
+{
+    ctx: &'ctx mut DemangleContext<'a, W>,
+    saved_inner: Vec<&'a DemangleAsInner<'a, W>>,
+}
+
+impl<'ctx, 'a, W> AutoDemangleContextInnerBarrier<'ctx, 'a, W>
+where
+    W: 'a + io::Write,
+    'a: 'ctx
+{
+    /// Set aside the current inner stack on the demangle context.
+    pub fn new(ctx: &'ctx mut DemangleContext<'a, W>) -> Self {
+        let mut saved_inner = Vec::new();
+        mem::swap(&mut saved_inner, &mut ctx.inner);
+        AutoDemangleContextInnerBarrier {
+            ctx: ctx,
+            saved_inner: saved_inner,
+        }
+    }
+}
+
+impl<'ctx, 'a, W> ops::Deref for AutoDemangleContextInnerBarrier<'ctx, 'a, W>
+where
+    W: 'a + io::Write,
+    'a: 'ctx
+{
+    type Target = DemangleContext<'a, W>;
+
+    fn deref(&self) -> &Self::Target {
+        self.ctx
+    }
+}
+
+impl<'ctx, 'a, W> ops::DerefMut for AutoDemangleContextInnerBarrier<'ctx, 'a, W>
+where
+    W: 'a + io::Write,
+    'a: 'ctx
+{
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        self.ctx
+    }
+}
+
+impl<'ctx, 'a, W> Drop for AutoDemangleContextInnerBarrier<'ctx, 'a, W>
+where
+    W: 'a + io::Write,
+    'a: 'ctx
+{
+    fn drop(&mut self) {
+        // NB: We cannot assert that the context's inner is empty here,
+        // because if demangling failed we'll unwind the stack without
+        // using everything that put on the inner.
+        if !self.ctx.inner.is_empty() {
+            log!("Context inner was not emptied, did demangling fail?");
+        }
+        mem::swap(&mut self.saved_inner, &mut self.ctx.inner);
+    }
+}
+
+/// The inner stack allows passing AST nodes down deeper into the tree so that
+/// nodes that logically precede something (e.g. PointerRef) can show up after
+/// that thing in the demangled output. What's on the stack may not always be
+/// intended for the first node that looks at the stack to grab, though.
+///
+/// Consider a function with template arguments and parameters, f<T>(a).
+/// The function parameters logically precede the template arguments in the AST,
+/// but they must be reversed in the output. The parameters end up on the inner
+/// stack before processing the template argument nodes. If we're not careful,
+/// a node inside the template arguments might pick the function parameters
+/// off of the inner stack!
+///
+/// To solve this, certain nodes act as "inner barriers". By using this macro,
+/// they set the existing inner stack aside and replace it with an empty stack
+/// while visiting their children. This allows these barrier nodes to have
+/// completely self-contained children.
+macro_rules! inner_barrier {
+    ( $ctx:ident ) => {
+        let mut _ctx = AutoDemangleContextInnerBarrier::new($ctx);
+        let $ctx = &mut _ctx;
     }
 }
 
@@ -753,17 +808,7 @@ macro_rules! define_handle {
                                      -> io::Result<()> {
                 match *self {
                     $typename::WellKnown(ref comp) => comp.demangle(ctx, stack),
-                    $typename::BackReference(idx) => {
-                        if ctx.mark_bit_is_set(idx) {
-                            return Err(io::Error::new(io::ErrorKind::Other,
-                                                      error::Error::RecursiveDemangling.description()));
-                        }
-
-                        ctx.set_mark_bit(idx);
-                        let ret = ctx.subs[idx].demangle(ctx, stack);
-                        ctx.clear_mark_bit(idx);
-                        ret
-                    }
+                    $typename::BackReference(idx) => ctx.subs[idx].demangle(ctx, stack),
                     $(
                         $typename::$extra_variant(ref extra) => extra.demangle(ctx, stack),
                     )*
@@ -799,7 +844,6 @@ where
 ///
 /// - the enum itself
 /// - a `Parse` impl
-/// - a `StartsWith` impl
 /// - a `Demangle` impl
 ///
 /// See the definition of `CTorDtorName` for an example of its use.
@@ -861,9 +905,8 @@ macro_rules! define_vocabulary {
                     ),*
                 })
             }
-        }
 
-        impl StartsWith for $typename {
+            #[allow(dead_code)]
             #[inline]
             fn starts_with(byte: u8) -> bool {
                 $(
@@ -991,6 +1034,7 @@ where
         stack: Option<ArgScopeStack<'prev, 'subs>>,
     ) -> io::Result<()> {
         log_demangle!(self, ctx, stack);
+        inner_barrier!(ctx);
 
         match *self {
             Encoding::Function(ref name, ref fun_ty) => {
@@ -1394,7 +1438,9 @@ where
 
         self.prefix().demangle(ctx, stack)?;
         if let NestedName::Unqualified(_, _, _, ref name) = *self {
-            ctx.write(b"::")?;
+            if name.accepts_double_colon() {
+                ctx.write(b"::")?;
+            }
             name.demangle(ctx, stack)?;
         }
 
@@ -1590,7 +1636,7 @@ impl Parse for PrefixHandle {
                     // or
                     //
                     //     <prefix> ::= <data-member-prefix> ::= <prefix> <source-name> M
-                    debug_assert!(UnqualifiedName::starts_with(c));
+                    debug_assert!(SourceName::starts_with(c));
                     debug_assert!(DataMemberPrefix::starts_with(c));
 
                     let (name, tail_tail) = SourceName::parse(ctx, subs, tail)?;
@@ -1609,7 +1655,7 @@ impl Parse for PrefixHandle {
                         tail = tail_tail;
                     }
                 }
-                Some(c) if UnqualifiedName::starts_with(c) => {
+                Some(c) if UnqualifiedName::starts_with(c, &tail) => {
                     // <prefix> ::= <unqualified-name>
                     let (name, tail_tail) = UnqualifiedName::parse(ctx, subs, tail)?;
                     let prefix = match current {
@@ -1726,6 +1772,8 @@ where
 ///                    ::= <ctor-dtor-name>
 ///                    ::= <source-name>
 ///                    ::= <unnamed-type-name>
+///                    ::= <abi-tag>
+///                    ::= <closure-type-name>
 /// ```
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum UnqualifiedName {
@@ -1737,6 +1785,10 @@ pub enum UnqualifiedName {
     Source(SourceName),
     /// A generated name for an unnamed type.
     UnnamedType(UnnamedTypeName),
+    /// An ABI tag.
+    ABITag(TaggedName),
+    /// A closure type name
+    ClosureType(ClosureTypeName),
 }
 
 impl Parse for UnqualifiedName {
@@ -1759,17 +1811,17 @@ impl Parse for UnqualifiedName {
             return Ok((UnqualifiedName::Source(source), tail));
         }
 
+        if let Ok((tagged, tail)) = TaggedName::parse(ctx, subs, input) {
+            return Ok((UnqualifiedName::ABITag(tagged), tail));
+        }
+
+        if let Ok((closure, tail)) = ClosureTypeName::parse(ctx, subs, input) {
+            return Ok((UnqualifiedName::ClosureType(closure), tail));
+        }
+
         UnnamedTypeName::parse(ctx, subs, input).map(|(unnamed, tail)| {
             (UnqualifiedName::UnnamedType(unnamed), tail)
         })
-    }
-}
-
-impl StartsWith for UnqualifiedName {
-    #[inline]
-    fn starts_with(byte: u8) -> bool {
-        OperatorName::starts_with(byte) || CtorDtorName::starts_with(byte)
-            || SourceName::starts_with(byte) || UnnamedTypeName::starts_with(byte)
     }
 }
 
@@ -1792,6 +1844,28 @@ where
             UnqualifiedName::CtorDtor(ref ctor_dtor) => ctor_dtor.demangle(ctx, stack),
             UnqualifiedName::Source(ref name) => name.demangle(ctx, stack),
             UnqualifiedName::UnnamedType(ref unnamed) => unnamed.demangle(ctx, stack),
+            UnqualifiedName::ABITag(ref tagged) => tagged.demangle(ctx, stack),
+            UnqualifiedName::ClosureType(ref closure) => closure.demangle(ctx, stack),
+        }
+    }
+}
+
+impl UnqualifiedName {
+    #[inline]
+    fn starts_with(byte: u8, input: &IndexStr) -> bool {
+        OperatorName::starts_with(byte) || CtorDtorName::starts_with(byte)
+            || SourceName::starts_with(byte) || UnnamedTypeName::starts_with(byte)
+            || TaggedName::starts_with(byte) || ClosureTypeName::starts_with(byte, input)
+    }
+
+    fn accepts_double_colon(&self) -> bool {
+        match *self {
+            UnqualifiedName::Operator(_) |
+            UnqualifiedName::CtorDtor(_) |
+            UnqualifiedName::Source(_) |
+            UnqualifiedName::UnnamedType(_) |
+            UnqualifiedName::ClosureType(_) => true,
+            UnqualifiedName::ABITag(_) => false,
         }
     }
 }
@@ -1833,14 +1907,12 @@ impl Parse for SourceName {
     }
 }
 
-impl StartsWith for SourceName {
+impl SourceName {
     #[inline]
     fn starts_with(byte: u8) -> bool {
         byte == b'0' || (b'0' <= byte && byte <= b'9')
     }
-}
 
-impl SourceName {
     // Not a `Demangle` impl because the 'me reference to self may not live long
     // enough.
     #[inline]
@@ -1855,6 +1927,52 @@ impl SourceName {
         log_demangle!(self, ctx, stack);
 
         self.0.demangle(ctx, stack)
+    }
+}
+
+/// The `<tagged-name>` non-terminal.
+///
+/// ```text
+/// <tagged-name> ::= <name> B <source-name>
+/// ```
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct TaggedName(SourceName);
+
+impl Parse for TaggedName {
+    fn parse<'a, 'b>(
+        ctx: &'a ParseContext,
+        subs: &'a mut SubstitutionTable,
+        input: IndexStr<'b>,
+    ) -> Result<(TaggedName, IndexStr<'b>)> {
+        try_begin_parse!("TaggedName", ctx, input);
+
+        let tail = consume(b"B", input)?;
+        let (source_name, tail) = SourceName::parse(ctx, subs, tail)?;
+        Ok((TaggedName(source_name), tail))
+    }
+}
+
+impl<'subs, W> Demangle<'subs, W> for TaggedName
+where
+    W: 'subs + io::Write,
+{
+    fn demangle<'prev, 'ctx>(
+        &'subs self,
+        ctx: &'ctx mut DemangleContext<'subs, W>,
+        stack: Option<ArgScopeStack<'prev, 'subs>>,
+    ) -> io::Result<()> {
+        log_demangle!(self, ctx, stack);
+
+        write!(ctx, "[abi:")?;
+        self.0.demangle(ctx, stack)?;
+        write!(ctx, "]")
+    }
+}
+
+impl TaggedName {
+    #[inline]
+    fn starts_with(byte: u8) -> bool {
+        byte == b'B'
     }
 }
 
@@ -2012,7 +2130,7 @@ pub enum OperatorName {
     VendorExtension(u8, SourceName),
 }
 
-impl StartsWith for OperatorName {
+impl OperatorName {
     fn starts_with(byte: u8) -> bool {
         byte == b'c' || byte == b'l' || byte == b'v'
             || SimpleOperatorName::starts_with(byte)
@@ -2293,6 +2411,7 @@ define_vocabulary! {
 ///        ::= <function-type>
 ///        ::= <class-enum-type>
 ///        ::= <array-type>
+///        ::= <vector-type>
 ///        ::= <pointer-to-member-type>
 ///        ::= <template-param>
 ///        ::= <template-template-param> <template-args>
@@ -2317,6 +2436,9 @@ pub enum Type {
 
     /// An array type.
     Array(ArrayType),
+
+    /// A vector type.
+    Vector(VectorType),
 
     /// A pointer-to-member type.
     PointerToMember(PointerToMemberType),
@@ -2438,6 +2560,11 @@ impl Parse for TypeHandle {
             return insert_and_return_handle(ty, subs, tail);
         }
 
+        if let Ok((ty, tail)) = VectorType::parse(ctx, subs, input) {
+            let ty = Type::Vector(ty);
+            return insert_and_return_handle(ty, subs, tail);
+        }
+
         if let Ok((ty, tail)) = PointerToMemberType::parse(ctx, subs, input) {
             let ty = Type::PointerToMember(ty);
             return insert_and_return_handle(ty, subs, tail);
@@ -2550,6 +2677,7 @@ where
             Type::Function(ref func_ty) => func_ty.demangle(ctx, stack),
             Type::ClassEnum(ref cls_enum_ty) => cls_enum_ty.demangle(ctx, stack),
             Type::Array(ref array_ty) => array_ty.demangle(ctx, stack),
+            Type::Vector(ref vector_ty) => vector_ty.demangle(ctx, stack),
             Type::PointerToMember(ref ptm) => ptm.demangle(ctx, stack),
             Type::TemplateParam(ref param) => param.demangle(ctx, stack),
             Type::TemplateTemplate(ref tt_param, ref args) => {
@@ -2642,7 +2770,7 @@ where
 impl GetTemplateArgs for Type {
     fn get_template_args<'a>(
         &'a self,
-        _subs: &'a SubstitutionTable,
+        subs: &'a SubstitutionTable,
     ) -> Option<&'a TemplateArgs> {
         // TODO: This should probably recurse through all the nested type
         // handles too.
@@ -2650,6 +2778,9 @@ impl GetTemplateArgs for Type {
         match *self {
             Type::VendorExtension(_, Some(ref args), _) |
             Type::TemplateTemplate(_, ref args) => Some(args),
+            Type::PointerTo(ref ty) |
+            Type::LvalueRef(ref ty) |
+            Type::RvalueRef(ref ty) => ty.get_template_args(subs),
             _ => None,
         }
     }
@@ -3241,7 +3372,7 @@ impl Parse for UnnamedTypeName {
     }
 }
 
-impl StartsWith for UnnamedTypeName {
+impl UnnamedTypeName {
     #[inline]
     fn starts_with(byte: u8) -> bool {
         byte == b'U'
@@ -3390,6 +3521,100 @@ where
 
     fn downcast_to_array_type(&self) -> Option<&ArrayType> {
         Some(self)
+    }
+}
+
+/// The `<vector-type>` production.
+///
+/// ```text
+/// <vector-type> ::= Dv <number> _ <type>
+///               ::= Dv _ <expression> _ <type>
+/// ```
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum VectorType {
+    /// An vector with a number-literal dimension.
+    DimensionNumber(usize, TypeHandle),
+
+    /// An vector with an expression for its dimension.
+    DimensionExpression(Expression, TypeHandle),
+}
+
+impl Parse for VectorType {
+    fn parse<'a, 'b>(
+        ctx: &'a ParseContext,
+        subs: &'a mut SubstitutionTable,
+        input: IndexStr<'b>,
+    ) -> Result<(VectorType, IndexStr<'b>)> {
+        try_begin_parse!("VectorType", ctx, input);
+
+        let tail = consume(b"Dv", input)?;
+
+        if let Ok((num, tail)) = parse_number(10, false, tail) {
+            debug_assert!(num >= 0);
+            let tail = consume(b"_", tail)?;
+            let (ty, tail) = TypeHandle::parse(ctx, subs, tail)?;
+            return Ok((VectorType::DimensionNumber(num as _, ty), tail));
+        }
+
+        let tail = consume(b"_", tail)?;
+        let (expr, tail) = Expression::parse(ctx, subs, tail)?;
+        let tail = consume(b"_", tail)?;
+        let (ty, tail) = TypeHandle::parse(ctx, subs, tail)?;
+        Ok((VectorType::DimensionExpression(expr, ty), tail))
+    }
+}
+
+impl<'subs, W> Demangle<'subs, W> for VectorType
+where
+    W: 'subs + io::Write,
+{
+    fn demangle<'prev, 'ctx>(
+        &'subs self,
+        ctx: &'ctx mut DemangleContext<'subs, W>,
+        stack: Option<ArgScopeStack<'prev, 'subs>>,
+    ) -> io::Result<()> {
+        log_demangle!(self, ctx, stack);
+
+        ctx.inner.push(self);
+
+        match *self {
+            VectorType::DimensionNumber(_, ref ty) |
+            VectorType::DimensionExpression(_, ref ty) => {
+                ty.demangle(ctx, stack)?;
+            }
+        }
+
+        if let Some(inner) = ctx.inner.pop() {
+            inner.demangle_as_inner(ctx, stack)?;
+        }
+
+        Ok(())
+    }
+}
+
+impl<'subs, W> DemangleAsInner<'subs, W> for VectorType
+where
+    W: 'subs + io::Write,
+{
+    fn demangle_as_inner<'prev, 'ctx>(
+        &'subs self,
+        ctx: &'ctx mut DemangleContext<'subs, W>,
+        stack: Option<ArgScopeStack<'prev, 'subs>>,
+    ) -> io::Result<()> {
+        log_demangle!(self, ctx, stack);
+
+        match *self {
+            VectorType::DimensionNumber(n, _) => {
+                write!(ctx, " __vector({})", n)?;
+            }
+            VectorType::DimensionExpression(ref expr, _) => {
+                write!(ctx, " __vector(")?;
+                expr.demangle(ctx, stack)?;
+                write!(ctx, ")")?;
+            }
+        }
+
+        Ok(())
     }
 }
 
@@ -3690,6 +3915,7 @@ where
         stack: Option<ArgScopeStack<'prev, 'subs>>,
     ) -> io::Result<()> {
         log_demangle!(self, ctx, stack);
+        inner_barrier!(ctx);
 
         write!(ctx, "<")?;
         let mut need_comma = false;
@@ -3847,6 +4073,8 @@ where
 ///               ::= sZ <function-param>                          # sizeof...(parameter), size of a function parameter pack
 ///               ::= sP <template-arg>* E                         # sizeof...(T), size of a captured template parameter pack from an alias template
 ///               ::= sp <expression>                              # expression..., pack expansion
+///               ::= sr <type> <unqualified-name>
+///               ::= sr <type> <unqualified-name> <template-args>
 ///               ::= tw <expression>                              # throw expression
 ///               ::= tr                                           # throw with no operand (rethrow)
 ///               ::= <unresolved-name>                            # f(p), N::f(p), ::f(p),
@@ -3975,6 +4203,12 @@ pub enum Expression {
 
     /// `expression...`, pack expansion.
     PackExpansion(Box<Expression>),
+
+    /// `type` `unqualified_name` expression.
+    TypeUnqualifiedName(TypeHandle, UnqualifiedName),
+
+    /// `type` `unqualified_name` `template-args` expression.
+    TypeUnqualifiedNameTemplateArgs(TypeHandle, UnqualifiedName, TemplateArgs),
 
     /// `throw expression`
     Throw(Box<Expression>),
@@ -4155,6 +4389,17 @@ impl Parse for Expression {
                 }
                 b"gs" => {
                     return can_be_global(true, ctx, subs, tail);
+                }
+                b"sr" => {
+                    let (ty, tail) = TypeHandle::parse(ctx, subs, tail)?;
+                    let (name, tail) = UnqualifiedName::parse(ctx, subs, tail)?;
+                    let (expr, tail) = if tail.peek() == Some(b'I') {
+                        let (template_args, tail) = TemplateArgs::parse(ctx, subs, tail)?;
+                        (Expression::TypeUnqualifiedNameTemplateArgs(ty, name, template_args), tail)
+                    } else {
+                        (Expression::TypeUnqualifiedName(ty, name), tail)
+                    };
+                    return Ok((expr, tail));
                 }
                 _ => {}
             }
@@ -4614,6 +4859,19 @@ where
                 pack.demangle(ctx, stack)?;
                 write!(ctx, "...")?;
                 Ok(())
+            }
+            Expression::TypeUnqualifiedName(ref ty, ref name) => {
+                ty.demangle(ctx, stack)?;
+                write!(ctx, "::")?;
+                name.demangle(ctx, stack)
+            }
+            Expression::TypeUnqualifiedNameTemplateArgs(ref ty,
+                                                        ref name,
+                                                        ref template_args) => {
+                ty.demangle(ctx, stack)?;
+                write!(ctx, "::")?;
+                name.demangle(ctx, stack)?;
+                template_args.demangle(ctx, stack)
             }
             Expression::Throw(ref expr) => {
                 write!(ctx, "throw ")?;
@@ -5392,6 +5650,13 @@ where
     }
 }
 
+impl ClosureTypeName {
+    #[inline]
+    fn starts_with(byte: u8, input: &IndexStr) -> bool {
+        byte == b'U' && input.peek_second().map(|b| b == b'l').unwrap_or(false)
+    }
+}
+
 /// The `<lambda-sig>` production.
 ///
 /// ```text
@@ -5462,7 +5727,7 @@ impl Parse for DataMemberPrefix {
     }
 }
 
-impl StartsWith for DataMemberPrefix {
+impl DataMemberPrefix {
     fn starts_with(byte: u8) -> bool {
         SourceName::starts_with(byte)
     }
@@ -5885,12 +6150,12 @@ mod tests {
                 NonSubstitution, Number, NvOffset, OperatorName, Parse, ParseContext,
                 PointerToMemberType, Prefix, PrefixHandle, RefQualifier, SeqId,
                 SimpleId, SimpleOperatorName, SourceName, SpecialName,
-                StandardBuiltinType, Substitution, TemplateArg, TemplateArgs,
+                StandardBuiltinType, Substitution, TaggedName, TemplateArg, TemplateArgs,
                 TemplateParam, TemplateTemplateParam, TemplateTemplateParamHandle, Type,
                 TypeHandle, UnnamedTypeName, UnqualifiedName, UnresolvedName,
                 UnresolvedQualifierLevel, UnresolvedType, UnresolvedTypeHandle,
-                UnscopedName, UnscopedTemplateName, UnscopedTemplateNameHandle, VOffset,
-                WellKnownComponent};
+                UnscopedName, UnscopedTemplateName, UnscopedTemplateNameHandle,
+                VectorType, VOffset, WellKnownComponent};
     use error::Error;
     use index_str::IndexStr;
     use std::fmt::Debug;
@@ -7048,6 +7313,45 @@ mod tests {
     }
 
     #[test]
+    fn parse_vector_type() {
+        assert_parse!(VectorType {
+            with subs [
+                Substitutable::Type(Type::Decltype(Decltype::Expression(Expression::Rethrow)))
+            ] => {
+                Ok => {
+                    b"Dv10_S_..." => {
+                        VectorType::DimensionNumber(10, TypeHandle::BackReference(0)),
+                        b"...",
+                        []
+                    }
+                    b"Dv10_Sb..." => {
+                        VectorType::DimensionNumber(10,
+                                                    TypeHandle::WellKnown(
+                                                        WellKnownComponent::StdString1)),
+                        b"...",
+                        []
+                    }
+                    b"Dv_tr_S_..." => {
+                        VectorType::DimensionExpression(Expression::Rethrow,
+                                                        TypeHandle::BackReference(0)),
+                        b"...",
+                        []
+                    }
+                }
+                Err => {
+                    b"Dq" => Error::UnexpectedText,
+                    b"Dv" => Error::UnexpectedEnd,
+                    b"Dv42_" => Error::UnexpectedEnd,
+                    b"Dv42_..." => Error::UnexpectedText,
+                    b"Dvtr_" => Error::UnexpectedText,
+                    b"" => Error::UnexpectedEnd,
+                    b"..." => Error::UnexpectedText,
+                }
+            }
+        });
+    }
+
+    #[test]
     fn parse_pointer_to_member_type() {
         assert_parse!(PointerToMemberType {
             with subs [
@@ -7155,6 +7459,35 @@ mod tests {
                     }
                     b"XtrE..." => {
                         TemplateArg::Expression(Expression::Rethrow),
+                        b"...",
+                        []
+                    }
+                    b"XsrS_1QE..." => {
+                        TemplateArg::Expression(
+                            Expression::TypeUnqualifiedName(
+                                TypeHandle::BackReference(0),
+                                UnqualifiedName::Source(
+                                    SourceName(Identifier {
+                                        start: 6,
+                                        end: 7,
+                                    })))),
+                        b"...",
+                        []
+                    }
+                    b"XsrS_1QIlEE..." => {
+                        TemplateArg::Expression(
+                            Expression::TypeUnqualifiedNameTemplateArgs(
+                                TypeHandle::BackReference(0),
+                                UnqualifiedName::Source(
+                                    SourceName(Identifier {
+                                        start: 6,
+                                        end: 7,
+                                    })),
+                                TemplateArgs(vec![
+                                    TemplateArg::Type(
+                                        TypeHandle::Builtin(
+                                            BuiltinType::Standard(StandardBuiltinType::Long))),
+                                ]))),
                         b"...",
                         []
                     }
@@ -8691,13 +9024,32 @@ mod tests {
                     })),
                     b"..."
                 }
+                b"UllE_..." => {
+                    UnqualifiedName::ClosureType(
+                        ClosureTypeName(
+                            LambdaSig(vec![
+                                TypeHandle::Builtin(
+                                    BuiltinType::Standard(
+                                        StandardBuiltinType::Long))
+                            ]),
+                            None)),
+                    b"..."
+                }
                 b"Ut5_..." => {
                     UnqualifiedName::UnnamedType(UnnamedTypeName(Some(5))),
+                    b"..."
+                }
+                b"B5cxx11..." => {
+                    UnqualifiedName::ABITag(TaggedName(SourceName(Identifier {
+                        start: 2,
+                        end: 7,
+                    }))),
                     b"..."
                 }
             }
             Err => {
                 b"zzz" => Error::UnexpectedText,
+                b"Uq" => Error::UnexpectedText,
                 b"C" => Error::UnexpectedEnd,
                 b"" => Error::UnexpectedEnd,
             }

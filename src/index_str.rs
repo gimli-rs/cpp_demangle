@@ -47,6 +47,12 @@ impl<'a> IndexStr<'a> {
         self.as_ref().get(0).cloned()
     }
 
+    /// Peek at the second next byte in this `IndexStr`.
+    #[inline]
+    pub fn peek_second(&self) -> Option<u8> {
+        self.as_ref().get(1).cloned()
+    }
+
     /// Split the string in two at the given index, resulting in the tuple where
     /// the first item has range `[0, idx)`, and the second has range `[idx,
     /// len)`.
