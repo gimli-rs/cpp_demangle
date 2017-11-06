@@ -97,7 +97,7 @@ fn test_afl_seed_{}() {{
 // Ratcheting number that is increased as more libiberty tests start
 // passing. Once they are all passing, this can be removed and we can enable all
 // of them by default.
-const LIBIBERTY_TEST_THRESHOLD: usize = 65;
+const LIBIBERTY_TEST_THRESHOLD: usize = 70;
 
 /// Read `tests/libiberty-demangle-expected`, parse its input mangled symbols,
 /// and expected output demangled symbols, and generate test cases for them.
@@ -200,17 +200,21 @@ use std::fmt::Write;
 #[test]
 fn test_libiberty_demangle_{}_() {{
     let mangled = br#"{}"#;
-    println!("Parsing mangled symbol: {{}}", String::from_utf8_lossy(mangled));
-
-    let sym = cpp_demangle::Symbol::new(&mangled[..])
-        .expect("should parse mangled symbol");
+    let mangled_str = String::from_utf8_lossy(mangled).into_owned();
+    println!("Parsing mangled symbol: {{}}", mangled_str);
 
     let expected = r#"{}"#;
+
+    let sym = match cpp_demangle::Symbol::new(&mangled[..]) {{
+        Ok(sym) => sym,
+        Err(_) if mangled_str == expected => return,
+        Err(e) => panic!("Should parse mangled symbol {{}}", e),
+    }};
 
     let mut actual = String::new();
     if let Err(e) = write!(&mut actual, "{{}}", sym) {{
         panic!("Error while demangling '{{}}': {{}}",
-               String::from_utf8_lossy(mangled),
+               mangled_str,
                e);
     }}
 

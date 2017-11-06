@@ -1700,6 +1700,10 @@ impl PrefixHandle {
                     false
                 }
             }
+            // Accept all `WellKnownComponent`s as template prefixes (even if
+            // that's not particularly sensible, for example 'Si', 'So',
+            // and 'St', because libiberty does).
+            PrefixHandle::WellKnown(_) => true,
             _ => false,
         }
     }
