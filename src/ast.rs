@@ -2770,7 +2770,7 @@ where
 impl GetTemplateArgs for Type {
     fn get_template_args<'a>(
         &'a self,
-        _subs: &'a SubstitutionTable,
+        subs: &'a SubstitutionTable,
     ) -> Option<&'a TemplateArgs> {
         // TODO: This should probably recurse through all the nested type
         // handles too.
@@ -2778,6 +2778,9 @@ impl GetTemplateArgs for Type {
         match *self {
             Type::VendorExtension(_, Some(ref args), _) |
             Type::TemplateTemplate(_, ref args) => Some(args),
+            Type::PointerTo(ref ty) |
+            Type::LvalueRef(ref ty) |
+            Type::RvalueRef(ref ty) => ty.get_template_args(subs),
             _ => None,
         }
     }
