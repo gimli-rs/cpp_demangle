@@ -113,6 +113,14 @@ demangles!(
     "char* std::copy<char const*, char*>(char const*, char const*, char*)"
 );
 demangles!(_Z9_mm_or_psDv4_fS_, "_mm_or_ps(float __vector(4), float __vector(4))");
+demangles!(
+    _ZN5space20templated_trampolineIPFvvEEEvT_,
+    "void space::templated_trampoline<void (*)()>(void (*)())"
+);
+demangles!(
+    _Z18convertCase_helperIN14QUnicodeTables14CasefoldTraitsEtET0_S2_,
+    "unsigned short convertCase_helper<QUnicodeTables::CasefoldTraits, unsigned short>(unsigned short)"
+);
 
 // Test cases found via differential testing against `c++filt` with `cargo-fuzz`
 // and `libFuzzer`.
