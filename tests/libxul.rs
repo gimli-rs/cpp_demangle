@@ -36,14 +36,12 @@ fn libxul_symbols_demangle() {
     let mut num_demangled = 0;
     let mut num_match_libiberty = 0;
 
-    let libxul_txt_file = fs::File::open(
-        concat!(env!("CARGO_MANIFEST_DIR"), "/tests/libxul.txt"),
-    ).expect("should open libxul.txt");
+    let libxul_txt_file = fs::File::open(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/libxul.txt"))
+        .expect("should open libxul.txt");
     let mut libxul_txt_file = BufReader::new(libxul_txt_file);
 
-    let log_file = fs::File::create(
-        concat!(env!("CARGO_MANIFEST_DIR"), "/tests/libxul.log"),
-    ).expect("should create log file");
+    let log_file = fs::File::create(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/libxul.log"))
+        .expect("should create log file");
     let mut log_file = BufWriter::new(log_file);
 
     let mut line = Vec::new();
@@ -80,9 +78,7 @@ fn libxul_symbols_demangle() {
 
         // libxul.txt was generated on macOS, and so it has the double
         // underscore ("__Z"). Remove the first underscore if needed.
-        if line[0] == b'_' &&
-            (cfg!(not(target_os = "macos")) || which_cppfilt == "gc++filt")
-        {
+        if line[0] == b'_' && (cfg!(not(target_os = "macos")) || which_cppfilt == "gc++filt") {
             line = &line[1..];
         }
 

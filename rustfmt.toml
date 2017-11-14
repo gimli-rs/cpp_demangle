@@ -1,6 +1,5 @@
 error_on_line_overflow_comments = false
 format_strings = false
-max_width = 90
 reorder_imports = true
 reorder_imported_names = true
 use_try_shorthand = true

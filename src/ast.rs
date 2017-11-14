@@ -104,11 +104,7 @@ impl AutoLogDemangle {
 
     #[cfg(not(feature = "logging"))]
     #[inline(always)]
-    fn new<P, W>(
-        _: &P,
-        _: &DemangleContext<W>,
-        _: Option<ArgScopeStack>,
-    ) -> AutoLogDemangle
+    fn new<P, W>(_: &P, _: &DemangleContext<W>, _: Option<ArgScopeStack>) -> AutoLogDemangle
     where
         P: ?Sized + fmt::Debug,
         W: io::Write,
@@ -231,10 +227,7 @@ pub trait Parse: Sized {
 /// names.
 trait GetTemplateArgs {
     /// Returns `Some` if this is a template function, `None` otherwise.
-    fn get_template_args<'a>(
-        &'a self,
-        subs: &'a SubstitutionTable,
-    ) -> Option<&'a TemplateArgs>;
+    fn get_template_args<'a>(&'a self, subs: &'a SubstitutionTable) -> Option<&'a TemplateArgs>;
 }
 
 /// When formatting a mangled symbol's parsed AST as a demangled symbol, we need
@@ -290,8 +283,7 @@ trait ArgScopeStackExt<'prev, 'subs> {
     ) -> Option<ArgScopeStack<'prev, 'subs>>;
 }
 
-impl<'prev, 'subs> ArgScopeStackExt<'prev, 'subs>
-    for Option<ArgScopeStack<'prev, 'subs>> {
+impl<'prev, 'subs> ArgScopeStackExt<'prev, 'subs> for Option<ArgScopeStack<'prev, 'subs>> {
     fn push(
         &'prev self,
         item: &'subs ArgScope<'subs, 'subs>,
@@ -440,7 +432,7 @@ where
 pub struct AutoDemangleContextInnerBarrier<'ctx, 'a, W>
 where
     W: 'a + io::Write,
-    'a: 'ctx
+    'a: 'ctx,
 {
     ctx: &'ctx mut DemangleContext<'a, W>,
     saved_inner: Vec<&'a DemangleAsInner<'a, W>>,
@@ -449,7 +441,7 @@ where
 impl<'ctx, 'a, W> AutoDemangleContextInnerBarrier<'ctx, 'a, W>
 where
     W: 'a + io::Write,
-    'a: 'ctx
+    'a: 'ctx,
 {
     /// Set aside the current inner stack on the demangle context.
     pub fn new(ctx: &'ctx mut DemangleContext<'a, W>) -> Self {
@@ -465,7 +457,7 @@ where
 impl<'ctx, 'a, W> ops::Deref for AutoDemangleContextInnerBarrier<'ctx, 'a, W>
 where
     W: 'a + io::Write,
-    'a: 'ctx
+    'a: 'ctx,
 {
     type Target = DemangleContext<'a, W>;
 
@@ -477,7 +469,7 @@ where
 impl<'ctx, 'a, W> ops::DerefMut for AutoDemangleContextInnerBarrier<'ctx, 'a, W>
 where
     W: 'a + io::Write,
-    'a: 'ctx
+    'a: 'ctx,
 {
     fn deref_mut(&mut self) -> &mut Self::Target {
         self.ctx
@@ -487,7 +479,7 @@ where
 impl<'ctx, 'a, W> Drop for AutoDemangleContextInnerBarrier<'ctx, 'a, W>
 where
     W: 'a + io::Write,
-    'a: 'ctx
+    'a: 'ctx,
 {
     fn drop(&mut self) {
         // NB: We cannot assert that the context's inner is empty here,
@@ -667,10 +659,11 @@ where
             });
 
         if needs_paren {
-            let needs_space = needs_space || match ctx.last_byte_written {
-                Some(b'(') | Some(b'*') => false,
-                _ => true,
-            };
+            let needs_space = needs_space ||
+                match ctx.last_byte_written {
+                    Some(b'(') | Some(b'*') => false,
+                    _ => true,
+                };
 
             if needs_space {
                 ctx.ensure_space()?;
@@ -1051,8 +1044,7 @@ where
                 //
                 // For the details, see
                 // http://itanium-cxx-abi.github.io/cxx-abi/abi.html#mangle.function-type
-                let stack = if let Some(template_args) = name.get_template_args(ctx.subs)
-                {
+                let stack = if let Some(template_args) = name.get_template_args(ctx.subs) {
                     let stack = stack.push(template_args);
 
                     fun_ty.0[0].demangle(ctx, stack)?;
@@ -1189,10 +1181,7 @@ where
 }
 
 impl GetTemplateArgs for Name {
-    fn get_template_args<'a>(
-        &'a self,
-        subs: &'a SubstitutionTable,
-    ) -> Option<&'a TemplateArgs> {
+    fn get_template_args<'a>(&'a self, subs: &'a SubstitutionTable) -> Option<&'a TemplateArgs> {
         match *self {
             Name::UnscopedTemplate(_, ref args) => Some(args),
             Name::Nested(ref nested) => nested.get_template_args(subs),
@@ -1247,9 +1236,7 @@ where
         log_demangle!(self, ctx, stack);
 
         match *self {
-            UnscopedName::Unqualified(ref unqualified) => {
-                unqualified.demangle(ctx, stack)
-            }
+            UnscopedName::Unqualified(ref unqualified) => unqualified.demangle(ctx, stack),
             UnscopedName::Std(ref std) => {
                 write!(ctx, "std::")?;
                 std.demangle(ctx, stack)
@@ -1326,12 +1313,7 @@ where
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum NestedName {
     /// A nested name.
-    Unqualified(
-        CvQualifiers,
-        Option<RefQualifier>,
-        PrefixHandle,
-        UnqualifiedName,
-    ),
+    Unqualified(CvQualifiers, Option<RefQualifier>, PrefixHandle, UnqualifiedName),
 
     /// A nested template name. The `<template-args>` are part of the `PrefixHandle`.
     Template(CvQualifiers, Option<RefQualifier>, PrefixHandle),
@@ -1347,43 +1329,38 @@ impl Parse for NestedName {
 
         let tail = consume(b"N", input)?;
 
-        let (cv_qualifiers, tail) =
-            if let Ok((q, tail)) = CvQualifiers::parse(ctx, subs, tail) {
-                (q, tail)
-            } else {
-                (Default::default(), tail)
-            };
+        let (cv_qualifiers, tail) = if let Ok((q, tail)) = CvQualifiers::parse(ctx, subs, tail) {
+            (q, tail)
+        } else {
+            (Default::default(), tail)
+        };
 
-        let (ref_qualifier, tail) =
-            if let Ok((r, tail)) = RefQualifier::parse(ctx, subs, tail) {
-                (Some(r), tail)
-            } else {
-                (None, tail)
-            };
+        let (ref_qualifier, tail) = if let Ok((r, tail)) = RefQualifier::parse(ctx, subs, tail) {
+            (Some(r), tail)
+        } else {
+            (None, tail)
+        };
 
         let (prefix, tail) = PrefixHandle::parse(ctx, subs, tail)?;
         let tail = consume(b"E", tail)?;
 
         let substitutable = match prefix {
             PrefixHandle::BackReference(idx) => subs.get(idx),
-            PrefixHandle::NonSubstitution(NonSubstitution(idx)) => {
-                subs.get_non_substitution(idx)
-            }
+            PrefixHandle::NonSubstitution(NonSubstitution(idx)) => subs.get_non_substitution(idx),
             PrefixHandle::WellKnown(_) => None,
         };
 
         match substitutable {
             Some(&Substitutable::Prefix(Prefix::Nested(ref prefix, ref name))) => Ok((
-                NestedName::Unqualified(
-                    cv_qualifiers,
-                    ref_qualifier,
-                    prefix.clone(),
-                    name.clone(),
-                ),
+                NestedName::Unqualified(cv_qualifiers, ref_qualifier, prefix.clone(), name.clone()),
                 tail,
             )),
             Some(&Substitutable::Prefix(Prefix::Template(..))) => Ok((
-                NestedName::Template(cv_qualifiers, ref_qualifier, prefix),
+                NestedName::Template(
+                    cv_qualifiers,
+                    ref_qualifier,
+                    prefix,
+                ),
                 tail,
             )),
             _ => return Err(error::Error::UnexpectedText),
@@ -1395,7 +1372,8 @@ impl NestedName {
     /// Get the CV-qualifiers for this name.
     pub fn cv_qualifiers(&self) -> &CvQualifiers {
         match *self {
-            NestedName::Unqualified(ref q, ..) | NestedName::Template(ref q, ..) => q,
+            NestedName::Unqualified(ref q, ..) |
+            NestedName::Template(ref q, ..) => q,
         }
     }
 
@@ -1456,10 +1434,7 @@ where
 }
 
 impl GetTemplateArgs for NestedName {
-    fn get_template_args<'a>(
-        &'a self,
-        subs: &'a SubstitutionTable,
-    ) -> Option<&'a TemplateArgs> {
+    fn get_template_args<'a>(&'a self, subs: &'a SubstitutionTable) -> Option<&'a TemplateArgs> {
         match *self {
             NestedName::Template(_, _, ref prefix) => prefix.get_template_args(subs),
             _ => None,
@@ -1505,10 +1480,7 @@ pub enum Prefix {
 }
 
 impl GetTemplateArgs for Prefix {
-    fn get_template_args<'a>(
-        &'a self,
-        _: &'a SubstitutionTable,
-    ) -> Option<&'a TemplateArgs> {
+    fn get_template_args<'a>(&'a self, _: &'a SubstitutionTable) -> Option<&'a TemplateArgs> {
         match *self {
             Prefix::Template(_, ref args) => Some(args),
             Prefix::Unqualified(_) |
@@ -1565,18 +1537,18 @@ impl Parse for PrefixHandle {
             try_begin_parse!("PrefixHandle iteration", ctx, tail);
 
             match tail.peek() {
-                Some(b'E') | None => if let Some(handle) = current {
-                    return Ok((handle, tail));
-                } else {
-                    return Err(error::Error::UnexpectedEnd);
-                },
+                Some(b'E') | None => {
+                    if let Some(handle) = current {
+                        return Ok((handle, tail));
+                    } else {
+                        return Err(error::Error::UnexpectedEnd);
+                    }
+                }
                 Some(b'S') => {
                     // <prefix> ::= <substitution>
                     let (sub, tail_tail) = Substitution::parse(ctx, subs, tail)?;
                     current = Some(match sub {
-                        Substitution::WellKnown(component) => {
-                            PrefixHandle::WellKnown(component)
-                        }
+                        Substitution::WellKnown(component) => PrefixHandle::WellKnown(component),
                         Substitution::BackReference(idx) => {
                             // TODO: do we need to check that the idx actually points to
                             // a Prefix?
@@ -1613,9 +1585,7 @@ impl Parse for PrefixHandle {
                     }
                 }
                 Some(b'I')
-                    if current.is_some()
-                        && current.as_ref().unwrap().is_template_prefix(subs) =>
-                {
+                    if current.is_some() && current.as_ref().unwrap().is_template_prefix(subs) => {
                     // <prefix> ::= <template-prefix> <template-args>
                     let (args, tail_tail) = TemplateArgs::parse(ctx, subs, tail)?;
                     let prefix = Prefix::Template(current.unwrap(), args);
@@ -1635,8 +1605,7 @@ impl Parse for PrefixHandle {
 
                     let (name, tail_tail) = SourceName::parse(ctx, subs, tail)?;
                     if tail_tail.peek() == Some(b'M') {
-                        let prefix =
-                            Prefix::DataMember(current.unwrap(), DataMemberPrefix(name));
+                        let prefix = Prefix::DataMember(current.unwrap(), DataMemberPrefix(name));
                         current = Some(save(subs, prefix, tail_tail));
                         tail = consume(b"M", tail_tail).unwrap();
                     } else {
@@ -1659,13 +1628,15 @@ impl Parse for PrefixHandle {
                     current = Some(save(subs, prefix, tail_tail));
                     tail = tail_tail;
                 }
-                Some(_) => if let Some(handle) = current {
-                    return Ok((handle, tail));
-                } else if tail.is_empty() {
-                    return Err(error::Error::UnexpectedEnd);
-                } else {
-                    return Err(error::Error::UnexpectedText);
-                },
+                Some(_) => {
+                    if let Some(handle) = current {
+                        return Ok((handle, tail));
+                    } else if tail.is_empty() {
+                        return Err(error::Error::UnexpectedEnd);
+                    } else {
+                        return Err(error::Error::UnexpectedText);
+                    }
+                }
             }
         }
     }
@@ -1676,9 +1647,9 @@ impl Prefix {
     // confused with the `GetTemplateArgs` trait.
     fn is_template_prefix(&self) -> bool {
         match *self {
-            Prefix::Unqualified(..) | Prefix::Nested(..) | Prefix::TemplateParam(..) => {
-                true
-            }
+            Prefix::Unqualified(..) |
+            Prefix::Nested(..) |
+            Prefix::TemplateParam(..) => true,
             _ => false,
         }
     }
@@ -1717,9 +1688,7 @@ impl PrefixHandle {
                 }
             }
             PrefixHandle::NonSubstitution(NonSubstitution(idx)) => {
-                if let Some(&Substitutable::Prefix(ref p)) =
-                    subs.get_non_substitution(idx)
-                {
+                if let Some(&Substitutable::Prefix(ref p)) = subs.get_non_substitution(idx) {
                     p.get_template_args(subs)
                 } else {
                     None
@@ -1851,9 +1820,9 @@ where
 impl UnqualifiedName {
     #[inline]
     fn starts_with(byte: u8, input: &IndexStr) -> bool {
-        OperatorName::starts_with(byte) || CtorDtorName::starts_with(byte)
-            || SourceName::starts_with(byte) || UnnamedTypeName::starts_with(byte)
-            || TaggedName::starts_with(byte) || ClosureTypeName::starts_with(byte, input)
+        OperatorName::starts_with(byte) || CtorDtorName::starts_with(byte) ||
+            SourceName::starts_with(byte) || UnnamedTypeName::starts_with(byte) ||
+            TaggedName::starts_with(byte) || ClosureTypeName::starts_with(byte, input)
     }
 
     fn accepts_double_colon(&self) -> bool {
@@ -2044,8 +2013,8 @@ impl Identifier {
 
         // Handle GCC's anonymous namespace mangling.
         let anon_namespace_prefix = b"_GLOBAL_";
-        if ident.starts_with(anon_namespace_prefix)
-            && ident.len() >= anon_namespace_prefix.len() + 2
+        if ident.starts_with(anon_namespace_prefix) &&
+            ident.len() >= anon_namespace_prefix.len() + 2
         {
             let first = ident[anon_namespace_prefix.len()];
             let second = ident[anon_namespace_prefix.len() + 1];
@@ -2130,8 +2099,7 @@ pub enum OperatorName {
 
 impl OperatorName {
     fn starts_with(byte: u8) -> bool {
-        byte == b'c' || byte == b'l' || byte == b'v'
-            || SimpleOperatorName::starts_with(byte)
+        byte == b'c' || byte == b'l' || byte == b'v' || SimpleOperatorName::starts_with(byte)
     }
 }
 
@@ -2187,8 +2155,10 @@ where
                 // Cast operators can refer to template arguments before they
                 // actually appear in the AST, so we go traverse down the tree
                 // and fetch them if they exist.
-                let stack = ty.get_template_args(ctx.subs)
-                    .map_or(stack, |args| stack.push(args));
+                let stack = ty.get_template_args(ctx.subs).map_or(
+                    stack,
+                    |args| stack.push(args),
+                );
 
                 ty.demangle(ctx, stack)?;
                 Ok(())
@@ -2632,12 +2602,11 @@ impl Parse for TypeHandle {
 
         if let Ok(tail) = consume(b"U", input) {
             let (name, tail) = SourceName::parse(ctx, subs, tail)?;
-            let (args, tail) =
-                if let Ok((args, tail)) = TemplateArgs::parse(ctx, subs, tail) {
-                    (Some(args), tail)
-                } else {
-                    (None, tail)
-                };
+            let (args, tail) = if let Ok((args, tail)) = TemplateArgs::parse(ctx, subs, tail) {
+                (Some(args), tail)
+            } else {
+                (None, tail)
+            };
             let (ty, tail) = TypeHandle::parse(ctx, subs, tail)?;
             let ty = Type::VendorExtension(name, args, ty);
             return insert_and_return_handle(ty, subs, tail);
@@ -2651,12 +2620,10 @@ impl Parse for TypeHandle {
 }
 
 impl GetTemplateArgs for TypeHandle {
-    fn get_template_args<'a>(
-        &'a self,
-        subs: &'a SubstitutionTable,
-    ) -> Option<&'a TemplateArgs> {
-        subs.get_type(self)
-            .and_then(|ty| ty.get_template_args(subs))
+    fn get_template_args<'a>(&'a self, subs: &'a SubstitutionTable) -> Option<&'a TemplateArgs> {
+        subs.get_type(self).and_then(
+            |ty| ty.get_template_args(subs),
+        )
     }
 }
 
@@ -2766,10 +2733,7 @@ where
 }
 
 impl GetTemplateArgs for Type {
-    fn get_template_args<'a>(
-        &'a self,
-        subs: &'a SubstitutionTable,
-    ) -> Option<&'a TemplateArgs> {
+    fn get_template_args<'a>(&'a self, subs: &'a SubstitutionTable) -> Option<&'a TemplateArgs> {
         // TODO: This should probably recurse through all the nested type
         // handles too.
 
@@ -3248,7 +3212,8 @@ where
         log_demangle!(self, ctx, stack);
 
         match *self {
-            Decltype::Expression(ref expr) | Decltype::IdExpression(ref expr) => {
+            Decltype::Expression(ref expr) |
+            Decltype::IdExpression(ref expr) => {
                 write!(ctx, "decltype (")?;
                 expr.demangle(ctx, stack)?;
                 write!(ctx, ")")?;
@@ -3732,9 +3697,9 @@ impl TemplateParam {
         &'subs self,
         stack: Option<ArgScopeStack<'prev, 'subs>>,
     ) -> io::Result<&'subs TemplateArg> {
-        stack
-            .get_template_arg(self.0)
-            .map_err(|e| io::Error::new(io::ErrorKind::Other, e.description()))
+        stack.get_template_arg(self.0).map_err(|e| {
+            io::Error::new(io::ErrorKind::Other, e.description())
+        })
     }
 }
 
@@ -3872,9 +3837,9 @@ where
         log_demangle!(self, ctx, stack);
 
         // TODO: this needs more finesse.
-        let ty = stack
-            .get_function_arg(self.0)
-            .map_err(|e| io::Error::new(io::ErrorKind::Other, e.description()))?;
+        let ty = stack.get_function_arg(self.0).map_err(|e| {
+            io::Error::new(io::ErrorKind::Other, e.description())
+        })?;
         ty.demangle(ctx, stack)
     }
 }
@@ -4089,12 +4054,7 @@ pub enum Expression {
     Binary(OperatorName, Box<Expression>, Box<Expression>),
 
     /// A ternary operator expression.
-    Ternary(
-        OperatorName,
-        Box<Expression>,
-        Box<Expression>,
-        Box<Expression>,
-    ),
+    Ternary(OperatorName, Box<Expression>, Box<Expression>, Box<Expression>),
 
     /// A prefix `++`.
     PrefixInc(Box<Expression>),
@@ -4351,8 +4311,7 @@ impl Parse for Expression {
                 b"ds" => {
                     let (first, tail) = Expression::parse(ctx, subs, tail)?;
                     let (second, tail) = Expression::parse(ctx, subs, tail)?;
-                    let expr =
-                        Expression::PointerToMember(Box::new(first), Box::new(second));
+                    let expr = Expression::PointerToMember(Box::new(first), Box::new(second));
                     return Ok((expr, tail));
                 }
                 b"sZ" => {
@@ -4393,7 +4352,10 @@ impl Parse for Expression {
                     let (name, tail) = UnqualifiedName::parse(ctx, subs, tail)?;
                     let (expr, tail) = if tail.peek() == Some(b'I') {
                         let (template_args, tail) = TemplateArgs::parse(ctx, subs, tail)?;
-                        (Expression::TypeUnqualifiedNameTemplateArgs(ty, name, template_args), tail)
+                        (
+                            Expression::TypeUnqualifiedNameTemplateArgs(ty, name, template_args),
+                            tail,
+                        )
                     } else {
                         (Expression::TypeUnqualifiedName(ty, name), tail)
                     };
@@ -4437,12 +4399,8 @@ impl Parse for Expression {
         let (first, tail) = Expression::parse(ctx, subs, tail)?;
         return if let Ok((second, tail)) = Expression::parse(ctx, subs, tail) {
             if let Ok((third, tail)) = Expression::parse(ctx, subs, tail) {
-                let expr = Expression::Ternary(
-                    opname,
-                    Box::new(first),
-                    Box::new(second),
-                    Box::new(third),
-                );
+                let expr =
+                    Expression::Ternary(opname, Box::new(first), Box::new(second), Box::new(third));
                 Ok((expr, tail))
             } else {
                 let expr = Expression::Binary(opname, Box::new(first), Box::new(second));
@@ -4465,69 +4423,71 @@ impl Parse for Expression {
         ) -> Result<(Expression, IndexStr<'b>)> {
             match input.try_split_at(2) {
                 None => Err(error::Error::UnexpectedEnd),
-                Some((head, tail)) => match head.as_ref() {
-                    b"nw" => {
-                        let (exprs, tail) = zero_or_more::<Expression>(ctx, subs, tail)?;
-                        let tail = consume(b"_", tail)?;
-                        let (ty, tail) = TypeHandle::parse(ctx, subs, tail)?;
-                        if let Ok(tail) = consume(b"E", tail) {
-                            let expr = if is_global {
-                                Expression::GlobalNew(exprs, ty, None)
+                Some((head, tail)) => {
+                    match head.as_ref() {
+                        b"nw" => {
+                            let (exprs, tail) = zero_or_more::<Expression>(ctx, subs, tail)?;
+                            let tail = consume(b"_", tail)?;
+                            let (ty, tail) = TypeHandle::parse(ctx, subs, tail)?;
+                            if let Ok(tail) = consume(b"E", tail) {
+                                let expr = if is_global {
+                                    Expression::GlobalNew(exprs, ty, None)
+                                } else {
+                                    Expression::New(exprs, ty, None)
+                                };
+                                Ok((expr, tail))
                             } else {
-                                Expression::New(exprs, ty, None)
-                            };
-                            Ok((expr, tail))
-                        } else {
-                            let (init, tail) = Initializer::parse(ctx, subs, tail)?;
-                            let expr = if is_global {
-                                Expression::GlobalNew(exprs, ty, Some(init))
+                                let (init, tail) = Initializer::parse(ctx, subs, tail)?;
+                                let expr = if is_global {
+                                    Expression::GlobalNew(exprs, ty, Some(init))
+                                } else {
+                                    Expression::New(exprs, ty, Some(init))
+                                };
+                                Ok((expr, tail))
+                            }
+                        }
+                        b"na" => {
+                            let (exprs, tail) = zero_or_more::<Expression>(ctx, subs, tail)?;
+                            let tail = consume(b"_", tail)?;
+                            let (ty, tail) = TypeHandle::parse(ctx, subs, tail)?;
+                            if let Ok(tail) = consume(b"E", tail) {
+                                let expr = if is_global {
+                                    Expression::GlobalNewArray(exprs, ty, None)
+                                } else {
+                                    Expression::NewArray(exprs, ty, None)
+                                };
+                                Ok((expr, tail))
                             } else {
-                                Expression::New(exprs, ty, Some(init))
+                                let (init, tail) = Initializer::parse(ctx, subs, tail)?;
+                                let expr = if is_global {
+                                    Expression::GlobalNewArray(exprs, ty, Some(init))
+                                } else {
+                                    Expression::NewArray(exprs, ty, Some(init))
+                                };
+                                Ok((expr, tail))
+                            }
+                        }
+                        b"dl" => {
+                            let (expr, tail) = Expression::parse(ctx, subs, tail)?;
+                            let expr = if is_global {
+                                Expression::GlobalDelete(Box::new(expr))
+                            } else {
+                                Expression::Delete(Box::new(expr))
                             };
                             Ok((expr, tail))
                         }
-                    }
-                    b"na" => {
-                        let (exprs, tail) = zero_or_more::<Expression>(ctx, subs, tail)?;
-                        let tail = consume(b"_", tail)?;
-                        let (ty, tail) = TypeHandle::parse(ctx, subs, tail)?;
-                        if let Ok(tail) = consume(b"E", tail) {
+                        b"da" => {
+                            let (expr, tail) = Expression::parse(ctx, subs, tail)?;
                             let expr = if is_global {
-                                Expression::GlobalNewArray(exprs, ty, None)
+                                Expression::GlobalDeleteArray(Box::new(expr))
                             } else {
-                                Expression::NewArray(exprs, ty, None)
-                            };
-                            Ok((expr, tail))
-                        } else {
-                            let (init, tail) = Initializer::parse(ctx, subs, tail)?;
-                            let expr = if is_global {
-                                Expression::GlobalNewArray(exprs, ty, Some(init))
-                            } else {
-                                Expression::NewArray(exprs, ty, Some(init))
+                                Expression::DeleteArray(Box::new(expr))
                             };
                             Ok((expr, tail))
                         }
+                        _ => Err(error::Error::UnexpectedText),
                     }
-                    b"dl" => {
-                        let (expr, tail) = Expression::parse(ctx, subs, tail)?;
-                        let expr = if is_global {
-                            Expression::GlobalDelete(Box::new(expr))
-                        } else {
-                            Expression::Delete(Box::new(expr))
-                        };
-                        Ok((expr, tail))
-                    }
-                    b"da" => {
-                        let (expr, tail) = Expression::parse(ctx, subs, tail)?;
-                        let expr = if is_global {
-                            Expression::GlobalDeleteArray(Box::new(expr))
-                        } else {
-                            Expression::DeleteArray(Box::new(expr))
-                        };
-                        Ok((expr, tail))
-                    }
-                    _ => Err(error::Error::UnexpectedText),
-                },
+                }
             }
         }
     }
@@ -4560,12 +4520,10 @@ where
                 write!(ctx, ")")?;
                 Ok(())
             }
-            Expression::Ternary(
-                OperatorName::Simple(SimpleOperatorName::Question),
-                ref condition,
-                ref consequent,
-                ref alternative,
-            ) => {
+            Expression::Ternary(OperatorName::Simple(SimpleOperatorName::Question),
+                                ref condition,
+                                ref consequent,
+                                ref alternative) => {
                 condition.demangle(ctx, stack)?;
                 write!(ctx, " ? ")?;
                 consequent.demangle(ctx, stack)?;
@@ -4863,9 +4821,7 @@ where
                 write!(ctx, "::")?;
                 name.demangle(ctx, stack)
             }
-            Expression::TypeUnqualifiedNameTemplateArgs(ref ty,
-                                                        ref name,
-                                                        ref template_args) => {
+            Expression::TypeUnqualifiedNameTemplateArgs(ref ty, ref name, ref template_args) => {
                 ty.demangle(ctx, stack)?;
                 write!(ctx, "::")?;
                 name.demangle(ctx, stack)?;
@@ -4906,11 +4862,7 @@ pub enum UnresolvedName {
     Global(BaseUnresolvedName),
 
     /// `T::x`  or `decltype(p)::x` or `T::N::x` or `decltype(p)::N::x`
-    Nested1(
-        UnresolvedTypeHandle,
-        Vec<UnresolvedQualifierLevel>,
-        BaseUnresolvedName,
-    ),
+    Nested1(UnresolvedTypeHandle, Vec<UnresolvedQualifierLevel>, BaseUnresolvedName),
 
     /// `A::x` or `N::y` or `A<T>::z`
     Nested2(Vec<UnresolvedQualifierLevel>, BaseUnresolvedName),
@@ -4933,8 +4885,7 @@ impl Parse for UnresolvedName {
             }
 
             let tail = consume(b"sr", tail)?;
-            let (levels, tail) =
-                one_or_more::<UnresolvedQualifierLevel>(ctx, subs, tail)?;
+            let (levels, tail) = one_or_more::<UnresolvedQualifierLevel>(ctx, subs, tail)?;
             let tail = consume(b"E", tail)?;
             let (name, tail) = BaseUnresolvedName::parse(ctx, subs, tail)?;
             return Ok((UnresolvedName::GlobalNested2(levels, name), tail));
@@ -4949,8 +4900,7 @@ impl Parse for UnresolvedName {
         if tail.peek() == Some(b'N') {
             let tail = consume(b"N", tail).unwrap();
             let (ty, tail) = UnresolvedTypeHandle::parse(ctx, subs, tail)?;
-            let (levels, tail) =
-                one_or_more::<UnresolvedQualifierLevel>(ctx, subs, tail)?;
+            let (levels, tail) = one_or_more::<UnresolvedQualifierLevel>(ctx, subs, tail)?;
             let tail = consume(b"E", tail)?;
             let (name, tail) = BaseUnresolvedName::parse(ctx, subs, tail)?;
             return Ok((UnresolvedName::Nested1(ty, levels, name), tail));
@@ -5043,12 +4993,11 @@ impl Parse for UnresolvedTypeHandle {
         try_begin_parse!("UnresolvedTypeHandle", ctx, input);
 
         if let Ok((param, tail)) = TemplateParam::parse(ctx, subs, input) {
-            let (args, tail) =
-                if let Ok((args, tail)) = TemplateArgs::parse(ctx, subs, tail) {
-                    (Some(args), tail)
-                } else {
-                    (None, tail)
-                };
+            let (args, tail) = if let Ok((args, tail)) = TemplateArgs::parse(ctx, subs, tail) {
+                (Some(args), tail)
+            } else {
+                (None, tail)
+            };
             let ty = UnresolvedType::Template(param, args);
             let ty = Substitutable::UnresolvedType(ty);
             let idx = subs.insert(ty);
@@ -5159,8 +5108,7 @@ impl Parse for SimpleId {
         try_begin_parse!("SimpleId", ctx, input);
 
         let (name, tail) = SourceName::parse(ctx, subs, input)?;
-        let (args, tail) = if let Ok((args, tail)) = TemplateArgs::parse(ctx, subs, tail)
-        {
+        let (args, tail) = if let Ok((args, tail)) = TemplateArgs::parse(ctx, subs, tail) {
             (Some(args), tail)
         } else {
             (None, tail)
@@ -5223,12 +5171,11 @@ impl Parse for BaseUnresolvedName {
 
         if let Ok(tail) = consume(b"on", input) {
             let (opname, tail) = OperatorName::parse(ctx, subs, tail)?;
-            let (args, tail) =
-                if let Ok((args, tail)) = TemplateArgs::parse(ctx, subs, tail) {
-                    (Some(args), tail)
-                } else {
-                    (None, tail)
-                };
+            let (args, tail) = if let Ok((args, tail)) = TemplateArgs::parse(ctx, subs, tail) {
+                (Some(args), tail)
+            } else {
+                (None, tail)
+            };
             return Ok((BaseUnresolvedName::Operator(opname, args), tail));
         }
 
@@ -5346,8 +5293,7 @@ impl Parse for ExprPrimary {
 
         if let Ok((ty, tail)) = TypeHandle::parse(ctx, subs, tail) {
             let start = tail.index();
-            let num_bytes_in_literal =
-                tail.as_ref().iter().take_while(|&&c| c != b'E').count();
+            let num_bytes_in_literal = tail.as_ref().iter().take_while(|&&c| c != b'E').count();
             let tail = tail.range_from(num_bytes_in_literal..);
             let end = tail.index();
             let tail = consume(b"E", tail)?;
@@ -5474,12 +5420,11 @@ impl Parse for LocalName {
         let tail = consume(b"E", tail)?;
 
         if let Ok(tail) = consume(b"s", tail) {
-            let (disc, tail) =
-                if let Ok((disc, tail)) = Discriminator::parse(ctx, subs, tail) {
-                    (Some(disc), tail)
-                } else {
-                    (None, tail)
-                };
+            let (disc, tail) = if let Ok((disc, tail)) = Discriminator::parse(ctx, subs, tail) {
+                (Some(disc), tail)
+            } else {
+                (None, tail)
+            };
             return Ok((LocalName::Relative(Box::new(encoding), None, disc), tail));
         }
 
@@ -5492,21 +5437,28 @@ impl Parse for LocalName {
             let tail = consume(b"_", tail)?;
             let (name, tail) = Name::parse(ctx, subs, tail)?;
             return Ok((
-                LocalName::Default(Box::new(encoding), param, Box::new(name)),
+                LocalName::Default(
+                    Box::new(encoding),
+                    param,
+                    Box::new(name),
+                ),
                 tail,
             ));
         }
 
         let (name, tail) = Name::parse(ctx, subs, tail)?;
-        let (disc, tail) = if let Ok((disc, tail)) = Discriminator::parse(ctx, subs, tail)
-        {
+        let (disc, tail) = if let Ok((disc, tail)) = Discriminator::parse(ctx, subs, tail) {
             (Some(disc), tail)
         } else {
             (None, tail)
         };
 
         Ok((
-            LocalName::Relative(Box::new(encoding), Some(Box::new(name)), disc),
+            LocalName::Relative(
+                Box::new(encoding),
+                Some(Box::new(name)),
+                disc,
+            ),
             tail,
         ))
     }
@@ -5541,10 +5493,7 @@ where
 }
 
 impl GetTemplateArgs for LocalName {
-    fn get_template_args<'a>(
-        &'a self,
-        subs: &'a SubstitutionTable,
-    ) -> Option<&'a TemplateArgs> {
+    fn get_template_args<'a>(&'a self, subs: &'a SubstitutionTable) -> Option<&'a TemplateArgs> {
         match *self {
             LocalName::Relative(_, None, _) => None,
             LocalName::Relative(_, Some(ref name), _) |
@@ -5584,19 +5533,21 @@ impl Parse for Discriminator {
 
         match tail.try_split_at(1) {
             None => Err(error::Error::UnexpectedEnd),
-            Some((head, tail)) => match head.as_ref()[0] {
-                b'0' => Ok((Discriminator(0), tail)),
-                b'1' => Ok((Discriminator(1), tail)),
-                b'2' => Ok((Discriminator(2), tail)),
-                b'3' => Ok((Discriminator(3), tail)),
-                b'4' => Ok((Discriminator(4), tail)),
-                b'5' => Ok((Discriminator(5), tail)),
-                b'6' => Ok((Discriminator(6), tail)),
-                b'7' => Ok((Discriminator(7), tail)),
-                b'8' => Ok((Discriminator(8), tail)),
-                b'9' => Ok((Discriminator(9), tail)),
-                _ => Err(error::Error::UnexpectedText),
-            },
+            Some((head, tail)) => {
+                match head.as_ref()[0] {
+                    b'0' => Ok((Discriminator(0), tail)),
+                    b'1' => Ok((Discriminator(1), tail)),
+                    b'2' => Ok((Discriminator(2), tail)),
+                    b'3' => Ok((Discriminator(3), tail)),
+                    b'4' => Ok((Discriminator(4), tail)),
+                    b'5' => Ok((Discriminator(5), tail)),
+                    b'6' => Ok((Discriminator(6), tail)),
+                    b'7' => Ok((Discriminator(7), tail)),
+                    b'8' => Ok((Discriminator(8), tail)),
+                    b'9' => Ok((Discriminator(9), tail)),
+                    _ => Err(error::Error::UnexpectedText),
+                }
+            }
         }
     }
 }
@@ -5945,16 +5896,18 @@ impl Parse for SpecialName {
                 };
                 Ok((SpecialName::GuardTemporary(name, idx), tail))
             }
-            _ => if let Ok(tail) = consume(b"T", input) {
-                let (offset, tail) = CallOffset::parse(ctx, subs, tail)?;
-                let (base, tail) = Encoding::parse(ctx, subs, tail)?;
-                Ok((
-                    SpecialName::VirtualOverrideThunk(offset, Box::new(base)),
-                    tail,
-                ))
-            } else {
-                Err(error::Error::UnexpectedText)
-            },
+            _ => {
+                if let Ok(tail) = consume(b"T", input) {
+                    let (offset, tail) = CallOffset::parse(ctx, subs, tail)?;
+                    let (base, tail) = Encoding::parse(ctx, subs, tail)?;
+                    Ok((
+                        SpecialName::VirtualOverrideThunk(offset, Box::new(base)),
+                        tail,
+                    ))
+                } else {
+                    Err(error::Error::UnexpectedText)
+                }
+            }
         }
     }
 }
@@ -5999,11 +5952,9 @@ where
                 write!(ctx, ")}}")?;
                 Ok(())
             }
-            SpecialName::VirtualOverrideThunkCovariant(
-                ref this_offset,
-                ref result_offset,
-                ref encoding,
-            ) => {
+            SpecialName::VirtualOverrideThunkCovariant(ref this_offset,
+                                                       ref result_offset,
+                                                       ref encoding) => {
                 write!(ctx, "{{virtual override thunk(")?;
                 this_offset.demangle(ctx, stack)?;
                 write!(ctx, ", ")?;
@@ -6083,11 +6034,7 @@ where
 /// Parse a number with the given `base`. Do not allow negative numbers
 /// (prefixed with an 'n' instead of a '-') if `allow_signed` is false.
 #[allow(unsafe_code)]
-fn parse_number(
-    base: u32,
-    allow_signed: bool,
-    mut input: IndexStr,
-) -> Result<(isize, IndexStr)> {
+fn parse_number(base: u32, allow_signed: bool, mut input: IndexStr) -> Result<(isize, IndexStr)> {
     if input.is_empty() {
         return Err(error::Error::UnexpectedEnd);
     }
@@ -6129,8 +6076,9 @@ fn parse_number(
         ::std::str::from_utf8_unchecked(head)
     };
 
-    let mut number =
-        isize::from_str_radix(head, base).map_err(|_| error::Error::Overflow)?;
+    let mut number = isize::from_str_radix(head, base).map_err(
+        |_| error::Error::Overflow,
+    )?;
     if num_is_negative {
         number = -number;
     }
@@ -6140,20 +6088,18 @@ fn parse_number(
 
 #[cfg(test)]
 mod tests {
-    use super::{ArrayType, BareFunctionType, BaseUnresolvedName, BuiltinType,
-                CallOffset, ClassEnumType, ClosureTypeName, CtorDtorName, CvQualifiers,
-                DataMemberPrefix, Decltype, DestructorName, Discriminator, Encoding,
-                ExprPrimary, Expression, FunctionParam, FunctionType, Identifier,
-                Initializer, LambdaSig, LocalName, MangledName, Name, NestedName,
-                NonSubstitution, Number, NvOffset, OperatorName, Parse, ParseContext,
-                PointerToMemberType, Prefix, PrefixHandle, RefQualifier, SeqId,
-                SimpleId, SimpleOperatorName, SourceName, SpecialName,
-                StandardBuiltinType, Substitution, TaggedName, TemplateArg, TemplateArgs,
-                TemplateParam, TemplateTemplateParam, TemplateTemplateParamHandle, Type,
-                TypeHandle, UnnamedTypeName, UnqualifiedName, UnresolvedName,
-                UnresolvedQualifierLevel, UnresolvedType, UnresolvedTypeHandle,
-                UnscopedName, UnscopedTemplateName, UnscopedTemplateNameHandle,
-                VectorType, VOffset, WellKnownComponent};
+    use super::{ArrayType, BareFunctionType, BaseUnresolvedName, BuiltinType, CallOffset,
+                ClassEnumType, ClosureTypeName, CtorDtorName, CvQualifiers, DataMemberPrefix,
+                Decltype, DestructorName, Discriminator, Encoding, ExprPrimary, Expression,
+                FunctionParam, FunctionType, Identifier, Initializer, LambdaSig, LocalName,
+                MangledName, Name, NestedName, NonSubstitution, Number, NvOffset, OperatorName,
+                Parse, ParseContext, PointerToMemberType, Prefix, PrefixHandle, RefQualifier,
+                SeqId, SimpleId, SimpleOperatorName, SourceName, SpecialName, StandardBuiltinType,
+                Substitution, TaggedName, TemplateArg, TemplateArgs, TemplateParam,
+                TemplateTemplateParam, TemplateTemplateParamHandle, Type, TypeHandle,
+                UnnamedTypeName, UnqualifiedName, UnresolvedName, UnresolvedQualifierLevel,
+                UnresolvedType, UnresolvedTypeHandle, UnscopedName, UnscopedTemplateName,
+                UnscopedTemplateNameHandle, VOffset, VectorType, WellKnownComponent};
     use error::Error;
     use index_str::IndexStr;
     use std::fmt::Debug;
@@ -6178,21 +6124,20 @@ mod tests {
         let input = input.as_ref();
         let expected_tail = expected_tail.as_ref();
 
-        let expected_subs = SubstitutionTable::from_iter(
-            subs.as_ref()
-                .iter()
-                .cloned()
-                .chain(expected_new_subs.as_ref().iter().cloned()),
-        );
+        let expected_subs = SubstitutionTable::from_iter(subs.as_ref().iter().cloned().chain(
+            expected_new_subs.as_ref().iter().cloned(),
+        ));
         let mut subs = SubstitutionTable::from_iter(subs.as_ref().iter().cloned());
 
         match P::parse(&ctx, &mut subs, IndexStr::from(input)) {
-            Err(error) => panic!(
+            Err(error) => {
+                panic!(
                 "Parsing {:?} as {} failed: {}",
                 String::from_utf8_lossy(input),
                 production,
                 error
-            ),
+            )
+            }
             Ok((value, tail)) => {
                 if value != expected {
                     panic!(
@@ -6240,22 +6185,11 @@ mod tests {
         I1: AsRef<[u8]>,
         I2: AsRef<[u8]>,
     {
-        assert_parse_ok::<P, _, _, _, _>(
-            production,
-            [],
-            input,
-            expected,
-            expected_tail,
-            [],
-        );
+        assert_parse_ok::<P, _, _, _, _>(production, [], input, expected, expected_tail, []);
     }
 
-    fn assert_parse_err<P, S, I>(
-        production: &'static str,
-        subs: S,
-        input: I,
-        expected_error: Error,
-    ) where
+    fn assert_parse_err<P, S, I>(production: &'static str, subs: S, input: I, expected_error: Error)
+    where
         P: Debug + Parse + PartialEq,
         S: AsRef<[Substitutable]>,
         I: AsRef<[u8]>,
@@ -6290,11 +6224,8 @@ mod tests {
         log!("=== assert_parse_err PASSED ===================================");
     }
 
-    fn simple_assert_parse_err<P, I>(
-        production: &'static str,
-        input: I,
-        expected_error: Error,
-    ) where
+    fn simple_assert_parse_err<P, I>(production: &'static str, input: I, expected_error: Error)
+    where
         P: Debug + Parse + PartialEq,
         I: AsRef<[u8]>,
     {
@@ -6312,11 +6243,7 @@ mod tests {
         }
         mangled += "c";
 
-        simple_assert_parse_err::<TypeHandle, _>(
-            "TypeHandle",
-            mangled,
-            Error::TooMuchRecursion,
-        );
+        simple_assert_parse_err::<TypeHandle, _>("TypeHandle", mangled, Error::TooMuchRecursion);
     }
 
     macro_rules! assert_parse {
