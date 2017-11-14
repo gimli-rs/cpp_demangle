@@ -2148,7 +2148,18 @@ where
         log_demangle!(self, ctx, stack);
 
         match *self {
-            OperatorName::Simple(ref simple) => simple.demangle(ctx, stack),
+            OperatorName::Simple(ref simple) => {
+                match *simple {
+                    SimpleOperatorName::New |
+                    SimpleOperatorName::NewArray |
+                    SimpleOperatorName::Delete |
+                    SimpleOperatorName::DeleteArray => {
+                        ctx.ensure_space()?;
+                    }
+                    _ => {}
+                }
+                simple.demangle(ctx, stack)
+            }
             OperatorName::Cast(ref ty) => {
                 ctx.ensure_space()?;
 

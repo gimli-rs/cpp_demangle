@@ -144,6 +144,10 @@ demangles!(
     _Z18convertCase_helperIN14QUnicodeTables14CasefoldTraitsEtET0_S2_,
     "unsigned short convertCase_helper<QUnicodeTables::CasefoldTraits, unsigned short>(unsigned short)"
 );
+demangles!(
+    _ZnwmRKSt9nothrow_t,
+    "operator new(unsigned long, std::nothrow_t const&)"
+);
 
 // Test cases found via differential testing against `c++filt` with `cargo-fuzz`
 // and `libFuzzer`.
