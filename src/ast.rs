@@ -944,25 +944,19 @@ impl Parse for MangledName {
     ) -> Result<(MangledName, IndexStr<'b>)> {
         try_begin_parse!("MangledName", ctx, input);
 
-        // The _Z from the spec is really just a suggestion... Sometimes there
-        // is an extra leading underscore (like what we get out of `nm`) and
-        // sometimes it appears to be completely missing, if libiberty tests are
-        // to be trusted...
         let tail = if let Ok(tail) = consume(b"__Z", input) {
             tail
         } else if let Ok(tail) = consume(b"_Z", input) {
             tail
         } else {
-            input
+            // The libiberty tests also specify that a type can be top level,
+            // and they are not prefixed with "_Z".
+            let (ty, tail) = TypeHandle::parse(ctx, subs, input)?;
+            return Ok((MangledName::Type(ty), tail));
         };
 
-        if let Ok((encoding, tail)) = Encoding::parse(ctx, subs, tail) {
-            return Ok((MangledName::Encoding(encoding), tail));
-        };
-
-        // The libiberty tests also specify that a type can be top level.
-        let (ty, tail) = TypeHandle::parse(ctx, subs, input)?;
-        Ok((MangledName::Type(ty), tail))
+        let (encoding, tail) = Encoding::parse(ctx, subs, tail)?;
+        Ok((MangledName::Encoding(encoding), tail))
     }
 }
 
@@ -6403,7 +6397,7 @@ mod tests {
             }
             Err => {
                 b"_Y" => Error::UnexpectedText,
-                b"_Z" => Error::UnexpectedText,
+                b"_Z" => Error::UnexpectedEnd,
                 b"_" => Error::UnexpectedEnd,
                 b"" => Error::UnexpectedEnd,
             }
