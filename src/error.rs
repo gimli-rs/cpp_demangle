@@ -32,6 +32,16 @@ pub enum Error {
     TooMuchRecursion,
 }
 
+#[test]
+fn size_of_error() {
+    use std::mem;
+    assert_eq!(
+        mem::size_of::<Error>(),
+        1,
+        "We should keep the size of our Error type in check"
+    );
+}
+
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
