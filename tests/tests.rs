@@ -43,6 +43,12 @@ fn assert_demangles_as(mangled: &str, expected: &str) {
     assert_eq!(expected, actual);
 }
 
+fn assert_does_not_demangle(s: &str) {
+    if let Ok(sym) = cpp_demangle::BorrowedSymbol::new(s.as_bytes()) {
+        panic!("Unexpectedly demangled '{}' as '{}'", s, sym);
+    }
+}
+
 macro_rules! demangles {
     ( $mangled:ident , $demangled:expr ) => {
         #[test]
@@ -51,6 +57,19 @@ macro_rules! demangles {
         }
     }
 }
+
+macro_rules! does_not_demangle {
+    ( $name:ident , $s:expr ) => {
+        #[test]
+        fn $name() {
+            assert_does_not_demangle($s);
+        }
+    }
+}
+
+// This should definitely not parse and demangle as
+// `operator()(unsigned __int128, short, long double)`.
+does_not_demangle!(close_should_not_demangle, "close");
 
 demangles!(
     _Z20instantiate_with_intI3FooET_IiEv,
