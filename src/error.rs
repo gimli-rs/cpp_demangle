@@ -32,27 +32,45 @@ pub enum Error {
     TooMuchRecursion,
 }
 
+#[test]
+fn size_of_error() {
+    use std::mem;
+    assert_eq!(
+        mem::size_of::<Error>(),
+        1,
+        "We should keep the size of our Error type in check"
+    );
+}
+
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
             Error::UnexpectedEnd => write!(f, "mangled symbol ends abruptly"),
             Error::UnexpectedText => write!(f, "mangled symbol is not well-formed"),
-            Error::BadBackReference => write!(
-                f,
-                "back reference that is out-of-bounds of the substitution table"
-            ),
-            Error::BadTemplateArgReference => write!(
-                f,
-                "reference to a template arg that is either out-of-bounds, or in a context without template args"
-            ),
-            Error::BadFunctionArgReference => write!(
-                f,
-                "reference to a function arg that is either out-of-bounds, or in a context without function args"
-            ),
-            Error::Overflow => write!(
-                f,
-                "an overflow or underflow would occur when parsing an integer in a mangled symbol"
-            ),
+            Error::BadBackReference => {
+                write!(
+                    f,
+                    "back reference that is out-of-bounds of the substitution table"
+                )
+            }
+            Error::BadTemplateArgReference => {
+                write!(
+                    f,
+                    "reference to a template arg that is either out-of-bounds, or in a context without template args"
+                )
+            }
+            Error::BadFunctionArgReference => {
+                write!(
+                    f,
+                    "reference to a function arg that is either out-of-bounds, or in a context without function args"
+                )
+            }
+            Error::Overflow => {
+                write!(
+                    f,
+                    "an overflow or underflow would occur when parsing an integer in a mangled symbol"
+                )
+            }
             Error::TooMuchRecursion => {
                 write!(f, "encountered too much recursion when demangling symbol")
             }
@@ -77,9 +95,7 @@ impl error::Error for Error {
             Error::Overflow => {
                 "an overflow or underflow would occur when parsing an integer in a mangled symbol"
             }
-            Error::TooMuchRecursion => {
-                "encountered too much recursion when demangling symbol"
-            }
+            Error::TooMuchRecursion => "encountered too much recursion when demangling symbol",
         }
     }
 }

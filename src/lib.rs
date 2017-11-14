@@ -113,8 +113,7 @@ where
             let ctx = ParseContext::default();
             let input = IndexStr::new(raw.as_ref());
 
-            let (parsed, tail) =
-                ast::MangledName::parse(&ctx, &mut substitutions, input)?;
+            let (parsed, tail) = ast::MangledName::parse(&ctx, &mut substitutions, input)?;
             debug_assert!(ctx.recursion_level() == 0);
 
             if tail.is_empty() {
