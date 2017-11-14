@@ -119,34 +119,47 @@ demangles!(
     _ZN2Ty6methodIS_EEvMT_FvPKcES5_,
     "void Ty::method<Ty>(void (Ty::*)(char const*), void (Ty::*)(char const*))"
 );
+
 demangles!(_ZNK1fB5cxx11Ev, "f[abi:cxx11]() const");
+
 demangles!(
     _ZN4base8internal14CheckedSubImplIlEENSt9enable_ifIXsrSt14numeric_limitsIT_E10is_integerEbE4typeES4_S4_PS4_,
     "std::enable_if<std::numeric_limits<long>::is_integer, bool>::type base::internal::CheckedSubImpl<long>(long, long, long*)"
 );
+
 demangles!(
     _ZZN7mozilla12EMEDecryptor5FlushEvENUlvE_D4Ev,
     "mozilla::EMEDecryptor::Flush()::{lambda()#0}::maybe in-charge destructor()"
 );
+
 demangles!(
     _ZSt4copyIPKcPcET0_T_S4_S3_,
     "char* std::copy<char const*, char*>(char const*, char const*, char*)"
 );
+
 demangles!(
     _Z9_mm_or_psDv4_fS_,
     "_mm_or_ps(float __vector(4), float __vector(4))"
 );
+
 demangles!(
     _ZN5space20templated_trampolineIPFvvEEEvT_,
     "void space::templated_trampoline<void (*)()>(void (*)())"
 );
+
 demangles!(
     _Z18convertCase_helperIN14QUnicodeTables14CasefoldTraitsEtET0_S2_,
     "unsigned short convertCase_helper<QUnicodeTables::CasefoldTraits, unsigned short>(unsigned short)"
 );
+
 demangles!(
     _ZnwmRKSt9nothrow_t,
     "operator new(unsigned long, std::nothrow_t const&)"
+);
+
+demangles!(
+    _ZGRL13MozLangGroups_,
+    "reference temporary #0 for MozLangGroups"
 );
 
 // Test cases found via differential testing against `c++filt` with `cargo-fuzz`
