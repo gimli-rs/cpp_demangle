@@ -1738,9 +1738,14 @@ where
 /// <unqualified-name> ::= <operator-name>
 ///                    ::= <ctor-dtor-name>
 ///                    ::= <source-name>
+///                    ::= <local-source-name>
 ///                    ::= <unnamed-type-name>
 ///                    ::= <abi-tag>
 ///                    ::= <closure-type-name>
+///
+/// # I think this is from an older version of the standard. It isn't in the
+/// # current version, but all the other demanglers support it, so we will too.
+/// <local-source-name> ::= L <source-name> [<discriminator>]
 /// ```
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum UnqualifiedName {
@@ -1750,6 +1755,8 @@ pub enum UnqualifiedName {
     CtorDtor(CtorDtorName),
     /// A source name.
     Source(SourceName),
+    /// A local source name.
+    LocalSourceName(SourceName, Option<Discriminator>),
     /// A generated name for an unnamed type.
     UnnamedType(UnnamedTypeName),
     /// An ABI tag.
@@ -1772,6 +1779,16 @@ impl Parse for UnqualifiedName {
 
         if let Ok((ctor_dtor, tail)) = CtorDtorName::parse(ctx, subs, input) {
             return Ok((UnqualifiedName::CtorDtor(ctor_dtor), tail));
+        }
+
+        if let Ok(tail) = consume(b"L", input) {
+            let (name, tail) = SourceName::parse(ctx, subs, tail)?;
+            let (discr, tail) = if let Ok((d, t)) = Discriminator::parse(ctx, subs, tail) {
+                (Some(d), t)
+            } else {
+                (None, tail)
+            };
+            return Ok((UnqualifiedName::LocalSourceName(name, discr), tail));
         }
 
         if let Ok((source, tail)) = SourceName::parse(ctx, subs, input) {
@@ -1809,7 +1826,10 @@ where
                 op_name.demangle(ctx, stack)
             }
             UnqualifiedName::CtorDtor(ref ctor_dtor) => ctor_dtor.demangle(ctx, stack),
-            UnqualifiedName::Source(ref name) => name.demangle(ctx, stack),
+            UnqualifiedName::Source(ref name) |
+            UnqualifiedName::LocalSourceName(ref name, ..) => {
+                name.demangle(ctx, stack)
+            }
             UnqualifiedName::UnnamedType(ref unnamed) => unnamed.demangle(ctx, stack),
             UnqualifiedName::ABITag(ref tagged) => tagged.demangle(ctx, stack),
             UnqualifiedName::ClosureType(ref closure) => closure.demangle(ctx, stack),
@@ -1830,6 +1850,7 @@ impl UnqualifiedName {
             UnqualifiedName::Operator(_) |
             UnqualifiedName::CtorDtor(_) |
             UnqualifiedName::Source(_) |
+            UnqualifiedName::LocalSourceName(..) |
             UnqualifiedName::UnnamedType(_) |
             UnqualifiedName::ClosureType(_) => true,
             UnqualifiedName::ABITag(_) => false,
@@ -2049,7 +2070,6 @@ impl Parse for Number {
         input: IndexStr<'b>,
     ) -> Result<(isize, IndexStr<'b>)> {
         try_begin_parse!("Number", ctx, input);
-
         parse_number(10, true, input)
     }
 }
@@ -5980,10 +6000,8 @@ where
                 name.demangle(ctx, stack)
             }
             SpecialName::GuardTemporary(ref name, n) => {
-                write!(ctx, "{{static initialization guard temporary(")?;
-                name.demangle(ctx, stack)?;
-                write!(ctx, ", {})}}", n)?;
-                Ok(())
+                write!(ctx, "reference temporary #{} for ", n)?;
+                name.demangle(ctx, stack)
             }
         }
     }
@@ -8981,6 +8999,26 @@ mod tests {
                         end: 7,
                     }))),
                     b"..."
+                }
+                b"L3foo_0..." => {
+                    UnqualifiedName::LocalSourceName(
+                        SourceName(Identifier {
+                            start: 2,
+                            end: 5
+                        }),
+                        Some(Discriminator(0))
+                    ),
+                    "..."
+                }
+                b"L3foo..." => {
+                    UnqualifiedName::LocalSourceName(
+                        SourceName(Identifier {
+                            start: 2,
+                            end: 5
+                        }),
+                        None
+                    ),
+                    "..."
                 }
             }
             Err => {
