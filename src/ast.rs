@@ -4611,6 +4611,15 @@ where
                 expr.demangle(ctx, stack)?;
                 write!(ctx, ")")
             }
+            // These need an extra set of parens so that it doesn't close any
+            // template argument accidentally.
+            Expression::Binary(OperatorName::Simple(SimpleOperatorName::Greater), ref lhs, ref rhs) => {
+                write!(ctx, "((")?;
+                lhs.demangle(ctx, stack)?;
+                write!(ctx, ")>(")?;
+                rhs.demangle(ctx, stack)?;
+                write!(ctx, "))")
+            }
             Expression::Binary(ref op, ref lhs, ref rhs) => {
                 write!(ctx, "(")?;
                 lhs.demangle(ctx, stack)?;
@@ -4618,8 +4627,7 @@ where
                 op.demangle(ctx, stack)?;
                 write!(ctx, "(")?;
                 rhs.demangle(ctx, stack)?;
-                write!(ctx, ")")?;
-                Ok(())
+                write!(ctx, ")")
             }
             Expression::Ternary(OperatorName::Simple(SimpleOperatorName::Question),
                                 ref condition,
