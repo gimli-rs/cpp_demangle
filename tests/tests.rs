@@ -165,6 +165,11 @@ demangles!(
 demangles!(_ZN11InstrumentsL8gSessionE, "Instruments::gSession");
 demangles!(_ZTWN2js10TlsContextE, "TLS wrapper function for js::TlsContext");
 
+demangles!(_Z3fooILb0EEvi, "void foo<false>(int)");
+demangles!(_Z3fooILb1EEvi, "void foo<true>(int)");
+demangles!(_Z3fooILb2EEvi, "void foo<(bool)2>(int)");
+demangles!(_Z3fooILb999999EEvi, "void foo<(bool)999999>(int)");
+
 // Test cases found via differential testing against `c++filt` with `cargo-fuzz`
 // and `libFuzzer`.
 

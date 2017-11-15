@@ -5352,6 +5352,26 @@ where
         match *self {
             ExprPrimary::External(ref name) => name.demangle(ctx, stack),
             ExprPrimary::Literal(
+                TypeHandle::Builtin(BuiltinType::Standard(StandardBuiltinType::Bool)),
+                start,
+                end,
+            ) => {
+                match &ctx.input[start..end] {
+                    b"0" => {
+                        write!(ctx, "false")?;
+                        Ok(())
+                    }
+                    b"1" => {
+                        write!(ctx, "true")?;
+                        Ok(())
+                    }
+                    otherwise => {
+                        write!(ctx, "(bool)")?;
+                        ctx.write_all(otherwise)
+                    }
+                }
+            }
+            ExprPrimary::Literal(
                 TypeHandle::Builtin(BuiltinType::Standard(StandardBuiltinType::Nullptr)),
                 _,
                 _,
