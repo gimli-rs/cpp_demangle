@@ -3980,6 +3980,9 @@ where
         log_demangle!(self, ctx, stack);
         inner_barrier!(ctx);
 
+        if ctx.last_byte_written == Some(b'<') {
+            write!(ctx, " ")?;
+        }
         write!(ctx, "<")?;
         let mut need_comma = false;
         for arg in &self.0[..] {
