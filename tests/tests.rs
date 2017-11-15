@@ -163,6 +163,7 @@ demangles!(
 );
 
 demangles!(_ZN11InstrumentsL8gSessionE, "Instruments::gSession");
+demangles!(_ZTWN2js10TlsContextE, "TLS wrapper function for js::TlsContext");
 
 // Test cases found via differential testing against `c++filt` with `cargo-fuzz`
 // and `libFuzzer`.

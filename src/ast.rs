@@ -5804,7 +5804,8 @@ define_vocabulary! {
 /// The `<special-name>` production.
 ///
 /// The `<special-name>` production is spread in pieces through out the ABI
-/// spec.
+/// spec, and then there are a bunch of `g++` extensions that have become de
+/// facto.
 ///
 /// ### 5.1.4.1 Virtual Tables and RTTI
 ///
@@ -5840,6 +5841,15 @@ define_vocabulary! {
 /// <special-name> ::= GR <object name> _             # First temporary
 /// <special-name> ::= GR <object name> <seq-id> _    # Subsequent temporaries
 /// ```
+///
+/// ### De Facto Standard Extensions
+///
+/// ```text
+/// <special-name> ::= TC <type> <number> _ <type>    # construction vtable
+///                ::= TF <type>                      # typinfo function
+///                ::= TH <name>                      # TLS initialization function
+///                ::= TW <name>                      # TLS wrapper function
+/// ```
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum SpecialName {
     /// A virtual table.
@@ -5866,6 +5876,18 @@ pub enum SpecialName {
     /// A temporary used in the initialization of a static storage and promoted
     /// to a static lifetime.
     GuardTemporary(Name, usize),
+
+    /// A construction vtable structure.
+    ConstructionVtable(TypeHandle, usize, TypeHandle),
+
+    /// A typeinfo function.
+    TypeinfoFunction(TypeHandle),
+
+    /// A TLS initialization function.
+    TlsInit(Name),
+
+    /// A TLS wrapper function.
+    TlsWrapper(Name),
 }
 
 impl Parse for SpecialName {
@@ -5911,6 +5933,39 @@ impl Parse for SpecialName {
                     tail,
                 ))
             }
+            b"Th" | b"Tv" => {
+                // The "h"/"v" is part of the `<call-offset>`, so back up to the
+                // `input`.
+                let tail = consume(b"T", input).unwrap();
+                let (offset, tail) = CallOffset::parse(ctx, subs, tail)?;
+                let (base, tail) = Encoding::parse(ctx, subs, tail)?;
+                Ok((
+                    SpecialName::VirtualOverrideThunk(offset, Box::new(base)),
+                    tail,
+                ))
+            }
+            b"TC" => {
+                let (ty1, tail) = TypeHandle::parse(ctx, subs, tail)?;
+                let (n, tail) = parse_number(10, false, tail)?;
+                let tail = consume(b"_", tail)?;
+                let (ty2, tail) = TypeHandle::parse(ctx, subs, tail)?;
+                Ok((
+                    SpecialName::ConstructionVtable(ty1, n as usize, ty2),
+                    tail,
+                ))
+            }
+            b"TF" => {
+                let (ty, tail) = TypeHandle::parse(ctx, subs, tail)?;
+                Ok((SpecialName::TypeinfoFunction(ty), tail))
+            }
+            b"TH" => {
+                let (name, tail) = Name::parse(ctx, subs, tail)?;
+                Ok((SpecialName::TlsInit(name), tail))
+            }
+            b"TW" => {
+                let (name, tail) = Name::parse(ctx, subs, tail)?;
+                Ok((SpecialName::TlsWrapper(name), tail))
+            }
             b"GV" => {
                 let (name, tail) = Name::parse(ctx, subs, tail)?;
                 Ok((SpecialName::Guard(name), tail))
@@ -5926,18 +5981,7 @@ impl Parse for SpecialName {
                 };
                 Ok((SpecialName::GuardTemporary(name, idx), tail))
             }
-            _ => {
-                if let Ok(tail) = consume(b"T", input) {
-                    let (offset, tail) = CallOffset::parse(ctx, subs, tail)?;
-                    let (base, tail) = Encoding::parse(ctx, subs, tail)?;
-                    Ok((
-                        SpecialName::VirtualOverrideThunk(offset, Box::new(base)),
-                        tail,
-                    ))
-                } else {
-                    Err(error::Error::UnexpectedText)
-                }
-            }
+            _ => Err(error::Error::UnexpectedText)
         }
     }
 }
@@ -6000,6 +6044,24 @@ where
             }
             SpecialName::GuardTemporary(ref name, n) => {
                 write!(ctx, "reference temporary #{} for ", n)?;
+                name.demangle(ctx, stack)
+            }
+            SpecialName::ConstructionVtable(ref ty1, _, ref ty2) => {
+                write!(ctx, "construction vtable for ")?;
+                ty1.demangle(ctx, stack)?;
+                write!(ctx, "-in-")?;
+                ty2.demangle(ctx, stack)
+            }
+            SpecialName::TypeinfoFunction(ref ty) => {
+                write!(ctx, "typeinfo fn for ")?;
+                ty.demangle(ctx, stack)
+            }
+            SpecialName::TlsInit(ref name) => {
+                write!(ctx, "TLS init function for ")?;
+                name.demangle(ctx, stack)
+            }
+            SpecialName::TlsWrapper(ref name) => {
+                write!(ctx, "TLS wrapper function for ")?;
                 name.demangle(ctx, stack)
             }
         }
@@ -8696,6 +8758,35 @@ mod tests {
                         1),
                     b"..."
                 }
+                b"TCc7_i..." => {
+                    SpecialName::ConstructionVtable(
+                        TypeHandle::Builtin(BuiltinType::Standard(StandardBuiltinType::Char)),
+                        7,
+                        TypeHandle::Builtin(BuiltinType::Standard(StandardBuiltinType::Int))
+                    ),
+                    b"..."
+                }
+                b"TFi..." => {
+                    SpecialName::TypeinfoFunction(
+                        TypeHandle::Builtin(BuiltinType::Standard(StandardBuiltinType::Int))),
+                    b"..."
+                }
+                b"TH4name..." => {
+                    SpecialName::TlsInit(
+                        Name::Unscoped(
+                            UnscopedName::Unqualified(
+                                UnqualifiedName::Source(
+                                    SourceName(Identifier { start: 3, end: 7 }))))),
+                    b"..."
+                }
+                b"TW4name..." => {
+                    SpecialName::TlsWrapper(
+                        Name::Unscoped(
+                            UnscopedName::Unqualified(
+                                UnqualifiedName::Source(
+                                    SourceName(Identifier { start: 3, end: 7 }))))),
+                    b"..."
+                }
             }
             Err => {
                 b"TZ" => Error::UnexpectedText,
@@ -8707,6 +8798,8 @@ mod tests {
                 b"" => Error::UnexpectedEnd,
                 b"GR3abc" => Error::UnexpectedEnd,
                 b"GR3abc0" => Error::UnexpectedEnd,
+                // This number is not allowed to be negative.
+                b"TCcn7_i..." => Error::UnexpectedText,
             }
         });
     }
