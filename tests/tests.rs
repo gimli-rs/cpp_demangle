@@ -162,6 +162,8 @@ demangles!(
     "reference temporary #0 for MozLangGroups"
 );
 
+demangles!(_ZN11InstrumentsL8gSessionE, "Instruments::gSession");
+
 // Test cases found via differential testing against `c++filt` with `cargo-fuzz`
 // and `libFuzzer`.
 
