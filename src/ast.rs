@@ -927,6 +927,11 @@ pub enum MangledName {
     /// A top-level type. Technically not allowed by the standard, however in
     /// practice this can happen, and is tested for by libiberty.
     Type(TypeHandle),
+
+    /// A global constructor or destructor. This is another de facto standard
+    /// extension (I think originally from `g++`?) that is not actually part of
+    /// the standard proper.
+    GlobalCtorDtor(GlobalCtorDtor),
 }
 
 impl Parse for MangledName {
@@ -937,19 +942,20 @@ impl Parse for MangledName {
     ) -> Result<(MangledName, IndexStr<'b>)> {
         try_begin_parse!("MangledName", ctx, input);
 
-        let tail = if let Ok(tail) = consume(b"__Z", input) {
-            tail
-        } else if let Ok(tail) = consume(b"_Z", input) {
-            tail
-        } else {
-            // The libiberty tests also specify that a type can be top level,
-            // and they are not prefixed with "_Z".
-            let (ty, tail) = TypeHandle::parse(ctx, subs, input)?;
-            return Ok((MangledName::Type(ty), tail));
-        };
+        if let Ok(tail) = consume(b"_Z", input).or_else(|_| consume(b"__Z", input)) {
+            let (encoding, tail) = Encoding::parse(ctx, subs, tail)?;
+            return Ok((MangledName::Encoding(encoding), tail));
+        }
 
-        let (encoding, tail) = Encoding::parse(ctx, subs, tail)?;
-        Ok((MangledName::Encoding(encoding), tail))
+        if let Ok(tail) = consume(b"_GLOBAL_", input) {
+            let (global_ctor_dtor, tail) = GlobalCtorDtor::parse(ctx, subs, tail)?;
+            return Ok((MangledName::GlobalCtorDtor(global_ctor_dtor), tail));
+        }
+
+        // The libiberty tests also specify that a type can be top level,
+        // and they are not prefixed with "_Z".
+        let (ty, tail) = TypeHandle::parse(ctx, subs, input)?;
+        Ok((MangledName::Type(ty), tail))
     }
 }
 
@@ -967,6 +973,7 @@ where
         match *self {
             MangledName::Encoding(ref enc) => enc.demangle(ctx, stack),
             MangledName::Type(ref ty) => ty.demangle(ctx, stack),
+            MangledName::GlobalCtorDtor(ref gcd) => gcd.demangle(ctx, stack),
         }
     }
 }
@@ -1096,6 +1103,69 @@ where
 
     fn downcast_to_encoding(&self) -> Option<&Encoding> {
         Some(self)
+    }
+}
+
+/// A global constructor or destructor.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum GlobalCtorDtor {
+    /// A global constructor.
+    Ctor(Box<MangledName>),
+    /// A global destructor.
+    Dtor(Box<MangledName>),
+}
+
+impl Parse for GlobalCtorDtor {
+    fn parse<'a, 'b>(
+        ctx: &'a ParseContext,
+        subs: &'a mut SubstitutionTable,
+        input: IndexStr<'b>,
+    ) -> Result<(GlobalCtorDtor, IndexStr<'b>)> {
+        try_begin_parse!("GlobalCtorDtor", ctx, input);
+
+        let tail = match input.next_or(error::Error::UnexpectedEnd)? {
+            (b'_', t) | (b'.', t) | (b'$', t) => t,
+            _ => return Err(error::Error::UnexpectedText),
+        };
+
+        match tail.next_or(error::Error::UnexpectedEnd)? {
+            (b'I', tail) => {
+                let tail = consume(b"_", tail)?;
+                let (name, tail) = MangledName::parse(ctx, subs, tail)?;
+                Ok((GlobalCtorDtor::Ctor(Box::new(name)), tail))
+            }
+            (b'D', tail) => {
+                let tail = consume(b"_", tail)?;
+                let (name, tail) = MangledName::parse(ctx, subs, tail)?;
+                Ok((GlobalCtorDtor::Dtor(Box::new(name)), tail))
+            }
+            _ => Err(error::Error::UnexpectedText),
+        }
+    }
+}
+
+impl<'subs, W> Demangle<'subs, W> for GlobalCtorDtor
+where
+    W: 'subs + io::Write,
+{
+    fn demangle<'prev, 'ctx>(
+        &'subs self,
+        ctx: &'ctx mut DemangleContext<'subs, W>,
+        stack: Option<ArgScopeStack<'prev, 'subs>>,
+    ) -> io::Result<()> {
+        log_demangle!(self, ctx, stack);
+        inner_barrier!(ctx);
+
+        match *self {
+            GlobalCtorDtor::Ctor(ref name) => {
+                write!(ctx, "global constructors keyed to ")?;
+                name.demangle(ctx, stack)
+            }
+            GlobalCtorDtor::Dtor(ref name) => {
+                write!(ctx, "global destructors keyed to ")?;
+                name.demangle(ctx, stack)
+            }
+        }
     }
 }
 
@@ -6001,7 +6071,7 @@ impl Parse for SpecialName {
                 };
                 Ok((SpecialName::GuardTemporary(name, idx), tail))
             }
-            _ => Err(error::Error::UnexpectedText)
+            _ => Err(error::Error::UnexpectedText),
         }
     }
 }
@@ -6201,15 +6271,16 @@ mod tests {
     use super::{ArrayType, BareFunctionType, BaseUnresolvedName, BuiltinType, CallOffset,
                 ClassEnumType, ClosureTypeName, CtorDtorName, CvQualifiers, DataMemberPrefix,
                 Decltype, DestructorName, Discriminator, Encoding, ExprPrimary, Expression,
-                FunctionParam, FunctionType, Identifier, Initializer, LambdaSig, LocalName,
-                MangledName, Name, NestedName, NonSubstitution, Number, NvOffset, OperatorName,
-                Parse, ParseContext, PointerToMemberType, Prefix, PrefixHandle, RefQualifier,
-                SeqId, SimpleId, SimpleOperatorName, SourceName, SpecialName, StandardBuiltinType,
-                Substitution, TaggedName, TemplateArg, TemplateArgs, TemplateParam,
-                TemplateTemplateParam, TemplateTemplateParamHandle, Type, TypeHandle,
-                UnnamedTypeName, UnqualifiedName, UnresolvedName, UnresolvedQualifierLevel,
-                UnresolvedType, UnresolvedTypeHandle, UnscopedName, UnscopedTemplateName,
-                UnscopedTemplateNameHandle, VOffset, VectorType, WellKnownComponent};
+                FunctionParam, FunctionType, GlobalCtorDtor, Identifier, Initializer, LambdaSig,
+                LocalName, MangledName, Name, NestedName, NonSubstitution, Number, NvOffset,
+                OperatorName, Parse, ParseContext, PointerToMemberType, Prefix, PrefixHandle,
+                RefQualifier, SeqId, SimpleId, SimpleOperatorName, SourceName, SpecialName,
+                StandardBuiltinType, Substitution, TaggedName, TemplateArg, TemplateArgs,
+                TemplateParam, TemplateTemplateParam, TemplateTemplateParamHandle, Type,
+                TypeHandle, UnnamedTypeName, UnqualifiedName, UnresolvedName,
+                UnresolvedQualifierLevel, UnresolvedType, UnresolvedTypeHandle, UnscopedName,
+                UnscopedTemplateName, UnscopedTemplateNameHandle, VOffset, VectorType,
+                WellKnownComponent};
     use error::Error;
     use index_str::IndexStr;
     use std::fmt::Debug;
@@ -6431,12 +6502,29 @@ mod tests {
                                         })))))),
                     b"..."
                 }
+                b"_GLOBAL__I__Z3foo..." => {
+                    MangledName::GlobalCtorDtor(
+                        GlobalCtorDtor::Ctor(
+                            Box::new(
+                                MangledName::Encoding(
+                                    Encoding::Data(
+                                        Name::Unscoped(
+                                            UnscopedName::Unqualified(
+                                                UnqualifiedName::Source(
+                                                    SourceName(
+                                                        Identifier {
+                                                            start: 14,
+                                                            end: 17,
+                                                        }))))))))),
+                    b"..."
+                }
             }
             Err => {
                 b"_Y" => Error::UnexpectedText,
                 b"_Z" => Error::UnexpectedEnd,
                 b"_" => Error::UnexpectedEnd,
                 b"" => Error::UnexpectedEnd,
+                b"_GLOBAL_" => Error::UnexpectedEnd,
             }
         });
     }
@@ -6491,6 +6579,112 @@ mod tests {
                     b"zzz" => Error::UnexpectedText,
                     b"" => Error::UnexpectedEnd,
                 }
+            }
+        });
+    }
+
+    #[test]
+    fn parse_global_ctor_dtor() {
+        assert_parse!(GlobalCtorDtor {
+            Ok => {
+                b"_I__Z3foo..." => {
+                    GlobalCtorDtor::Ctor(
+                        Box::new(
+                            MangledName::Encoding(
+                                Encoding::Data(
+                                    Name::Unscoped(
+                                        UnscopedName::Unqualified(
+                                            UnqualifiedName::Source(
+                                                SourceName(
+                                                    Identifier {
+                                                        start: 6,
+                                                        end: 9,
+                                                    })))))))),
+                    b"..."
+                }
+                b".I__Z3foo..." => {
+                    GlobalCtorDtor::Ctor(
+                        Box::new(
+                            MangledName::Encoding(
+                                Encoding::Data(
+                                    Name::Unscoped(
+                                        UnscopedName::Unqualified(
+                                            UnqualifiedName::Source(
+                                                SourceName(
+                                                    Identifier {
+                                                        start: 6,
+                                                        end: 9,
+                                                    })))))))),
+                    b"..."
+                }
+                b"$I__Z3foo..." => {
+                    GlobalCtorDtor::Ctor(
+                        Box::new(
+                            MangledName::Encoding(
+                                Encoding::Data(
+                                    Name::Unscoped(
+                                        UnscopedName::Unqualified(
+                                            UnqualifiedName::Source(
+                                                SourceName(
+                                                    Identifier {
+                                                        start: 6,
+                                                        end: 9,
+                                                    })))))))),
+                    b"..."
+                }
+                b"_D__Z3foo..." => {
+                    GlobalCtorDtor::Dtor(
+                        Box::new(
+                            MangledName::Encoding(
+                                Encoding::Data(
+                                    Name::Unscoped(
+                                        UnscopedName::Unqualified(
+                                            UnqualifiedName::Source(
+                                                SourceName(
+                                                    Identifier {
+                                                        start: 6,
+                                                        end: 9,
+                                                    })))))))),
+                    b"..."
+                }
+                b".D__Z3foo..." => {
+                    GlobalCtorDtor::Dtor(
+                        Box::new(
+                            MangledName::Encoding(
+                                Encoding::Data(
+                                    Name::Unscoped(
+                                        UnscopedName::Unqualified(
+                                            UnqualifiedName::Source(
+                                                SourceName(
+                                                    Identifier {
+                                                        start: 6,
+                                                        end: 9,
+                                                    })))))))),
+                    b"..."
+                }
+                b"$D__Z3foo..." => {
+                    GlobalCtorDtor::Dtor(
+                        Box::new(
+                            MangledName::Encoding(
+                                Encoding::Data(
+                                    Name::Unscoped(
+                                        UnscopedName::Unqualified(
+                                            UnqualifiedName::Source(
+                                                SourceName(
+                                                    Identifier {
+                                                        start: 6,
+                                                        end: 9,
+                                                    })))))))),
+                    b"..."
+                }
+            }
+            Err => {
+                b"_I" => Error::UnexpectedEnd,
+                b"_" => Error::UnexpectedEnd,
+                b"" => Error::UnexpectedEnd,
+                b"blag" => Error::UnexpectedText,
+                b"_J" => Error::UnexpectedText,
+                b"_IJ" => Error::UnexpectedText,
             }
         });
     }
