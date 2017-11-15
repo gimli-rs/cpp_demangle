@@ -4607,8 +4607,9 @@ where
         match *self {
             Expression::Unary(ref op, ref expr) => {
                 op.demangle(ctx, stack)?;
-                write!(ctx, " ")?;
-                expr.demangle(ctx, stack)
+                write!(ctx, "(")?;
+                expr.demangle(ctx, stack)?;
+                write!(ctx, ")")
             }
             Expression::Binary(ref op, ref lhs, ref rhs) => {
                 write!(ctx, "(")?;
