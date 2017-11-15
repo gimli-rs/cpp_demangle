@@ -4669,8 +4669,9 @@ where
                 Ok(())
             }
             Expression::ConversionOne(ref ty, ref expr) => {
-                ty.demangle(ctx, stack)?;
                 write!(ctx, "(")?;
+                ty.demangle(ctx, stack)?;
+                write!(ctx, ")(")?;
                 expr.demangle(ctx, stack)?;
                 write!(ctx, ")")?;
                 Ok(())
@@ -5440,6 +5441,32 @@ where
                         ctx.write_all(otherwise)
                     }
                 }
+            }
+            ExprPrimary::Literal(
+                TypeHandle::Builtin(BuiltinType::Standard(StandardBuiltinType::Char)),
+                start,
+                end,
+            ) => {
+                write!(ctx, "(char)")?;
+                ctx.write_all(&ctx.input[start..end])
+            }
+            ExprPrimary::Literal(
+                TypeHandle::Builtin(BuiltinType::Standard(StandardBuiltinType::Double)),
+                start,
+                end,
+            ) => {
+                write!(ctx, "(double)[")?;
+                ctx.write_all(&ctx.input[start..end])?;
+                write!(ctx, "]")
+            }
+            ExprPrimary::Literal(
+                TypeHandle::Builtin(BuiltinType::Standard(StandardBuiltinType::Float)),
+                start,
+                end,
+            ) => {
+                write!(ctx, "(float)[")?;
+                ctx.write_all(&ctx.input[start..end])?;
+                write!(ctx, "]")
             }
             ExprPrimary::Literal(
                 TypeHandle::Builtin(BuiltinType::Standard(StandardBuiltinType::Nullptr)),
