@@ -8,8 +8,8 @@ use std::process;
 const NUMBER_OF_LIBXUL_SYMBOLS: usize = 274346;
 
 // These counts should only go up!
-const NUMBER_OF_LIBXUL_SYMBOLS_THAT_PARSE: usize = 274083;
-const NUMBER_OF_LIBXUL_SYMBOLS_THAT_DEMANGLE: usize = 274083;
+const NUMBER_OF_LIBXUL_SYMBOLS_THAT_PARSE: usize = 274319;
+const NUMBER_OF_LIBXUL_SYMBOLS_THAT_DEMANGLE: usize = 274319;
 
 fn get_cppfilt() -> &'static str {
     if cfg!(not(target_os = "macos")) {
@@ -149,16 +149,20 @@ fn libxul_symbols_demangle() {
         &mut log_file,
         "================================================================"
     ).unwrap();
-    writeln!(&mut log_file, "Total number of libxul symbols: {}", total).unwrap();
     writeln!(
         &mut log_file,
-        "Number of libxul symbols parsed: {} ({:.2}%)",
+        "Total number of libxul symbols:                       {}",
+        total
+    ).unwrap();
+    writeln!(
+        &mut log_file,
+        "Number of libxul symbols parsed:                      {} ({:.2}%)",
         num_parsed,
         num_parsed as f64 / total as f64 * 100.0
     ).unwrap();
     writeln!(
         &mut log_file,
-        "Number of libxul symbols demangled: {} ({:.2}%)",
+        "Number of libxul symbols demangled:                   {} ({:.2}%)",
         num_demangled,
         num_demangled as f64 / total as f64 * 100.0
     ).unwrap();
