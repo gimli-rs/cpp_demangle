@@ -2750,8 +2750,8 @@ where
                 args.demangle(ctx, stack)
             }
             Type::Decltype(ref dt) => dt.demangle(ctx, stack),
-            Type::Qualified(ref quals, ref ty) => {
-                ctx.inner.push(quals);
+            Type::Qualified(_, ref ty) => {
+                ctx.inner.push(self);
                 ty.demangle(ctx, stack)?;
                 if let Some(inner) = ctx.inner.pop() {
                     inner.demangle_as_inner(ctx, stack)?;
@@ -2808,6 +2808,9 @@ where
         log_demangle!(self, ctx, stack);
 
         match *self {
+            Type::Qualified(ref quals, _) => {
+                quals.demangle_as_inner(ctx, stack)?;
+            }
             Type::PointerTo(_) => {
                 write!(ctx, "*")?;
             }
@@ -2817,7 +2820,12 @@ where
             Type::RvalueRef(_) => {
                 write!(ctx, "&&")?;
             }
-            _ => unreachable!("We shouldn't ever put any other types on the inner stack"),
+            ref otherwise => {
+                unreachable!(
+                    "We shouldn't ever put any other types on the inner stack: {:?}",
+                    otherwise
+                );
+            }
         }
 
         if let Some(inner) = ctx.inner.pop() {
@@ -2829,6 +2837,22 @@ where
 
     fn downcast_to_type(&self) -> Option<&Type> {
         Some(self)
+    }
+
+    fn downcast_to_array_type(&self) -> Option<&ArrayType> {
+        if let Type::Array(ref arr) = *self {
+            Some(arr)
+        } else {
+            None
+        }
+    }
+
+    fn downcast_to_pointer_to_member(&self) -> Option<&PointerToMemberType> {
+        if let Type::PointerToMember(ref ptm) = *self {
+            Some(ptm)
+        } else {
+            None
+        }
     }
 }
 
@@ -3545,23 +3569,39 @@ where
     ) -> io::Result<()> {
         log_demangle!(self, ctx, stack);
 
-        let mut inner_is_array = false;
+        // Whether we should add a final space before the dimensions.
+        let mut needs_space = true;
+
         while let Some(inner) = ctx.inner.pop() {
+            // We need to add parentheses around array inner types, unless they
+            // are also (potentially qualified) arrays themselves, in which case
+            // we format them as multi-dimensional arrays.
+            let inner_is_array = match inner.downcast_to_type() {
+                Some(&Type::Qualified(_, ref ty)) => {
+                    ctx.subs.get_type(ty).map_or(false, |ty| {
+                        DemangleAsInner::<W>::downcast_to_array_type(ty).is_some()
+                    })
+                }
+                _ => if inner.downcast_to_array_type().is_some() {
+                    needs_space = false;
+                    true
+                } else {
+                    false
+                }
+            };
+
             // Multidimensional arrays do not get parens.
-            inner_is_array = inner.downcast_to_array_type().is_some();
-            if !inner_is_array {
+            if inner_is_array {
+                inner.demangle_as_inner(ctx, stack)?;
+            } else {
                 ctx.ensure_space()?;
                 write!(ctx, "(")?;
-            }
-
-            inner.demangle_as_inner(ctx, stack)?;
-
-            if !inner_is_array {
+                inner.demangle_as_inner(ctx, stack)?;
                 write!(ctx, ")")?;
             }
         }
 
-        if !inner_is_array {
+        if needs_space {
             ctx.ensure_space()?;
         }
 
