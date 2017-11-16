@@ -642,6 +642,10 @@ where
                 (true, true)
             } else {
                 match inner.downcast_to_type() {
+                    Some(&Type::Qualified(..)) |
+                    Some(&Type::Complex(_)) |
+                    Some(&Type::Imaginary(_)) |
+                    Some(&Type::PointerToMember(_)) => (true, true),
                     Some(&Type::PointerTo(_)) |
                     Some(&Type::LvalueRef(_)) |
                     Some(&Type::RvalueRef(_)) => (false, true),
@@ -669,7 +673,7 @@ where
                 ctx.ensure_space()?;
             }
 
-            write!(ctx, "{}", '(')?;
+            write!(ctx, "(")?;
         }
 
         let mut new_inner = vec![];
@@ -2810,6 +2814,7 @@ where
         match *self {
             Type::Qualified(ref quals, _) => {
                 quals.demangle_as_inner(ctx, stack)?;
+                return Ok(());
             }
             Type::PointerTo(_) => {
                 write!(ctx, "*")?;
@@ -3590,7 +3595,6 @@ where
                 }
             };
 
-            // Multidimensional arrays do not get parens.
             if inner_is_array {
                 inner.demangle_as_inner(ctx, stack)?;
             } else {

@@ -197,6 +197,7 @@ demangles!(_Z3fooILfaaaaaaEEvi, "void foo<(float)[aaaaaa]>(int)");
 demangles!(float_literal_with_decimal, "_Z3fooILf999.999EEvi", "void foo<(float)[999.999]>(int)");
 
 demangles!(_Z3abcrA_l, "abc(long restrict [])");
+demangles!(_Z3abcFrA_lvE, "abc(long restrict (()) [])");
 // Test cases found via differential testing against `c++filt` with `cargo-fuzz`
 // and `libFuzzer`.
 
