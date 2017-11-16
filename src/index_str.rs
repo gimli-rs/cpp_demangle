@@ -73,6 +73,25 @@ impl<'a> IndexStr<'a> {
             Some(self.split_at(idx))
         }
     }
+
+    /// Pop the next byte off the front of this string, returning it and the new
+    /// tail string, or `None` if this string is empty.
+    #[inline]
+    pub fn next(&self) -> Option<(u8, IndexStr<'a>)> {
+        if self.is_empty() {
+            None
+        } else {
+            let byte = self.string[0];
+            Some((byte, self.range_from(1..)))
+        }
+    }
+
+    /// Pop the next byte off the front of this string, returning it and the new
+    /// tail string, or the given error if this string is empty.
+    #[inline]
+    pub fn next_or<E>(&self, error: E) -> Result<(u8, IndexStr<'a>), E> {
+        self.next().ok_or(error)
+    }
 }
 
 /// # Range Methods

@@ -51,9 +51,12 @@ fn assert_does_not_demangle(s: &str) {
 
 macro_rules! demangles {
     ( $mangled:ident , $demangled:expr ) => {
+        demangles!($mangled, stringify!($mangled), $demangled);
+    };
+    ( $name:ident , $mangled:expr , $demangled:expr ) => {
         #[test]
-        fn $mangled() {
-            assert_demangles_as(stringify!($mangled), $demangled);
+        fn $name() {
+            assert_demangles_as($mangled, $demangled);
         }
     }
 }
@@ -169,7 +172,32 @@ demangles!(_Z3fooILb0EEvi, "void foo<false>(int)");
 demangles!(_Z3fooILb1EEvi, "void foo<true>(int)");
 demangles!(_Z3fooILb2EEvi, "void foo<(bool)2>(int)");
 demangles!(_Z3fooILb999999EEvi, "void foo<(bool)999999>(int)");
+demangles!(_Z3fooILbaaaaaaEEvi, "void foo<(bool)aaaaaa>(int)");
+demangles!(bool_literal_with_decimal, "_Z3fooILb999.999EEvi", "void foo<(bool)999.999>(int)");
 
+demangles!(_Z3fooILc65EEvi, "void foo<(char)65>(int)");
+demangles!(_Z3fooILc48EEvi, "void foo<(char)48>(int)");
+demangles!(_Z3fooILc0EEvi, "void foo<(char)0>(int)");
+demangles!(_Z3fooILc999999EEvi, "void foo<(char)999999>(int)");
+demangles!(_Z3fooILcaaaaaaEEvi, "void foo<(char)aaaaaa>(int)");
+demangles!(char_literal_with_decimal, "_Z3fooILc999.999EEvi", "void foo<(char)999.999>(int)");
+
+demangles!(_Z3fooILd65EEvi, "void foo<(double)[65]>(int)");
+demangles!(_Z3fooILd48EEvi, "void foo<(double)[48]>(int)");
+demangles!(_Z3fooILd0EEvi, "void foo<(double)[0]>(int)");
+demangles!(_Z3fooILd999999EEvi, "void foo<(double)[999999]>(int)");
+demangles!(_Z3fooILdaaaaaaEEvi, "void foo<(double)[aaaaaa]>(int)");
+demangles!(double_literal_with_decimal, "_Z3fooILd999.999EEvi", "void foo<(double)[999.999]>(int)");
+
+demangles!(_Z3fooILf65EEvi, "void foo<(float)[65]>(int)");
+demangles!(_Z3fooILf48EEvi, "void foo<(float)[48]>(int)");
+demangles!(_Z3fooILf0EEvi, "void foo<(float)[0]>(int)");
+demangles!(_Z3fooILf999999EEvi, "void foo<(float)[999999]>(int)");
+demangles!(_Z3fooILfaaaaaaEEvi, "void foo<(float)[aaaaaa]>(int)");
+demangles!(float_literal_with_decimal, "_Z3fooILf999.999EEvi", "void foo<(float)[999.999]>(int)");
+
+demangles!(_Z3abcrA_l, "abc(long restrict [])");
+demangles!(_Z3abcFrA_lvE, "abc(long restrict (()) [])");
 // Test cases found via differential testing against `c++filt` with `cargo-fuzz`
 // and `libFuzzer`.
 
