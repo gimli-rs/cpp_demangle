@@ -533,7 +533,7 @@ where
 ///
 /// See the comments surrounding `DemangleContext::inner` for details.
 #[doc(hidden)]
-pub trait DemangleAsInner<'subs, W>: fmt::Debug
+pub trait DemangleAsInner<'subs, W>: Demangle<'subs, W>
 where
     W: 'subs + io::Write,
 {
@@ -542,7 +542,9 @@ where
         &'subs self,
         ctx: &'ctx mut DemangleContext<'subs, W>,
         stack: Option<ArgScopeStack<'prev, 'subs>>,
-    ) -> io::Result<()>;
+    ) -> io::Result<()> {
+        self.demangle(ctx, stack)
+    }
 
     /// Cast this `DemangleAsInner` to a `Type`.
     fn downcast_to_type(&self) -> Option<&Type> {
@@ -713,11 +715,11 @@ where
     }
 }
 
-impl<'subs, W> DemangleAsInner<'subs, W> for FunctionArgList
+impl<'subs, W> Demangle<'subs, W> for FunctionArgList
 where
     W: 'subs + io::Write,
 {
-    fn demangle_as_inner<'prev, 'ctx>(
+    fn demangle<'prev, 'ctx>(
         &'subs self,
         ctx: &'ctx mut DemangleContext<'subs, W>,
         stack: Option<ArgScopeStack<'prev, 'subs>>,
@@ -726,11 +728,16 @@ where
     }
 }
 
-impl<'subs, W> DemangleAsInner<'subs, W> for FunctionArgListAndReturnType
+impl<'subs, W> DemangleAsInner<'subs, W> for FunctionArgList
+where
+    W: 'subs + io::Write,
+{}
+
+impl<'subs, W> Demangle<'subs, W> for FunctionArgListAndReturnType
 where
     W: 'subs + io::Write,
 {
-    fn demangle_as_inner<'prev, 'ctx>(
+    fn demangle<'prev, 'ctx>(
         &'subs self,
         ctx: &'ctx mut DemangleContext<'subs, W>,
         stack: Option<ArgScopeStack<'prev, 'subs>>,
@@ -738,6 +745,11 @@ where
         FunctionArgSlice::new(&self.0[1..]).demangle(ctx, stack)
     }
 }
+
+impl<'subs, W> DemangleAsInner<'subs, W> for FunctionArgListAndReturnType
+where
+    W: 'subs + io::Write,
+{}
 
 /// Define a handle to a AST type that lives inside the substitution table. A
 /// handle is always either an index into the substitution table, or it is a
@@ -2961,15 +2973,7 @@ where
 impl<'subs, W> DemangleAsInner<'subs, W> for CvQualifiers
 where
     W: 'subs + io::Write,
-{
-    fn demangle_as_inner<'prev, 'ctx>(
-        &'subs self,
-        ctx: &'ctx mut DemangleContext<'subs, W>,
-        stack: Option<ArgScopeStack<'prev, 'subs>>,
-    ) -> io::Result<()> {
-        self.demangle(ctx, stack)
-    }
-}
+{}
 
 define_vocabulary! {
     /// A <ref-qualifier> production.
