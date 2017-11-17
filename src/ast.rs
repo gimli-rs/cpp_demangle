@@ -425,6 +425,27 @@ where
     fn ensure_space(&mut self) -> io::Result<()> {
         self.ensure(' ')
     }
+
+    fn demangle_inner_prefixes<'prev>(&mut self, stack: Option<ArgScopeStack<'prev, 'a>>) -> io::Result<()> {
+        let mut new_inner = vec![];
+        while let Some(inner) = self.inner.pop() {
+            if inner.downcast_to_encoding().is_some() {
+                new_inner.push(inner);
+            } else {
+                inner.demangle_as_inner(self, stack)?;
+            }
+        }
+        new_inner.reverse();
+        self.inner = new_inner;
+        Ok(())
+    }
+
+    fn demangle_inners<'prev>(&mut self, stack: Option<ArgScopeStack<'prev, 'a>>) -> io::Result<()> {
+        while let Some(inner) = self.inner.pop() {
+            inner.demangle_as_inner(self, stack)?;
+        }
+        Ok(())
+    }
 }
 
 #[doc(hidden)]
@@ -678,15 +699,7 @@ where
             write!(ctx, "(")?;
         }
 
-        let mut new_inner = vec![];
-        while let Some(inner) = ctx.inner.pop() {
-            if inner.downcast_to_encoding().is_some() {
-                new_inner.push(inner);
-            } else {
-                inner.demangle_as_inner(ctx, stack)?;
-            }
-        }
-        ctx.inner = new_inner;
+        ctx.demangle_inner_prefixes(stack)?;
 
         if needs_paren {
             write!(ctx, "{}", ')')?;
@@ -711,7 +724,8 @@ where
         }
 
         write!(ctx, ")")?;
-        Ok(())
+
+        ctx.demangle_inners(stack)
     }
 }
 
@@ -3596,7 +3610,7 @@ where
                     true
                 } else {
                     false
-                }
+                },
             };
 
             if inner_is_array {
@@ -3605,6 +3619,7 @@ where
                 ctx.ensure_space()?;
                 write!(ctx, "(")?;
                 inner.demangle_as_inner(ctx, stack)?;
+                ctx.demangle_inners(stack)?;
                 write!(ctx, ")")?;
             }
         }

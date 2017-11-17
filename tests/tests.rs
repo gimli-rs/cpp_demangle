@@ -198,6 +198,10 @@ demangles!(float_literal_with_decimal, "_Z3fooILf999.999EEvi", "void foo<(float)
 
 demangles!(_Z3abcrA_l, "abc(long restrict [])");
 demangles!(_Z3abcFrA_lvE, "abc(long restrict (()) [])");
+demangles!(_Z3abcFrPA_lvE, "abc(long (* restrict()) [])");
+demangles!(_Z3abcM3defFPVPFrPivEvE, "abc(int* restrict (* volatile* (def::*)())())");
+demangles!(_Z3abcM3defFPVPFrPA_lvEvE, "abc(long (* restrict (* volatile* (def::*)())()) [])");
+
 // Test cases found via differential testing against `c++filt` with `cargo-fuzz`
 // and `libFuzzer`.
 
