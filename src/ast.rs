@@ -245,11 +245,11 @@ trait GetTemplateArgs {
 /// This trait is implemented by anything that can potentially resolve arguments
 /// for us.
 trait ArgScope<'me, 'ctx>: fmt::Debug {
-    /// Get the current scope's `idx`th template argument.
-    fn get_template_arg(&'me self, idx: usize) -> Result<&'ctx TemplateArg>;
+    /// Get the current scope's `index`th template argument.
+    fn get_template_arg(&'me self, index: usize) -> Result<&'ctx TemplateArg>;
 
-    /// Get the current scope's `idx`th function argument's type.
-    fn get_function_arg(&'me self, idx: usize) -> Result<&'ctx Type>;
+    /// Get the current scope's `index`th function argument's type.
+    fn get_function_arg(&'me self, index: usize) -> Result<&'ctx Type>;
 }
 
 /// An `ArgScopeStack` represents the current function and template demangling
