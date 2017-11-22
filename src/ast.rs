@@ -5536,6 +5536,20 @@ where
     ) -> io::Result<()> {
         log_demangle!(self, ctx, stack);
 
+        fn write_literal<W>(ctx: &mut DemangleContext<W>, start: usize, end: usize) -> io::Result<()>
+        where
+            W: io::Write
+        {
+            debug_assert!(start <= end);
+            let start = if start < end && ctx.input[start] == b'n' {
+                write!(ctx, "-")?;
+                start + 1
+            } else {
+                start
+            };
+            ctx.write_all(&ctx.input[start..end])
+        }
+
         match *self {
             ExprPrimary::External(ref name) => name.demangle(ctx, stack),
             ExprPrimary::Literal(
@@ -5544,62 +5558,59 @@ where
                 end,
             ) => {
                 match &ctx.input[start..end] {
-                    b"0" => {
-                        write!(ctx, "false")?;
-                        Ok(())
-                    }
-                    b"1" => {
-                        write!(ctx, "true")?;
-                        Ok(())
-                    }
-                    otherwise => {
+                    b"0" => write!(ctx, "false"),
+                    b"1" => write!(ctx, "true"),
+                    _ => {
                         write!(ctx, "(bool)")?;
-                        ctx.write_all(otherwise)
+                        write_literal(ctx, start, end)
                     }
                 }
-            }
-            ExprPrimary::Literal(
-                TypeHandle::Builtin(BuiltinType::Standard(StandardBuiltinType::Char)),
-                start,
-                end,
-            ) => {
-                write!(ctx, "(char)")?;
-                ctx.write_all(&ctx.input[start..end])
-            }
-            ExprPrimary::Literal(
-                TypeHandle::Builtin(BuiltinType::Standard(StandardBuiltinType::Double)),
-                start,
-                end,
-            ) => {
-                write!(ctx, "(double)[")?;
-                ctx.write_all(&ctx.input[start..end])?;
-                write!(ctx, "]")
-            }
-            ExprPrimary::Literal(
-                TypeHandle::Builtin(BuiltinType::Standard(StandardBuiltinType::Float)),
-                start,
-                end,
-            ) => {
-                write!(ctx, "(float)[")?;
-                ctx.write_all(&ctx.input[start..end])?;
-                write!(ctx, "]")
             }
             ExprPrimary::Literal(
                 TypeHandle::Builtin(BuiltinType::Standard(StandardBuiltinType::Nullptr)),
                 _,
                 _,
             ) => {
-                write!(ctx, "nullptr")?;
-                Ok(())
+                write!(ctx, "nullptr")
             }
-            ExprPrimary::Literal(ref type_handle, start, end) => {
-                debug_assert!(start <= end);
-                if start == end {
-                    type_handle.demangle(ctx, stack)
+            ExprPrimary::Literal(
+                ref ty @ TypeHandle::Builtin(BuiltinType::Standard(StandardBuiltinType::Double)),
+                start,
+                end,
+            ) |
+            ExprPrimary::Literal(
+                ref ty @ TypeHandle::Builtin(BuiltinType::Standard(StandardBuiltinType::Float)),
+                start,
+                end,
+            ) => {
+                write!(ctx, "(")?;
+                ty.demangle(ctx, stack)?;
+                let start = if start < end && ctx.input[start] == b'n' {
+                    write!(ctx, ")-[")?;
+                    start + 1
                 } else {
-                    write!(ctx, "{}", String::from_utf8_lossy(&ctx.input[start..end]))?;
-                    Ok(())
-                }
+                    write!(ctx, ")[")?;
+                    start
+                };
+                ctx.write_all(&ctx.input[start..end])?;
+                write!(ctx, "]")
+            }
+            ExprPrimary::Literal(
+                TypeHandle::Builtin(BuiltinType::Standard(StandardBuiltinType::Int)),
+                start,
+                end
+            ) => {
+                write_literal(ctx, start, end)
+            }
+            ExprPrimary::Literal(
+                ref ty,
+                start,
+                end,
+            ) => {
+                write!(ctx, "(")?;
+                ty.demangle(ctx, stack)?;
+                write!(ctx, ")")?;
+                write_literal(ctx, start, end)
             }
         }
     }

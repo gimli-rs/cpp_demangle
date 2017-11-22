@@ -174,6 +174,8 @@ demangles!(_Z3fooILb2EEvi, "void foo<(bool)2>(int)");
 demangles!(_Z3fooILb999999EEvi, "void foo<(bool)999999>(int)");
 demangles!(_Z3fooILbaaaaaaEEvi, "void foo<(bool)aaaaaa>(int)");
 demangles!(bool_literal_with_decimal, "_Z3fooILb999.999EEvi", "void foo<(bool)999.999>(int)");
+demangles!(_Z3fooILbn1EEvi, "void foo<(bool)-1>(int)");
+demangles!(_Z3fooILbn0EEvi, "void foo<(bool)-0>(int)");
 
 demangles!(_Z3fooILc65EEvi, "void foo<(char)65>(int)");
 demangles!(_Z3fooILc48EEvi, "void foo<(char)48>(int)");
@@ -181,6 +183,8 @@ demangles!(_Z3fooILc0EEvi, "void foo<(char)0>(int)");
 demangles!(_Z3fooILc999999EEvi, "void foo<(char)999999>(int)");
 demangles!(_Z3fooILcaaaaaaEEvi, "void foo<(char)aaaaaa>(int)");
 demangles!(char_literal_with_decimal, "_Z3fooILc999.999EEvi", "void foo<(char)999.999>(int)");
+demangles!(_Z3fooILcn65EEvi, "void foo<(char)-65>(int)");
+demangles!(char_literal_with_negative_sign, "_Z3fooILc-65EEvi", "void foo<(char)-65>(int)");
 
 demangles!(_Z3fooILd65EEvi, "void foo<(double)[65]>(int)");
 demangles!(_Z3fooILd48EEvi, "void foo<(double)[48]>(int)");
@@ -188,6 +192,8 @@ demangles!(_Z3fooILd0EEvi, "void foo<(double)[0]>(int)");
 demangles!(_Z3fooILd999999EEvi, "void foo<(double)[999999]>(int)");
 demangles!(_Z3fooILdaaaaaaEEvi, "void foo<(double)[aaaaaa]>(int)");
 demangles!(double_literal_with_decimal, "_Z3fooILd999.999EEvi", "void foo<(double)[999.999]>(int)");
+demangles!(_Z3fooILdn65EEvi, "void foo<(double)-[65]>(int)");
+demangles!(double_literal_with_negative_sign, "_Z3fooILd-65EEvi", "void foo<(double)[-65]>(int)");
 
 demangles!(_Z3fooILf65EEvi, "void foo<(float)[65]>(int)");
 demangles!(_Z3fooILf48EEvi, "void foo<(float)[48]>(int)");
@@ -195,6 +201,15 @@ demangles!(_Z3fooILf0EEvi, "void foo<(float)[0]>(int)");
 demangles!(_Z3fooILf999999EEvi, "void foo<(float)[999999]>(int)");
 demangles!(_Z3fooILfaaaaaaEEvi, "void foo<(float)[aaaaaa]>(int)");
 demangles!(float_literal_with_decimal, "_Z3fooILf999.999EEvi", "void foo<(float)[999.999]>(int)");
+demangles!(_Z3fooILfn65EEvi, "void foo<(float)-[65]>(int)");
+demangles!(float_literal_with_negative_sign, "_Z3fooILf-65EEvi", "void foo<(float)[-65]>(int)");
+
+demangles!(_Z3fooILin1EEvv, "void foo<-1>()");
+demangles!(_Z3fooILi0EEvv, "void foo<0>()");
+demangles!(_Z3fooILin0EEvv, "void foo<-0>()");
+demangles!(_Z3fooILi999999EEvv, "void foo<999999>()");
+demangles!(_Z3fooILiaaaaaaEEvv, "void foo<aaaaaa>()");
+demangles!(int_literal_with_decimal, "_Z3fooILi999.999EEvv", "void foo<999.999>()");
 
 demangles!(_Z3abcrA_l, "abc(long restrict [])");
 demangles!(_Z3abcFrA_lvE, "abc(long restrict (()) [])");
