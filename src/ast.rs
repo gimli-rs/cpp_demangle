@@ -425,6 +425,27 @@ where
     fn ensure_space(&mut self) -> io::Result<()> {
         self.ensure(' ')
     }
+
+    fn demangle_inner_prefixes<'prev>(&mut self, stack: Option<ArgScopeStack<'prev, 'a>>) -> io::Result<()> {
+        let mut new_inner = vec![];
+        while let Some(inner) = self.inner.pop() {
+            if inner.downcast_to_encoding().is_some() {
+                new_inner.push(inner);
+            } else {
+                inner.demangle_as_inner(self, stack)?;
+            }
+        }
+        new_inner.reverse();
+        self.inner = new_inner;
+        Ok(())
+    }
+
+    fn demangle_inners<'prev>(&mut self, stack: Option<ArgScopeStack<'prev, 'a>>) -> io::Result<()> {
+        while let Some(inner) = self.inner.pop() {
+            inner.demangle_as_inner(self, stack)?;
+        }
+        Ok(())
+    }
 }
 
 #[doc(hidden)]
@@ -533,7 +554,7 @@ where
 ///
 /// See the comments surrounding `DemangleContext::inner` for details.
 #[doc(hidden)]
-pub trait DemangleAsInner<'subs, W>: fmt::Debug
+pub trait DemangleAsInner<'subs, W>: Demangle<'subs, W>
 where
     W: 'subs + io::Write,
 {
@@ -542,7 +563,9 @@ where
         &'subs self,
         ctx: &'ctx mut DemangleContext<'subs, W>,
         stack: Option<ArgScopeStack<'prev, 'subs>>,
-    ) -> io::Result<()>;
+    ) -> io::Result<()> {
+        self.demangle(ctx, stack)
+    }
 
     /// Cast this `DemangleAsInner` to a `Type`.
     fn downcast_to_type(&self) -> Option<&Type> {
@@ -676,15 +699,7 @@ where
             write!(ctx, "(")?;
         }
 
-        let mut new_inner = vec![];
-        while let Some(inner) = ctx.inner.pop() {
-            if inner.downcast_to_encoding().is_some() {
-                new_inner.push(inner);
-            } else {
-                inner.demangle_as_inner(ctx, stack)?;
-            }
-        }
-        ctx.inner = new_inner;
+        ctx.demangle_inner_prefixes(stack)?;
 
         if needs_paren {
             write!(ctx, "{}", ')')?;
@@ -709,15 +724,16 @@ where
         }
 
         write!(ctx, ")")?;
-        Ok(())
+
+        ctx.demangle_inners(stack)
     }
 }
 
-impl<'subs, W> DemangleAsInner<'subs, W> for FunctionArgList
+impl<'subs, W> Demangle<'subs, W> for FunctionArgList
 where
     W: 'subs + io::Write,
 {
-    fn demangle_as_inner<'prev, 'ctx>(
+    fn demangle<'prev, 'ctx>(
         &'subs self,
         ctx: &'ctx mut DemangleContext<'subs, W>,
         stack: Option<ArgScopeStack<'prev, 'subs>>,
@@ -726,11 +742,16 @@ where
     }
 }
 
-impl<'subs, W> DemangleAsInner<'subs, W> for FunctionArgListAndReturnType
+impl<'subs, W> DemangleAsInner<'subs, W> for FunctionArgList
+where
+    W: 'subs + io::Write,
+{}
+
+impl<'subs, W> Demangle<'subs, W> for FunctionArgListAndReturnType
 where
     W: 'subs + io::Write,
 {
-    fn demangle_as_inner<'prev, 'ctx>(
+    fn demangle<'prev, 'ctx>(
         &'subs self,
         ctx: &'ctx mut DemangleContext<'subs, W>,
         stack: Option<ArgScopeStack<'prev, 'subs>>,
@@ -738,6 +759,11 @@ where
         FunctionArgSlice::new(&self.0[1..]).demangle(ctx, stack)
     }
 }
+
+impl<'subs, W> DemangleAsInner<'subs, W> for FunctionArgListAndReturnType
+where
+    W: 'subs + io::Write,
+{}
 
 /// Define a handle to a AST type that lives inside the substitution table. A
 /// handle is always either an index into the substitution table, or it is a
@@ -2961,15 +2987,7 @@ where
 impl<'subs, W> DemangleAsInner<'subs, W> for CvQualifiers
 where
     W: 'subs + io::Write,
-{
-    fn demangle_as_inner<'prev, 'ctx>(
-        &'subs self,
-        ctx: &'ctx mut DemangleContext<'subs, W>,
-        stack: Option<ArgScopeStack<'prev, 'subs>>,
-    ) -> io::Result<()> {
-        self.demangle(ctx, stack)
-    }
-}
+{}
 
 define_vocabulary! {
     /// A <ref-qualifier> production.
@@ -3592,7 +3610,7 @@ where
                     true
                 } else {
                     false
-                }
+                },
             };
 
             if inner_is_array {
@@ -3601,6 +3619,7 @@ where
                 ctx.ensure_space()?;
                 write!(ctx, "(")?;
                 inner.demangle_as_inner(ctx, stack)?;
+                ctx.demangle_inners(stack)?;
                 write!(ctx, ")")?;
             }
         }
