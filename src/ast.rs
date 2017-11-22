@@ -429,7 +429,8 @@ where
     fn demangle_inner_prefixes<'prev>(&mut self, stack: Option<ArgScopeStack<'prev, 'a>>) -> io::Result<()> {
         let mut new_inner = vec![];
         while let Some(inner) = self.inner.pop() {
-            if inner.downcast_to_encoding().is_some() {
+            if inner.downcast_to_encoding().is_some() ||
+               inner.downcast_to_function_type().map_or(false, |f| !f.cv_qualifiers.is_empty()) {
                 new_inner.push(inner);
             } else {
                 inner.demangle_as_inner(self, stack)?;
@@ -569,6 +570,11 @@ where
 
     /// Cast this `DemangleAsInner` to a `Type`.
     fn downcast_to_type(&self) -> Option<&Type> {
+        None
+    }
+
+    /// Cast this `DemangleAsInner` to a `FunctionType`.
+    fn downcast_to_function_type(&self) -> Option<&FunctionType> {
         None
     }
 
@@ -2839,17 +2845,16 @@ where
 
         match *self {
             Type::Qualified(ref quals, _) => {
-                quals.demangle_as_inner(ctx, stack)?;
-                return Ok(());
+                quals.demangle_as_inner(ctx, stack)
             }
             Type::PointerTo(_) => {
-                write!(ctx, "*")?;
+                write!(ctx, "*")
             }
             Type::LvalueRef(_) => {
-                write!(ctx, "&")?;
+                write!(ctx, "&")
             }
             Type::RvalueRef(_) => {
-                write!(ctx, "&&")?;
+                write!(ctx, "&&")
             }
             ref otherwise => {
                 unreachable!(
@@ -2858,16 +2863,18 @@ where
                 );
             }
         }
-
-        if let Some(inner) = ctx.inner.pop() {
-            inner.demangle_as_inner(ctx, stack)?;
-        }
-
-        Ok(())
     }
 
     fn downcast_to_type(&self) -> Option<&Type> {
         Some(self)
+    }
+
+    fn downcast_to_function_type(&self) -> Option<&FunctionType> {
+        if let Type::Function(ref f) = *self {
+            Some(f)
+        } else {
+            None
+        }
     }
 
     fn downcast_to_array_type(&self) -> Option<&ArrayType> {
@@ -2916,6 +2923,13 @@ pub struct CvQualifiers {
     pub volatile: bool,
     /// Is this `const` qualified?
     pub const_: bool,
+}
+
+impl CvQualifiers {
+    #[inline]
+    fn is_empty(&self) -> bool {
+        !self.restrict && !self.volatile && !self.const_
+    }
 }
 
 impl Parse for CvQualifiers {
@@ -3229,12 +3243,39 @@ where
     ) -> io::Result<()> {
         log_demangle!(self, ctx, stack);
 
-        // TODO: transactions safety?
-        // TODO: extern C?
+        ctx.inner.push(self);
         self.bare.demangle(ctx, stack)?;
-        self.cv_qualifiers.demangle(ctx, stack)?;
-        // TODO: ref_qualifier?
+        if let Some(inner) = ctx.inner.pop() {
+            inner.demangle_as_inner(ctx, stack)?;
+        }
         Ok(())
+    }
+}
+
+impl<'subs, W> DemangleAsInner<'subs, W> for FunctionType
+where
+    W: 'subs + io::Write,
+{
+    fn demangle_as_inner<'prev, 'ctx>(
+        &'subs self,
+        ctx: &'ctx mut DemangleContext<'subs, W>,
+        stack: Option<ArgScopeStack<'prev, 'subs>>,
+    ) -> io::Result<()> {
+        log_demangle!(self, ctx, stack);
+
+        if !self.cv_qualifiers.is_empty() {
+            self.cv_qualifiers.demangle(ctx, stack)?;
+        }
+
+        if let Some(ref rq) = self.ref_qualifier {
+            rq.demangle(ctx, stack)?;
+        }
+
+        Ok(())
+    }
+
+    fn downcast_to_function_type(&self) -> Option<&FunctionType> {
+        Some(self)
     }
 }
 
