@@ -201,6 +201,10 @@ demangles!(_Z3abcFrA_lvE, "abc(long restrict (()) [])");
 demangles!(_Z3abcFrPA_lvE, "abc(long (* restrict()) [])");
 demangles!(_Z3abcM3defFPVPFrPivEvE, "abc(int* restrict (* volatile* (def::*)())())");
 demangles!(_Z3abcM3defFPVPFrPA_lvEvE, "abc(long (* restrict (* volatile* (def::*)())()) [])");
+demangles!(_Z3abcKFA_ivE, "abc(int (() const) [])");
+demangles!(_Z3abcFFivElE, "abc(int (long)())");
+demangles!(_Z3abcFPFrPivElE, "abc(int* restrict (*(long))())");
+demangles!(_Z3abcKFvRSt7ostreamE, "abc(void (std::ostream&) const)");
 
 // Test cases found via differential testing against `c++filt` with `cargo-fuzz`
 // and `libFuzzer`.
