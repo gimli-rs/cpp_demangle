@@ -221,6 +221,11 @@ demangles!(_Z3abcFFivElE, "abc(int (long)())");
 demangles!(_Z3abcFPFrPivElE, "abc(int* restrict (*(long))())");
 demangles!(_Z3abcKFvRSt7ostreamE, "abc(void (std::ostream&) const)");
 
+demangles!(
+    _ZL29SupportsTextureSampleCountMTLPU19objcproto9MTLDevice11objc_objectm,
+    "SupportsTextureSampleCountMTL(objc_object objcproto9MTLDevice*, unsigned long)"
+);
+
 // Test cases found via differential testing against `c++filt` with `cargo-fuzz`
 // and `libFuzzer`.
 
