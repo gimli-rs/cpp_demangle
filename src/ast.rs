@@ -95,7 +95,7 @@ impl AutoLogDemangle {
             log!("{}(", indent);
             log!("{}  {:?}", indent, production);
             log!("{}  inner = {:?}", indent, ctx.inner);
-            log!("{}  stack = {:?}", indent, stack);
+            log!("{}  stack = {:?}", indent, scope);
 
             *depth.borrow_mut() += 1;
         });
@@ -230,6 +230,39 @@ trait GetTemplateArgs {
     fn get_template_args<'a>(&'a self, subs: &'a SubstitutionTable) -> Option<&'a TemplateArgs>;
 }
 
+/// A leaf name is the part the name that describes the class without any
+/// leading namespaces.
+///
+/// This is used when figuring out how to format constructors and destructors,
+/// which are formatted as `gooble::dodo::Thing::Thing()` but we don't have
+/// direct access to `Thing` in the `CtorDtorName` AST.
+#[derive(Debug)]
+pub(crate) enum LeafName<'a> {
+    SourceName(&'a SourceName),
+    WellKnownComponent(&'a WellKnownComponent),
+}
+
+impl<'subs, W> DemangleAsLeaf<'subs, W> for LeafName<'subs>
+where
+    W: 'subs + io::Write
+{
+    fn demangle_as_leaf<'me, 'ctx>(
+        &'me self,
+        ctx: &'ctx mut DemangleContext<'subs, W>,
+    ) -> io::Result<()> {
+        match *self {
+            LeafName::SourceName(sn) => sn.demangle(ctx, None),
+            LeafName::WellKnownComponent(wkc) => wkc.demangle_as_leaf(ctx),
+        }
+    }
+}
+
+/// Determine whether this AST node is some kind (potentially namespaced) name
+/// and if so get its leaf name.
+pub(crate) trait GetLeafName<'a> {
+    fn get_leaf_name(&'a self, subs: &'a SubstitutionTable) -> Option<LeafName<'a>>;
+}
+
 /// When formatting a mangled symbol's parsed AST as a demangled symbol, we need
 /// to resolve indirect references to template and function arguments with
 /// direct `TemplateArg` and `Type` references respectively.
@@ -245,6 +278,9 @@ trait GetTemplateArgs {
 /// This trait is implemented by anything that can potentially resolve arguments
 /// for us.
 trait ArgScope<'me, 'ctx>: fmt::Debug {
+    /// Get the current scope's leaf name.
+    fn leaf_name(&'me self) -> Result<LeafName<'ctx>>;
+
     /// Get the current scope's `index`th template argument.
     fn get_template_arg(&'me self, index: usize) -> Result<&'ctx TemplateArg>;
 
@@ -274,7 +310,7 @@ where
 ///
 /// A custom "extension" trait with exactly one implementor: Rust's principled
 /// monkey patching!
-trait ArgScopeStackExt<'prev, 'subs> {
+trait ArgScopeStackExt<'prev, 'subs>: Copy {
     /// Push a new `ArgScope` onto this `ArgScopeStack` and return the new
     /// `ArgScopeStack` with the pushed resolver on top.
     fn push(
@@ -298,25 +334,36 @@ impl<'prev, 'subs> ArgScopeStackExt<'prev, 'subs> for Option<ArgScopeStack<'prev
 
 /// A stack of `ArgScope`s is itself an `ArgScope`!
 impl<'prev, 'subs> ArgScope<'prev, 'subs> for Option<ArgScopeStack<'prev, 'subs>> {
+    fn leaf_name(&'prev self) -> Result<LeafName<'subs>> {
+        let mut stack = self.as_ref();
+        while let Some(s) = stack {
+            if let Ok(c) = s.item.leaf_name() {
+                return Ok(c);
+            }
+            stack = s.prev;
+        }
+        Err(error::Error::BadLeafNameReference)
+    }
+
     fn get_template_arg(&'prev self, idx: usize) -> Result<&'subs TemplateArg> {
-        let mut stack = *self;
+        let mut stack = self.as_ref();
         while let Some(s) = stack {
             if let Ok(arg) = s.item.get_template_arg(idx) {
                 return Ok(arg);
             }
-            stack = s.prev.cloned();
+            stack = s.prev;
         }
 
         Err(error::Error::BadTemplateArgReference)
     }
 
     fn get_function_arg(&'prev self, idx: usize) -> Result<&'subs Type> {
-        let mut stack = *self;
+        let mut stack = self.as_ref();
         while let Some(s) = stack {
             if let Ok(arg) = s.item.get_function_arg(idx) {
                 return Ok(arg);
             }
-            stack = s.prev.cloned();
+            stack = s.prev;
         }
 
         Err(error::Error::BadFunctionArgReference)
@@ -594,6 +641,21 @@ where
     }
 }
 
+/// Demangle this thing in the leaf name position.
+///
+/// For most things this should be the same as its `Demangle`
+/// implementation. For `WellKnownComponent`s we need to strip the embedded
+/// `std::` namespace prefix.
+pub(crate) trait DemangleAsLeaf<'subs, W>
+where
+    W: 'subs + io::Write
+{
+    fn demangle_as_leaf<'me, 'ctx>(
+        &'me self,
+        ctx: &'ctx mut DemangleContext<'subs, W>,
+    ) -> io::Result<()>;
+}
+
 macro_rules! reference_newtype {
     ( $newtype_name:ident , $oldtype:ty ) => {
         #[derive(Debug)]
@@ -828,7 +890,8 @@ macro_rules! define_handle {
         }
 
         impl<'subs, W> Demangle<'subs, W> for $typename
-            where W: 'subs + io::Write
+        where
+            W: 'subs + io::Write
         {
             #[inline]
             fn demangle<'prev, 'ctx>(&'subs self,
@@ -842,6 +905,25 @@ macro_rules! define_handle {
                         $typename::$extra_variant(ref extra) => extra.demangle(ctx, scope),
                     )*
                 }
+            }
+        }
+
+        impl<'a> GetLeafName<'a> for $typename {
+            fn get_leaf_name(&'a self, subs: &'a SubstitutionTable) -> Option<LeafName<'a>> {
+                log!(concat!(stringify!($typename), "::get_leaf_name({:?})"), self);
+
+                let result = match *self {
+                    $typename::WellKnown(ref wk) => wk.get_leaf_name(subs),
+                    $typename::BackReference(idx) => {
+                        subs.get(idx).and_then(|s| s.get_leaf_name(subs))
+                    }
+                    $(
+                        $typename::$extra_variant(ref e) => e.get_leaf_name(subs),
+                    )*
+                };
+
+                log!(concat!(stringify!($typename), "::get_leaf_name -> {:?}"), result);
+                result
             }
         }
     };
@@ -863,6 +945,14 @@ where
         scope: Option<ArgScopeStack<'prev, 'subs>>,
     ) -> io::Result<()> {
         ctx.subs.non_substitution(self.0).demangle(ctx, scope)
+    }
+}
+
+impl<'a> GetLeafName<'a> for NonSubstitution {
+    fn get_leaf_name(&'a self, subs: &'a SubstitutionTable) -> Option<LeafName<'a>> {
+        subs.get_non_substitution(self.0).and_then(|ns| {
+            ns.get_leaf_name(subs)
+        })
     }
 }
 
@@ -917,15 +1007,15 @@ macro_rules! define_vocabulary {
             }
         }
 
-        impl $typename {
-            // Not a `Demangle` implmentaion because the 'me reference to self
-            // might not live long enough.
-            fn demangle<'me, 'prev, 'ctx, 'subs, W>(&'me self,
-                                                    ctx: &'ctx mut DemangleContext<'subs, W>,
-                                                    scope: Option<ArgScopeStack<'prev, 'subs>>)
-                                                    -> io::Result<()>
-                where W: 'subs + io::Write
-            {
+        impl<'subs, W> Demangle<'subs, W> for $typename
+        where
+            W: 'subs + io::Write,
+        {
+            fn demangle<'prev, 'ctx>(
+                &'subs self,
+                ctx: &'ctx mut DemangleContext<'subs, W>,
+                scope: Option<ArgScopeStack<'prev, 'subs>>
+            ) -> io::Result<()> {
                 log_demangle!(self, ctx, scope);
 
                 write!(ctx, "{}", match *self {
@@ -934,7 +1024,9 @@ macro_rules! define_vocabulary {
                     ),*
                 })
             }
+        }
 
+        impl $typename {
             #[allow(dead_code)]
             #[inline]
             fn starts_with(byte: u8) -> bool {
@@ -1071,6 +1163,15 @@ where
                 // Even if this function takes no args and doesn't have a return
                 // value (see below), it will have the void parameter.
                 debug_assert!(fun_ty.0.len() >= 1);
+
+                let scope = if let Some(leaf) = name.get_leaf_name(ctx.subs) {
+                    match leaf {
+                        LeafName::SourceName(leaf) => scope.push(leaf),
+                        LeafName::WellKnownComponent(leaf) => scope.push(leaf),
+                    }
+                } else {
+                    scope
+                };
 
                 // Whether the first type in the BareFunctionType is a return
                 // type or parameter depends on the context in which it
@@ -1297,6 +1398,21 @@ impl GetTemplateArgs for Name {
     }
 }
 
+impl<'a> GetLeafName<'a> for Name {
+    fn get_leaf_name(&'a self, subs: &'a SubstitutionTable) -> Option<LeafName<'a>> {
+        log!("Name::get_leaf_name({:?})", self);
+        let result = match *self {
+            Name::UnscopedTemplate(ref templ, _) => templ.get_leaf_name(subs),
+            Name::Nested(ref nested) => nested.get_leaf_name(subs),
+            Name::Unscoped(ref unscoped) => unscoped.get_leaf_name(subs),
+            Name::Local(_) => None,
+        };
+
+        log!("Name::get_leaf_name -> {:?}", result);
+        result
+    }
+}
+
 /// The `<unscoped-name>` production.
 ///
 /// ```text
@@ -1348,6 +1464,19 @@ where
                 std.demangle(ctx, scope)
             }
         }
+    }
+}
+
+impl<'a> GetLeafName<'a> for UnscopedName {
+    fn get_leaf_name(&'a self, subs: &'a SubstitutionTable) -> Option<LeafName<'a>> {
+        log!("UnscopedName::get_leaf_name({:?})", self);
+        let result = match *self {
+            UnscopedName::Unqualified(ref name) | UnscopedName::Std(ref name) => {
+                name.get_leaf_name(subs)
+            }
+        };
+        log!("UnscopedName::get_leaf_name -> {:?}", result);
+        result
     }
 }
 
@@ -1407,6 +1536,12 @@ where
         log_demangle!(self, ctx, scope);
 
         self.0.demangle(ctx, scope)
+    }
+}
+
+impl<'a> GetLeafName<'a> for UnscopedTemplateName {
+    fn get_leaf_name(&'a self, subs: &'a SubstitutionTable) -> Option<LeafName<'a>> {
+        self.0.get_leaf_name(subs)
     }
 }
 
@@ -1545,6 +1680,20 @@ impl GetTemplateArgs for NestedName {
             NestedName::Template(_, _, ref prefix) => prefix.get_template_args(subs),
             _ => None,
         }
+    }
+}
+
+impl<'a> GetLeafName<'a> for NestedName {
+    fn get_leaf_name(&'a self, subs: &'a SubstitutionTable) -> Option<LeafName<'a>> {
+        log!("NestedName::get_leaf_name({:?})", self);
+        let result = match *self {
+            NestedName::Unqualified(_, _, ref prefix, ref name) => {
+                name.get_leaf_name(subs).or_else(|| prefix.get_leaf_name(subs))
+            }
+            NestedName::Template(_, _, ref prefix) => prefix.get_leaf_name(subs),
+        };
+        log!("NestedName::get_leaf_name -> {:?}", result);
+        result
     }
 }
 
@@ -1748,43 +1897,31 @@ impl Parse for PrefixHandle {
     }
 }
 
-impl Prefix {
-    // Is this <prefix> also a valid <template-prefix> production? Not to be
-    // confused with the `GetTemplateArgs` trait.
-    fn is_template_prefix(&self) -> bool {
-        match *self {
-            Prefix::Unqualified(..) |
-            Prefix::Nested(..) |
-            Prefix::TemplateParam(..) => true,
-            _ => false,
-        }
+impl<'a> GetLeafName<'a> for Prefix {
+    fn get_leaf_name(&'a self, subs: &'a SubstitutionTable) -> Option<LeafName<'a>> {
+        log!("Prefix::get_leaf_name({:?})", self);
+        let result = match *self {
+            Prefix::Nested(ref prefix, ref name) => {
+                name.get_leaf_name(subs).or_else(|| prefix.get_leaf_name(subs))
+            }
+            Prefix::Unqualified(ref name) => name.get_leaf_name(subs),
+            Prefix::Template(ref prefix, _) => prefix.get_leaf_name(subs),
+            Prefix::DataMember(_, ref name) => name.get_leaf_name(subs),
+            Prefix::TemplateParam(_) |
+            Prefix::Decltype(_) => None,
+        };
+        log!("Prefix::get_leaf_name -> {:?}", result);
+        result
     }
 }
 
-impl PrefixHandle {
-    fn is_template_prefix(&self, subs: &SubstitutionTable) -> bool {
-        match *self {
-            PrefixHandle::BackReference(idx) => {
-                if let Some(&Substitutable::Prefix(ref p)) = subs.get(idx) {
-                    p.is_template_prefix()
-                } else {
-                    false
-                }
-            }
-            // Accept all `WellKnownComponent`s as template prefixes (even if
-            // that's not particularly sensible, for example 'Si', 'So',
-            // and 'St', because libiberty does).
-            PrefixHandle::WellKnown(_) => true,
-            _ => false,
-        }
-    }
-
+impl GetTemplateArgs for PrefixHandle {
     // XXX: Not an impl GetTemplateArgs for PrefixHandle because the 'me
     // reference to self may not live long enough.
-    fn get_template_args<'me, 'ctx>(
-        &'me self,
-        subs: &'ctx SubstitutionTable,
-    ) -> Option<&'ctx TemplateArgs> {
+    fn get_template_args<'a>(
+        &'a self,
+        subs: &'a SubstitutionTable,
+    ) -> Option<&'a TemplateArgs> {
         match *self {
             PrefixHandle::BackReference(idx) => {
                 if let Some(&Substitutable::Prefix(ref p)) = subs.get(idx) {
@@ -1837,6 +1974,37 @@ where
     }
 }
 
+impl Prefix {
+    // Is this <prefix> also a valid <template-prefix> production? Not to be
+    // confused with the `GetTemplateArgs` trait.
+    fn is_template_prefix(&self) -> bool {
+        match *self {
+            Prefix::Unqualified(..) |
+            Prefix::Nested(..) |
+            Prefix::TemplateParam(..) => true,
+            _ => false,
+        }
+    }
+}
+
+impl PrefixHandle {
+    fn is_template_prefix(&self, subs: &SubstitutionTable) -> bool {
+        match *self {
+            PrefixHandle::BackReference(idx) => {
+                if let Some(&Substitutable::Prefix(ref p)) = subs.get(idx) {
+                    p.is_template_prefix()
+                } else {
+                    false
+                }
+            }
+            // Accept all `WellKnownComponent`s as template prefixes (even if
+            // that's not particularly sensible, for example 'Si', 'So',
+            // and 'St', because libiberty does).
+            PrefixHandle::WellKnown(_) => true,
+            _ => false,
+        }
+    }
+}
 
 /// The `<unqualified-name>` production.
 ///
@@ -1941,6 +2109,20 @@ where
     }
 }
 
+impl<'a> GetLeafName<'a> for UnqualifiedName {
+    fn get_leaf_name(&'a self, _: &'a SubstitutionTable) -> Option<LeafName<'a>> {
+        match *self {
+            UnqualifiedName::ABITag(_) |
+            UnqualifiedName::ClosureType(_) |
+            UnqualifiedName::UnnamedType(_) |
+            UnqualifiedName::Operator(_) |
+            UnqualifiedName::CtorDtor(_) => None,
+            UnqualifiedName::Source(ref name) |
+            UnqualifiedName::LocalSourceName(ref name, _) => Some(LeafName::SourceName(name)),
+        }
+    }
+}
+
 impl UnqualifiedName {
     #[inline]
     fn starts_with(byte: u8, input: &IndexStr) -> bool {
@@ -2000,23 +2182,37 @@ impl Parse for SourceName {
     }
 }
 
+impl<'subs> ArgScope<'subs, 'subs> for SourceName {
+    fn leaf_name(&'subs self) -> Result<LeafName<'subs>> {
+        Ok(LeafName::SourceName(self))
+    }
+
+    fn get_template_arg(&'subs self, _: usize) -> Result<&'subs TemplateArg> {
+        Err(error::Error::BadTemplateArgReference)
+    }
+
+    fn get_function_arg(&'subs self, _: usize) -> Result<&'subs Type> {
+        Err(error::Error::BadFunctionArgReference)
+    }
+}
+
 impl SourceName {
     #[inline]
     fn starts_with(byte: u8) -> bool {
         byte == b'0' || (b'0' <= byte && byte <= b'9')
     }
+}
 
-    // Not a `Demangle` impl because the 'me reference to self may not live long
-    // enough.
+impl<'subs, W> Demangle<'subs, W> for SourceName
+where
+    W: 'subs + io::Write,
+{
     #[inline]
-    fn demangle<'me, 'prev, 'ctx, 'subs, W>(
-        &'me self,
+    fn demangle<'prev, 'ctx>(
+        &'subs self,
         ctx: &'ctx mut DemangleContext<'subs, W>,
         scope: Option<ArgScopeStack<'prev, 'subs>>,
-    ) -> io::Result<()>
-    where
-        W: 'subs + io::Write,
-    {
+    ) -> io::Result<()> {
         log_demangle!(self, ctx, scope);
 
         self.0.demangle(ctx, scope)
@@ -2121,18 +2317,16 @@ impl Parse for Identifier {
     }
 }
 
-impl Identifier {
-    // Not a `Demangle` impl because the 'me reference to self may not live long
-    // enough.
+impl<'subs, W> Demangle<'subs, W> for Identifier
+where
+    W: 'subs + io::Write,
+{
     #[inline]
-    fn demangle<'me, 'prev, 'ctx, 'subs, W>(
-        &'me self,
+    fn demangle<'prev, 'ctx>(
+        &'subs self,
         ctx: &'ctx mut DemangleContext<'subs, W>,
         scope: Option<ArgScopeStack<'prev, 'subs>>,
-    ) -> io::Result<()>
-    where
-        W: 'subs + io::Write,
-    {
+    ) -> io::Result<()> {
         log_demangle!(self, ctx, scope);
 
         let ident = &ctx.input[self.start..self.end];
@@ -2476,35 +2670,105 @@ impl Parse for VOffset {
     }
 }
 
-define_vocabulary! {
-    /// The `<ctor-dtor-name>` production.
-    ///
-    /// ```text
-    /// <ctor-dtor-name> ::= C1  # complete object constructor
-    ///                  ::= C2  # base object constructor
-    ///                  ::= C3  # complete object allocating constructor
-    ///                  ::= D0  # deleting destructor
-    ///                  ::= D1  # complete object destructor
-    ///                  ::= D2  # base object destructor
-    /// ```
-    ///
-    /// GCC also emits a C4 constructor under some conditions when building
-    /// an optimized binary. GCC's source says:
-    /// /* This is the old-style "[unified]" constructor.
-    ///    In some cases, we may emit this function and call
-    ///    it from the clones in order to share code and save space.  */
-    /// Based on the GCC source we'll call this the "maybe in-charge constructor".
-    /// Similarly, there is a D4 destructor, the "maybe in-charge destructor".
-    #[derive(Clone, Debug, PartialEq, Eq)]
-    pub enum CtorDtorName {
-        CompleteConstructor             (b"C1", "complete object constructor"),
-        BaseConstructor                 (b"C2", "base object constructor"),
-        CompleteAllocatingConstructor   (b"C3", "complete object allocating constructor"),
-        MaybeInChargeConstructor        (b"C4", "maybe in-charge constructor"),
-        DeletingDestructor              (b"D0", "deleting destructor"),
-        CompleteDestructor              (b"D1", "complete object destructor"),
-        BaseDestructor                  (b"D2", "base object destructor"),
-        MaybeInChargeDestructor         (b"D4", "maybe in-charge destructor")
+/// The `<ctor-dtor-name>` production.
+///
+/// ```text
+/// <ctor-dtor-name> ::= C1  # complete object constructor
+///                  ::= C2  # base object constructor
+///                  ::= C3  # complete object allocating constructor
+///                  ::= D0  # deleting destructor
+///                  ::= D1  # complete object destructor
+///                  ::= D2  # base object destructor
+/// ```
+///
+/// GCC also emits a C4 constructor under some conditions when building
+/// an optimized binary. GCC's source says:
+///
+/// ```
+/// /* This is the old-style "[unified]" constructor.
+///    In some cases, we may emit this function and call
+///    it from the clones in order to share code and save space.  */
+/// ```
+///
+/// Based on the GCC source we'll call this the "maybe in-charge constructor".
+/// Similarly, there is a D4 destructor, the "maybe in-charge destructor".
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum CtorDtorName {
+    /// "C1", the "complete object constructor"
+    CompleteConstructor,
+    /// "C2", the "base object constructor"
+    BaseConstructor,
+    /// "C3", the "complete object allocating constructor"
+    CompleteAllocatingConstructor,
+    /// "C4", the "maybe in-charge constructor"
+    MaybeInChargeConstructor,
+    /// "D0", the "deleting destructor"
+    DeletingDestructor,
+    /// "D1", the "complete object destructor"
+    CompleteDestructor,
+    /// "D2", the "base object destructor"
+    BaseDestructor,
+    /// "D4", the "maybe in-charge destructor"
+    MaybeInChargeDestructor,
+}
+
+impl Parse for CtorDtorName {
+    fn parse<'a, 'b>(ctx: &'a ParseContext,
+                     _subs: &'a mut SubstitutionTable,
+                     input: IndexStr<'b>)
+                     -> Result<(CtorDtorName, IndexStr<'b>)> {
+        try_begin_parse!(stringify!(CtorDtorName), ctx, input);
+
+        match input.try_split_at(2).as_ref().map(|&(ref h, t)| (h.as_ref(), t)) {
+            None => Err(error::Error::UnexpectedEnd),
+            Some((b"C1", tail)) => Ok((CtorDtorName::CompleteConstructor, tail)),
+            Some((b"C2", tail)) => Ok((CtorDtorName::BaseConstructor, tail)),
+            Some((b"C3", tail)) => Ok((CtorDtorName::CompleteAllocatingConstructor, tail)),
+            Some((b"C4", tail)) => Ok((CtorDtorName::MaybeInChargeConstructor, tail)),
+            Some((b"D0", tail)) => Ok((CtorDtorName::DeletingDestructor, tail)),
+            Some((b"D1", tail)) => Ok((CtorDtorName::CompleteDestructor, tail)),
+            Some((b"D2", tail)) => Ok((CtorDtorName::BaseDestructor, tail)),
+            Some((b"D4", tail)) => Ok((CtorDtorName::MaybeInChargeDestructor, tail)),
+            _ => Err(error::Error::UnexpectedText),
+        }
+    }
+}
+
+impl<'subs, W> Demangle<'subs, W> for CtorDtorName
+where
+    W: 'subs + io::Write,
+{
+    fn demangle<'prev, 'ctx>(
+        &'subs self,
+        ctx: &'ctx mut DemangleContext<'subs, W>,
+        scope: Option<ArgScopeStack<'prev, 'subs>>,
+    ) -> io::Result<()> {
+        log_demangle!(self, ctx, scope);
+
+        let leaf = scope.leaf_name().map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
+
+        match *self {
+            CtorDtorName::CompleteConstructor |
+            CtorDtorName::BaseConstructor |
+            CtorDtorName::CompleteAllocatingConstructor |
+            CtorDtorName::MaybeInChargeConstructor => {
+                leaf.demangle_as_leaf(ctx)
+            }
+            CtorDtorName::DeletingDestructor |
+            CtorDtorName::CompleteDestructor |
+            CtorDtorName::BaseDestructor |
+            CtorDtorName::MaybeInChargeDestructor => {
+                write!(ctx, "~")?;
+                leaf.demangle_as_leaf(ctx)
+            }
+        }
+    }
+}
+
+impl CtorDtorName {
+    #[inline]
+    fn starts_with(byte: u8) -> bool {
+        byte == b'C' || byte == b'D'
     }
 }
 
@@ -3119,23 +3383,27 @@ impl Parse for BuiltinType {
     }
 }
 
-impl BuiltinType {
-    // Not a `Demangle` implementation because the 'me reference to self may not
-    // live long enough.
-    fn demangle<'me, 'prev, 'ctx, 'subs, W>(
-        &'me self,
+impl<'subs, W> Demangle<'subs, W> for BuiltinType
+where
+    W: 'subs + io::Write,
+{
+    fn demangle<'prev, 'ctx>(
+        &'subs self,
         ctx: &'ctx mut DemangleContext<'subs, W>,
         scope: Option<ArgScopeStack<'prev, 'subs>>,
-    ) -> io::Result<()>
-    where
-        W: 'subs + io::Write,
-    {
+    ) -> io::Result<()> {
         log_demangle!(self, ctx, scope);
 
         match *self {
             BuiltinType::Standard(ref ty) => ty.demangle(ctx, scope),
             BuiltinType::Extension(ref name) => name.demangle(ctx, scope),
         }
+    }
+}
+
+impl<'a> GetLeafName<'a> for BuiltinType {
+    fn get_leaf_name(&'a self, _: &'a SubstitutionTable) -> Option<LeafName<'a>> {
+        None
     }
 }
 
@@ -3166,6 +3434,11 @@ where
     }
 }
 
+impl<'a> GetLeafName<'a> for QualifiedBuiltin {
+    fn get_leaf_name(&'a self, _: &'a SubstitutionTable) -> Option<LeafName<'a>> {
+        None
+    }
+}
 
 /// The `<function-type>` production.
 ///
@@ -4109,6 +4382,10 @@ where
 }
 
 impl<'subs> ArgScope<'subs, 'subs> for TemplateArgs {
+    fn leaf_name(&'subs self) -> Result<LeafName<'subs>> {
+        Err(error::Error::BadLeafNameReference)
+    }
+
     fn get_template_arg(&'subs self, idx: usize) -> Result<&'subs TemplateArg> {
         self.0.get(idx).ok_or(error::Error::BadTemplateArgReference)
     }
@@ -5950,6 +6227,13 @@ impl Parse for DataMemberPrefix {
     }
 }
 
+impl<'a> GetLeafName<'a> for DataMemberPrefix {
+    #[inline]
+    fn get_leaf_name(&'a self, _: &'a SubstitutionTable) -> Option<LeafName<'a>> {
+        Some(LeafName::SourceName(&self.0))
+    }
+}
+
 impl DataMemberPrefix {
     fn starts_with(byte: u8) -> bool {
         SourceName::starts_with(byte)
@@ -6044,6 +6328,50 @@ define_vocabulary! {
         StdIostream  (b"Sd", "std::basic_iostream<char, std::char_traits<char> >")
     }
 }
+
+impl<'a> GetLeafName<'a> for WellKnownComponent {
+    fn get_leaf_name(&'a self, _: &'a SubstitutionTable) -> Option<LeafName<'a>> {
+        match *self {
+            WellKnownComponent::Std => None,
+            _ => Some(LeafName::WellKnownComponent(self)),
+        }
+    }
+}
+
+impl<'a> ArgScope<'a, 'a> for WellKnownComponent {
+    fn leaf_name(&'a self) -> Result<LeafName<'a>> {
+        Ok(LeafName::WellKnownComponent(self))
+    }
+
+    fn get_template_arg(&'a self, _: usize) -> Result<&'a TemplateArg> {
+        Err(error::Error::BadTemplateArgReference)
+    }
+
+    fn get_function_arg(&'a self, _: usize) -> Result<&'a Type> {
+        Err(error::Error::BadFunctionArgReference)
+    }
+}
+
+impl<'subs, W> DemangleAsLeaf<'subs, W> for WellKnownComponent
+where
+    W: 'subs + io::Write
+{
+    fn demangle_as_leaf<'me, 'ctx>(
+        &'me self,
+        ctx: &'ctx mut DemangleContext<'subs, W>,
+    ) -> io::Result<()> {
+        match *self {
+            WellKnownComponent::Std => panic!("should never treat `WellKnownComponent::Std` as a leaf name"),
+            WellKnownComponent::StdAllocator => write!(ctx, "allocator"),
+            WellKnownComponent::StdString1 => write!(ctx, "basic_string"),
+            WellKnownComponent::StdString2 => write!(ctx, "string"),
+            WellKnownComponent::StdIstream => write!(ctx, "basic_istream"),
+            WellKnownComponent::StdOstream => write!(ctx, "ostream"),
+            WellKnownComponent::StdIostream => write!(ctx, "basic_iostream"),
+        }
+    }
+}
+
 
 /// The `<special-name>` production.
 ///

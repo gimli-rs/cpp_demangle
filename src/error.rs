@@ -24,6 +24,10 @@ pub enum Error {
     /// a context without function args.
     BadFunctionArgReference,
 
+    /// Found a reference to a leaf name in a context where there is no current
+    /// leaf name.
+    BadLeafNameReference,
+
     /// An overflow or underflow would occur when parsing an integer in a
     /// mangled symbol.
     Overflow,
@@ -65,6 +69,12 @@ impl fmt::Display for Error {
                     "reference to a function arg that is either out-of-bounds, or in a context without function args"
                 )
             }
+            Error::BadLeafNameReference => {
+                write!(
+                    f,
+                    "reference to a leaf name in a context where there is no current leaf name"
+                )
+            }
             Error::Overflow => {
                 write!(
                     f,
@@ -91,6 +101,9 @@ impl error::Error for Error {
             }
             Error::BadFunctionArgReference => {
                 "reference to a function arg that is either out-of-bounds, or in a context without function args"
+            }
+            Error::BadLeafNameReference => {
+                "reference to a leaf name in a context where there is no current leaf name"
             }
             Error::Overflow => {
                 "an overflow or underflow would occur when parsing an integer in a mangled symbol"

@@ -34,14 +34,24 @@ where
     fn demangle<'prev, 'ctx>(
         &'subs self,
         ctx: &'ctx mut ast::DemangleContext<'subs, W>,
-        stack: Option<ast::ArgScopeStack<'prev, 'subs>>,
+        scope: Option<ast::ArgScopeStack<'prev, 'subs>>,
     ) -> io::Result<()> {
         match *self {
-            Substitutable::UnscopedTemplateName(ref name) => name.demangle(ctx, stack),
-            Substitutable::Type(ref ty) => ty.demangle(ctx, stack),
-            Substitutable::TemplateTemplateParam(ref ttp) => ttp.demangle(ctx, stack),
-            Substitutable::UnresolvedType(ref ty) => ty.demangle(ctx, stack),
-            Substitutable::Prefix(ref prefix) => prefix.demangle(ctx, stack),
+            Substitutable::UnscopedTemplateName(ref name) => name.demangle(ctx, scope),
+            Substitutable::Type(ref ty) => ty.demangle(ctx, scope),
+            Substitutable::TemplateTemplateParam(ref ttp) => ttp.demangle(ctx, scope),
+            Substitutable::UnresolvedType(ref ty) => ty.demangle(ctx, scope),
+            Substitutable::Prefix(ref prefix) => prefix.demangle(ctx, scope),
+        }
+    }
+}
+
+impl<'a> ast::GetLeafName<'a> for Substitutable {
+    fn get_leaf_name(&'a self, subs: &'a SubstitutionTable) -> Option<ast::LeafName<'a>> {
+        match *self {
+            Substitutable::UnscopedTemplateName(ref name) => name.get_leaf_name(subs),
+            Substitutable::Prefix(ref prefix)  => prefix.get_leaf_name(subs),
+            _ => None,
         }
     }
 }

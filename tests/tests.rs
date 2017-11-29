@@ -165,6 +165,15 @@ demangles!(
     "reference temporary #0 for MozLangGroups"
 );
 
+demangles!(
+    _ZN7mozilla3gfx12RecordedFillC2INS0_11EventStreamEEERT_,
+    "mozilla::gfx::RecordedFill::RecordedFill<mozilla::gfx::EventStream>(mozilla::gfx::EventStream&)"
+);
+demangles!(
+    _ZZN13CrashReporter7OOPInitEvEN17ProxyToMainThreadD0Ev,
+    "CrashReporter::OOPInit()::ProxyToMainThread::~ProxyToMainThread()"
+);
+
 demangles!(_ZN11InstrumentsL8gSessionE, "Instruments::gSession");
 demangles!(_ZTWN2js10TlsContextE, "TLS wrapper function for js::TlsContext");
 

@@ -9,7 +9,8 @@ const NUMBER_OF_LIBXUL_SYMBOLS: usize = 274346;
 
 // These counts should only go up!
 const NUMBER_OF_LIBXUL_SYMBOLS_THAT_PARSE: usize = 274319;
-const NUMBER_OF_LIBXUL_SYMBOLS_THAT_DEMANGLE: usize = 274319;
+//const NUMBER_OF_LIBXUL_SYMBOLS_THAT_DEMANGLE: usize = 274319;
+const NUMBER_OF_LIBXUL_SYMBOLS_THAT_DEMANGLE: usize = 274288;
 
 fn get_cppfilt() -> &'static str {
     if cfg!(not(target_os = "macos")) {
