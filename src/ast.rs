@@ -5868,7 +5868,7 @@ where
 
         write!(ctx, "{{lambda(")?;
         self.0.demangle(ctx, stack)?;
-        write!(ctx, ")#{}}}", self.1.map_or(0, |n| n + 1))?;
+        write!(ctx, ")#{}}}", self.1.map_or(1, |n| n + 2))?;
         Ok(())
     }
 }

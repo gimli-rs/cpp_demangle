@@ -132,7 +132,7 @@ demangles!(
 
 demangles!(
     _ZZN7mozilla12EMEDecryptor5FlushEvENUlvE_D4Ev,
-    "mozilla::EMEDecryptor::Flush()::{lambda()#0}::maybe in-charge destructor()"
+    "mozilla::EMEDecryptor::Flush()::{lambda()#1}::maybe in-charge destructor()"
 );
 
 demangles!(
@@ -220,6 +220,32 @@ demangles!(_Z3abcKFA_ivE, "abc(int (() const) [])");
 demangles!(_Z3abcFFivElE, "abc(int (long)())");
 demangles!(_Z3abcFPFrPivElE, "abc(int* restrict (*(long))())");
 demangles!(_Z3abcKFvRSt7ostreamE, "abc(void (std::ostream&) const)");
+
+demangles!(
+    _ZL29SupportsTextureSampleCountMTLPU19objcproto9MTLDevice11objc_objectm,
+    "SupportsTextureSampleCountMTL(objc_object objcproto9MTLDevice*, unsigned long)"
+);
+
+demangles!(
+    _ZN3WTF8FunctionIFvvEE15CallableWrapperIZN7WebCore12CacheStorage5matchEONS_7VariantIJNS_6RefPtrINS4_12FetchRequestEEENS_6StringEEEEONS4_17CacheQueryOptionsEONS_3RefINS4_15DeferredPromiseEEEEUlvE_E4callEv,
+    "WTF::Function<void ()>::CallableWrapper<WebCore::CacheStorage::match(WTF::Variant<WTF::RefPtr<WebCore::FetchRequest>, WTF::String>&&, WebCore::CacheQueryOptions&&, WTF::Ref<WebCore::DeferredPromise>&&)::{lambda()#1}>::call()"
+);
+demangles!(
+    _ZN6WebKit25WebCacheStorageConnection17didReceiveMessageERN3IPC10ConnectionERNS1_7DecoderE,
+    "WebKit::WebCacheStorageConnection::didReceiveMessage(IPC::Connection&, IPC::Decoder&)"
+);
+demangles!(
+    _ZN3IPC10Connection15dispatchMessageESt10unique_ptrINS_7DecoderESt14default_deleteIS2_EE,
+    "IPC::Connection::dispatchMessage(std::unique_ptr<IPC::Decoder, std::default_delete<IPC::Decoder> >)"
+);
+demangles!(
+    _ZN3IPC10Connection18dispatchOneMessageEv,
+    "IPC::Connection::dispatchOneMessage()"
+);
+demangles!(
+    _ZN3WTF7RunLoop11performWorkEv,
+    "WTF::RunLoop::performWork()"
+);
 
 // Test cases found via differential testing against `c++filt` with `cargo-fuzz`
 // and `libFuzzer`.
