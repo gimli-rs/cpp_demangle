@@ -132,7 +132,7 @@ demangles!(
 
 demangles!(
     _ZZN7mozilla12EMEDecryptor5FlushEvENUlvE_D4Ev,
-    "mozilla::EMEDecryptor::Flush()::{lambda()#1}::maybe in-charge destructor()"
+    "mozilla::EMEDecryptor::Flush()::{lambda()#1}::~{lambda()#1}()"
 );
 
 demangles!(
@@ -163,6 +163,34 @@ demangles!(
 demangles!(
     _ZGRL13MozLangGroups_,
     "reference temporary #0 for MozLangGroups"
+);
+
+demangles!(_ZZ3abcvEN3defD0Ev, "abc()::def::~def()");
+demangles!(
+    _ZZN13CrashReporter7OOPInitEvEN17ProxyToMainThreadD0Ev,
+    "CrashReporter::OOPInit()::ProxyToMainThread::~ProxyToMainThread()"
+);
+
+demangles!(_ZUlvE_, "{lambda()#1}");
+demangles!(_ZZ3aaavEUlvE_, "aaa()::{lambda()#1}");
+demangles!(_ZZ3aaavENUlvE_3bbbE, "aaa()::{lambda()#1}::bbb");
+demangles!(_ZN3aaaUlvE_D1Ev, "aaa::{lambda()#1}::~{lambda()#1}()");
+
+demangles!(_ZZ3aaavEN3bbbD1Ev, "aaa()::bbb::~bbb()");
+demangles!(
+    _ZZ3aaavENUlvE_D1Ev,
+    // libiberty says "aaa()::{lambda()#1}::~aaa()" but I am pretty sure that is
+    // a bug, especially given the previous demangling, which is the same but
+    // with an identifier instead of a lambda. Finally, both demangle.go and my
+    // OSX system `__cxa_demangle` agree with this destructor-of-the-lambda
+    // interpretation.
+    "aaa()::{lambda()#1}::~{lambda()#1}()"
+);
+
+demangles!(
+    multiple_nested_local_names_and_operator_call_and_a_lambda_and_a_destructor,
+    "_ZZZN7mozilla12MediaManager12GetUserMediaEP18nsPIDOMWindowInnerRKNS_3dom22MediaStreamConstraintsEP33nsIDOMGetUserMediaSuccessCallbackP31nsIDOMGetUserMediaErrorCallbackNS3_10CallerTypeEEN4$_30clERP8nsTArrayI6RefPtrINS_11MediaDeviceEEEENUlRPKcE_D1Ev",
+    "mozilla::MediaManager::GetUserMedia(nsPIDOMWindowInner*, mozilla::dom::MediaStreamConstraints const&, nsIDOMGetUserMediaSuccessCallback*, nsIDOMGetUserMediaErrorCallback*, mozilla::dom::CallerType)::$_30::operator()(nsTArray<RefPtr<mozilla::MediaDevice> >*&)::{lambda(char const*&)#1}::~{lambda(char const*&)#1}()"
 );
 
 demangles!(_ZN11InstrumentsL8gSessionE, "Instruments::gSession");
