@@ -149,6 +149,7 @@ substitutions = {:#?}",
     ///
     /// Unlike the `ToString` implementation, this function allows options to
     /// be specified.
+    ///
     /// ```
     /// use cpp_demangle::{DemangleOptions, Symbol};
     /// use std::string::ToString;

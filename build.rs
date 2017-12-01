@@ -15,9 +15,8 @@ fn get_crate_dir() -> io::Result<path::PathBuf> {
 }
 
 fn get_out_dir() -> io::Result<path::PathBuf> {
-    Ok(path::PathBuf::from(env::var("OUT_DIR").map_err(|_| {
-        io::Error::new(io::ErrorKind::Other, "no OUT_DIR")
-    })?))
+    Ok(path::PathBuf::from(env::var("OUT_DIR")
+        .map_err(|_| io::Error::new(io::ErrorKind::Other, "no OUT_DIR"))?))
 }
 
 fn get_crate_test_path(file_name: &str) -> io::Result<path::PathBuf> {
@@ -96,7 +95,7 @@ fn test_afl_seed_{}() {{
 // Ratcheting number that is increased as more libiberty tests start
 // passing. Once they are all passing, this can be removed and we can enable all
 // of them by default.
-const LIBIBERTY_TEST_THRESHOLD: usize = 83;
+const LIBIBERTY_TEST_THRESHOLD: usize = 85;
 
 /// Read `tests/libiberty-demangle-expected`, parse its input mangled symbols,
 /// and expected output demangled symbols, and generate test cases for them.
@@ -178,9 +177,9 @@ use std::fmt::Write;
         }
 
         // Skip tests for unsupported languages or options.
-        if options.find("--format=gnu-v3").is_none() || options.find("--is-v3-ctor").is_some() ||
-            options.find("--is-v3-dtor").is_some() ||
-            options.find("--ret-postfix").is_some()
+        if options.find("--format=gnu-v3").is_none() || options.find("--is-v3-ctor").is_some()
+            || options.find("--is-v3-dtor").is_some()
+            || options.find("--ret-postfix").is_some()
         {
             continue;
         }
@@ -264,11 +263,9 @@ fn test_libiberty_demangle_{}_() {{
 fn main() {
     println!("cargo:rerun-if-changed=build.rs");
 
-    generate_sanity_tests_from_afl_seeds().expect(
-        "should generate sanity tests from AFL.rs seed test cases",
-    );
+    generate_sanity_tests_from_afl_seeds()
+        .expect("should generate sanity tests from AFL.rs seed test cases");
 
-    generate_compatibility_tests_from_libiberty().expect(
-        "should generate compatibility tests from tests/libiberty-demangle-expected",
-    );
+    generate_compatibility_tests_from_libiberty()
+        .expect("should generate compatibility tests from tests/libiberty-demangle-expected");
 }
