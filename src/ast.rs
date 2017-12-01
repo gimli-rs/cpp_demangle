@@ -476,11 +476,17 @@ where
         self.ensure(' ')
     }
 
-    fn demangle_inner_prefixes<'prev>(&mut self, scope: Option<ArgScopeStack<'prev, 'a>>) -> io::Result<()> {
+    fn demangle_inner_prefixes<'prev>(
+        &mut self,
+        scope: Option<ArgScopeStack<'prev, 'a>>,
+    ) -> io::Result<()> {
         let mut new_inner = vec![];
         while let Some(inner) = self.inner.pop() {
-            if inner.downcast_to_encoding().is_some() ||
-               inner.downcast_to_function_type().map_or(false, |f| !f.cv_qualifiers.is_empty()) {
+            if inner.downcast_to_encoding().is_some()
+                || inner
+                    .downcast_to_function_type()
+                    .map_or(false, |f| !f.cv_qualifiers.is_empty())
+            {
                 new_inner.push(inner);
             } else {
                 inner.demangle_as_inner(self, scope)?;
@@ -491,7 +497,10 @@ where
         Ok(())
     }
 
-    fn demangle_inners<'prev>(&mut self, scope: Option<ArgScopeStack<'prev, 'a>>) -> io::Result<()> {
+    fn demangle_inners<'prev>(
+        &mut self,
+        scope: Option<ArgScopeStack<'prev, 'a>>,
+    ) -> io::Result<()> {
         while let Some(inner) = self.inner.pop() {
             inner.demangle_as_inner(self, scope)?;
         }
@@ -732,36 +741,39 @@ where
         let (needs_space, needs_paren) = ctx.inner
             .iter()
             .rev()
-            .map(|inner| if inner.downcast_to_pointer_to_member().is_some() {
-                (true, true)
-            } else {
-                match inner.downcast_to_type() {
-                    Some(&Type::Qualified(..)) |
-                    Some(&Type::Complex(_)) |
-                    Some(&Type::Imaginary(_)) |
-                    Some(&Type::PointerToMember(_)) => (true, true),
-                    Some(&Type::PointerTo(_)) |
-                    Some(&Type::LvalueRef(_)) |
-                    Some(&Type::RvalueRef(_)) => (false, true),
-                    _ => (false, false),
+            .map(|inner| {
+                if inner.downcast_to_pointer_to_member().is_some() {
+                    (true, true)
+                } else {
+                    match inner.downcast_to_type() {
+                        Some(&Type::Qualified(..))
+                        | Some(&Type::Complex(_))
+                        | Some(&Type::Imaginary(_))
+                        | Some(&Type::PointerToMember(_)) => (true, true),
+                        Some(&Type::PointerTo(_))
+                        | Some(&Type::LvalueRef(_))
+                        | Some(&Type::RvalueRef(_)) => (false, true),
+                        _ => (false, false),
+                    }
                 }
             })
-            .take_while(|&(_, needs_paren)| if saw_needs_paren {
-                false
-            } else {
-                saw_needs_paren |= needs_paren;
-                true
+            .take_while(|&(_, needs_paren)| {
+                if saw_needs_paren {
+                    false
+                } else {
+                    saw_needs_paren |= needs_paren;
+                    true
+                }
             })
             .fold((false, false), |(space, paren), (next_space, next_paren)| {
                 (space || next_space, paren || next_paren)
             });
 
         if needs_paren {
-            let needs_space = needs_space ||
-                match ctx.last_byte_written {
-                    Some(b'(') | Some(b'*') => false,
-                    _ => true,
-                };
+            let needs_space = needs_space || match ctx.last_byte_written {
+                Some(b'(') | Some(b'*') => false,
+                _ => true,
+            };
 
             if needs_space {
                 ctx.ensure_space()?;
@@ -816,7 +828,8 @@ where
 impl<'subs, W> DemangleAsInner<'subs, W> for FunctionArgList
 where
     W: 'subs + io::Write,
-{}
+{
+}
 
 impl<'subs, W> Demangle<'subs, W> for FunctionArgListAndReturnType
 where
@@ -834,7 +847,8 @@ where
 impl<'subs, W> DemangleAsInner<'subs, W> for FunctionArgListAndReturnType
 where
     W: 'subs + io::Write,
-{}
+{
+}
 
 /// Define a handle to a AST type that lives inside the substitution table. A
 /// handle is always either an index into the substitution table, or it is a
@@ -1545,7 +1559,12 @@ impl<'a> GetLeafName<'a> for UnscopedTemplateName {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum NestedName {
     /// A nested name.
-    Unqualified(CvQualifiers, Option<RefQualifier>, PrefixHandle, UnqualifiedName),
+    Unqualified(
+        CvQualifiers,
+        Option<RefQualifier>,
+        PrefixHandle,
+        UnqualifiedName,
+    ),
 
     /// A nested template name. The `<template-args>` are part of the `PrefixHandle`.
     Template(CvQualifiers, Option<RefQualifier>, PrefixHandle),
@@ -1588,11 +1607,7 @@ impl Parse for NestedName {
                 tail,
             )),
             Some(&Substitutable::Prefix(Prefix::Template(..))) => Ok((
-                NestedName::Template(
-                    cv_qualifiers,
-                    ref_qualifier,
-                    prefix,
-                ),
+                NestedName::Template(cv_qualifiers, ref_qualifier, prefix),
                 tail,
             )),
             _ => return Err(error::Error::UnexpectedText),
@@ -1604,16 +1619,15 @@ impl NestedName {
     /// Get the CV-qualifiers for this name.
     pub fn cv_qualifiers(&self) -> &CvQualifiers {
         match *self {
-            NestedName::Unqualified(ref q, ..) |
-            NestedName::Template(ref q, ..) => q,
+            NestedName::Unqualified(ref q, ..) | NestedName::Template(ref q, ..) => q,
         }
     }
 
     /// Get the ref-qualifier for this name, if one exists.
     pub fn ref_qualifier(&self) -> Option<&RefQualifier> {
         match *self {
-            NestedName::Unqualified(_, Some(ref r), ..) |
-            NestedName::Template(_, Some(ref r), ..) => Some(r),
+            NestedName::Unqualified(_, Some(ref r), ..)
+            | NestedName::Template(_, Some(ref r), ..) => Some(r),
             _ => None,
         }
     }
@@ -1623,8 +1637,7 @@ impl NestedName {
     // conceptually belongs to `<nested-name>`.
     fn prefix(&self) -> &PrefixHandle {
         match *self {
-            NestedName::Unqualified(_, _, ref p, _) |
-            NestedName::Template(_, _, ref p) => p,
+            NestedName::Unqualified(_, _, ref p, _) | NestedName::Template(_, _, ref p) => p,
         }
     }
 }
@@ -1725,11 +1738,11 @@ impl GetTemplateArgs for Prefix {
     fn get_template_args<'a>(&'a self, _: &'a SubstitutionTable) -> Option<&'a TemplateArgs> {
         match *self {
             Prefix::Template(_, ref args) => Some(args),
-            Prefix::Unqualified(_) |
-            Prefix::Nested(_, _) |
-            Prefix::TemplateParam(_) |
-            Prefix::Decltype(_) |
-            Prefix::DataMember(_, _) => None,
+            Prefix::Unqualified(_)
+            | Prefix::Nested(_, _)
+            | Prefix::TemplateParam(_)
+            | Prefix::Decltype(_)
+            | Prefix::DataMember(_, _) => None,
         }
     }
 }
@@ -1779,13 +1792,11 @@ impl Parse for PrefixHandle {
             try_begin_parse!("PrefixHandle iteration", ctx, tail);
 
             match tail.peek() {
-                Some(b'E') | None => {
-                    if let Some(handle) = current {
-                        return Ok((handle, tail));
-                    } else {
-                        return Err(error::Error::UnexpectedEnd);
-                    }
-                }
+                Some(b'E') | None => if let Some(handle) = current {
+                    return Ok((handle, tail));
+                } else {
+                    return Err(error::Error::UnexpectedEnd);
+                },
                 Some(b'S') => {
                     // <prefix> ::= <substitution>
                     let (sub, tail_tail) = Substitution::parse(ctx, subs, tail)?;
@@ -1827,7 +1838,8 @@ impl Parse for PrefixHandle {
                     }
                 }
                 Some(b'I')
-                    if current.is_some() && current.as_ref().unwrap().is_template_prefix(subs) => {
+                    if current.is_some() && current.as_ref().unwrap().is_template_prefix(subs) =>
+                {
                     // <prefix> ::= <template-prefix> <template-args>
                     let (args, tail_tail) = TemplateArgs::parse(ctx, subs, tail)?;
                     let prefix = Prefix::Template(current.unwrap(), args);
@@ -1870,15 +1882,13 @@ impl Parse for PrefixHandle {
                     current = Some(save(subs, prefix, tail_tail));
                     tail = tail_tail;
                 }
-                Some(_) => {
-                    if let Some(handle) = current {
-                        return Ok((handle, tail));
-                    } else if tail.is_empty() {
-                        return Err(error::Error::UnexpectedEnd);
-                    } else {
-                        return Err(error::Error::UnexpectedText);
-                    }
-                }
+                Some(_) => if let Some(handle) = current {
+                    return Ok((handle, tail));
+                } else if tail.is_empty() {
+                    return Err(error::Error::UnexpectedEnd);
+                } else {
+                    return Err(error::Error::UnexpectedText);
+                },
             }
         }
     }
@@ -1900,10 +1910,7 @@ impl<'a> GetLeafName<'a> for Prefix {
 impl GetTemplateArgs for PrefixHandle {
     // XXX: Not an impl GetTemplateArgs for PrefixHandle because the 'me
     // reference to self may not live long enough.
-    fn get_template_args<'a>(
-        &'a self,
-        subs: &'a SubstitutionTable,
-    ) -> Option<&'a TemplateArgs> {
+    fn get_template_args<'a>(&'a self, subs: &'a SubstitutionTable) -> Option<&'a TemplateArgs> {
         match *self {
             PrefixHandle::BackReference(idx) => {
                 if let Some(&Substitutable::Prefix(ref p)) = subs.get(idx) {
@@ -1961,9 +1968,7 @@ impl Prefix {
     // confused with the `GetTemplateArgs` trait.
     fn is_template_prefix(&self) -> bool {
         match *self {
-            Prefix::Unqualified(..) |
-            Prefix::Nested(..) |
-            Prefix::TemplateParam(..) => true,
+            Prefix::Unqualified(..) | Prefix::Nested(..) | Prefix::TemplateParam(..) => true,
             _ => false,
         }
     }
@@ -2082,8 +2087,9 @@ where
                 op_name.demangle(ctx, scope)
             }
             UnqualifiedName::CtorDtor(ref ctor_dtor) => ctor_dtor.demangle(ctx, scope),
-            UnqualifiedName::Source(ref name) |
-            UnqualifiedName::LocalSourceName(ref name, ..) => name.demangle(ctx, scope),
+            UnqualifiedName::Source(ref name) | UnqualifiedName::LocalSourceName(ref name, ..) => {
+                name.demangle(ctx, scope)
+            }
             UnqualifiedName::UnnamedType(ref unnamed) => unnamed.demangle(ctx, scope),
             UnqualifiedName::ABITag(ref tagged) => tagged.demangle(ctx, scope),
             UnqualifiedName::ClosureType(ref closure) => closure.demangle(ctx, scope),
@@ -2109,20 +2115,19 @@ impl<'a> GetLeafName<'a> for UnqualifiedName {
 impl UnqualifiedName {
     #[inline]
     fn starts_with(byte: u8, input: &IndexStr) -> bool {
-        byte == b'L' || OperatorName::starts_with(byte) || CtorDtorName::starts_with(byte) ||
-            SourceName::starts_with(byte) ||
-            UnnamedTypeName::starts_with(byte) || TaggedName::starts_with(byte) ||
-            ClosureTypeName::starts_with(byte, input)
+        byte == b'L' || OperatorName::starts_with(byte) || CtorDtorName::starts_with(byte)
+            || SourceName::starts_with(byte) || UnnamedTypeName::starts_with(byte)
+            || TaggedName::starts_with(byte) || ClosureTypeName::starts_with(byte, input)
     }
 
     fn accepts_double_colon(&self) -> bool {
         match *self {
-            UnqualifiedName::Operator(_) |
-            UnqualifiedName::CtorDtor(_) |
-            UnqualifiedName::Source(_) |
-            UnqualifiedName::LocalSourceName(..) |
-            UnqualifiedName::UnnamedType(_) |
-            UnqualifiedName::ClosureType(_) => true,
+            UnqualifiedName::Operator(_)
+            | UnqualifiedName::CtorDtor(_)
+            | UnqualifiedName::Source(_)
+            | UnqualifiedName::LocalSourceName(..)
+            | UnqualifiedName::UnnamedType(_)
+            | UnqualifiedName::ClosureType(_) => true,
             UnqualifiedName::ABITag(_) => false,
         }
     }
@@ -2316,8 +2321,8 @@ where
 
         // Handle GCC's anonymous namespace mangling.
         let anon_namespace_prefix = b"_GLOBAL_";
-        if ident.starts_with(anon_namespace_prefix) &&
-            ident.len() >= anon_namespace_prefix.len() + 2
+        if ident.starts_with(anon_namespace_prefix)
+            && ident.len() >= anon_namespace_prefix.len() + 2
         {
             let first = ident[anon_namespace_prefix.len()];
             let second = ident[anon_namespace_prefix.len() + 1];
@@ -2452,10 +2457,10 @@ where
         match *self {
             OperatorName::Simple(ref simple) => {
                 match *simple {
-                    SimpleOperatorName::New |
-                    SimpleOperatorName::NewArray |
-                    SimpleOperatorName::Delete |
-                    SimpleOperatorName::DeleteArray => {
+                    SimpleOperatorName::New
+                    | SimpleOperatorName::NewArray
+                    | SimpleOperatorName::Delete
+                    | SimpleOperatorName::DeleteArray => {
                         ctx.ensure_space()?;
                     }
                     _ => {}
@@ -2468,10 +2473,8 @@ where
                 // Cast operators can refer to template arguments before they
                 // actually appear in the AST, so we go traverse down the tree
                 // and fetch them if they exist.
-                let scope = ty.get_template_args(ctx.subs).map_or(
-                    scope,
-                    |args| scope.push(args),
-                );
+                let scope = ty.get_template_args(ctx.subs)
+                    .map_or(scope, |args| scope.push(args));
 
                 ty.demangle(ctx, scope)?;
                 Ok(())
@@ -2696,13 +2699,18 @@ pub enum CtorDtorName {
 }
 
 impl Parse for CtorDtorName {
-    fn parse<'a, 'b>(ctx: &'a ParseContext,
-                     _subs: &'a mut SubstitutionTable,
-                     input: IndexStr<'b>)
-                     -> Result<(CtorDtorName, IndexStr<'b>)> {
+    fn parse<'a, 'b>(
+        ctx: &'a ParseContext,
+        _subs: &'a mut SubstitutionTable,
+        input: IndexStr<'b>,
+    ) -> Result<(CtorDtorName, IndexStr<'b>)> {
         try_begin_parse!(stringify!(CtorDtorName), ctx, input);
 
-        match input.try_split_at(2).as_ref().map(|&(ref h, t)| (h.as_ref(), t)) {
+        match input
+            .try_split_at(2)
+            .as_ref()
+            .map(|&(ref h, t)| (h.as_ref(), t))
+        {
             None => Err(error::Error::UnexpectedEnd),
             Some((b"C1", tail)) => Ok((CtorDtorName::CompleteConstructor, tail)),
             Some((b"C2", tail)) => Ok((CtorDtorName::BaseConstructor, tail)),
@@ -3040,9 +3048,7 @@ where
                 }
                 Ok(())
             }
-            Type::PointerTo(ref ty) |
-            Type::LvalueRef(ref ty) |
-            Type::RvalueRef(ref ty) => {
+            Type::PointerTo(ref ty) | Type::LvalueRef(ref ty) | Type::RvalueRef(ref ty) => {
                 ctx.inner.push(self);
                 ty.demangle(ctx, scope)?;
                 if let Some(inner) = ctx.inner.pop() {
@@ -3090,18 +3096,10 @@ where
         log_demangle!(self, ctx, scope);
 
         match *self {
-            Type::Qualified(ref quals, _) => {
-                quals.demangle_as_inner(ctx, scope)
-            }
-            Type::PointerTo(_) => {
-                write!(ctx, "*")
-            }
-            Type::LvalueRef(_) => {
-                write!(ctx, "&")
-            }
-            Type::RvalueRef(_) => {
-                write!(ctx, "&&")
-            }
+            Type::Qualified(ref quals, _) => quals.demangle_as_inner(ctx, scope),
+            Type::PointerTo(_) => write!(ctx, "*"),
+            Type::LvalueRef(_) => write!(ctx, "&"),
+            Type::RvalueRef(_) => write!(ctx, "&&"),
             ref otherwise => {
                 unreachable!(
                     "We shouldn't ever put any other types on the inner stack: {:?}",
@@ -3146,11 +3144,12 @@ impl GetTemplateArgs for Type {
         // handles too.
 
         match *self {
-            Type::VendorExtension(_, Some(ref args), _) |
-            Type::TemplateTemplate(_, ref args) => Some(args),
-            Type::PointerTo(ref ty) |
-            Type::LvalueRef(ref ty) |
-            Type::RvalueRef(ref ty) => ty.get_template_args(subs),
+            Type::VendorExtension(_, Some(ref args), _) | Type::TemplateTemplate(_, ref args) => {
+                Some(args)
+            }
+            Type::PointerTo(ref ty) | Type::LvalueRef(ref ty) | Type::RvalueRef(ref ty) => {
+                ty.get_template_args(subs)
+            }
             _ => None,
         }
     }
@@ -3247,7 +3246,8 @@ where
 impl<'subs, W> DemangleAsInner<'subs, W> for CvQualifiers
 where
     W: 'subs + io::Write,
-{}
+{
+}
 
 define_vocabulary! {
     /// A <ref-qualifier> production.
@@ -3655,8 +3655,7 @@ where
         log_demangle!(self, ctx, scope);
 
         match *self {
-            Decltype::Expression(ref expr) |
-            Decltype::IdExpression(ref expr) => {
+            Decltype::Expression(ref expr) | Decltype::IdExpression(ref expr) => {
                 write!(ctx, "decltype (")?;
                 expr.demangle(ctx, scope)?;
                 write!(ctx, ")")?;
@@ -3862,9 +3861,9 @@ where
         ctx.inner.push(self);
 
         match *self {
-            ArrayType::DimensionNumber(_, ref ty) |
-            ArrayType::DimensionExpression(_, ref ty) |
-            ArrayType::NoDimension(ref ty) => {
+            ArrayType::DimensionNumber(_, ref ty)
+            | ArrayType::DimensionExpression(_, ref ty)
+            | ArrayType::NoDimension(ref ty) => {
                 ty.demangle(ctx, scope)?;
             }
         }
@@ -3896,11 +3895,9 @@ where
             // are also (potentially qualified) arrays themselves, in which case
             // we format them as multi-dimensional arrays.
             let inner_is_array = match inner.downcast_to_type() {
-                Some(&Type::Qualified(_, ref ty)) => {
-                    ctx.subs.get_type(ty).map_or(false, |ty| {
-                        DemangleAsInner::<W>::downcast_to_array_type(ty).is_some()
-                    })
-                }
+                Some(&Type::Qualified(_, ref ty)) => ctx.subs.get_type(ty).map_or(false, |ty| {
+                    DemangleAsInner::<W>::downcast_to_array_type(ty).is_some()
+                }),
                 _ => if inner.downcast_to_array_type().is_some() {
                     needs_space = false;
                     true
@@ -4000,8 +3997,7 @@ where
         ctx.inner.push(self);
 
         match *self {
-            VectorType::DimensionNumber(_, ref ty) |
-            VectorType::DimensionExpression(_, ref ty) => {
+            VectorType::DimensionNumber(_, ref ty) | VectorType::DimensionExpression(_, ref ty) => {
                 ty.demangle(ctx, scope)?;
             }
         }
@@ -4156,9 +4152,9 @@ impl TemplateParam {
         &'subs self,
         scope: Option<ArgScopeStack<'prev, 'subs>>,
     ) -> io::Result<&'subs TemplateArg> {
-        scope.get_template_arg(self.0).map_err(|e| {
-            io::Error::new(io::ErrorKind::Other, e.description())
-        })
+        scope
+            .get_template_arg(self.0)
+            .map_err(|e| io::Error::new(io::ErrorKind::Other, e.description()))
     }
 }
 
@@ -4296,9 +4292,9 @@ where
         log_demangle!(self, ctx, scope);
 
         // TODO: this needs more finesse.
-        let ty = scope.get_function_arg(self.0).map_err(|e| {
-            io::Error::new(io::ErrorKind::Other, e.description())
-        })?;
+        let ty = scope
+            .get_function_arg(self.0)
+            .map_err(|e| io::Error::new(io::ErrorKind::Other, e.description()))?;
         ty.demangle(ctx, scope)
     }
 }
@@ -4520,7 +4516,12 @@ pub enum Expression {
     Binary(OperatorName, Box<Expression>, Box<Expression>),
 
     /// A ternary operator expression.
-    Ternary(OperatorName, Box<Expression>, Box<Expression>, Box<Expression>),
+    Ternary(
+        OperatorName,
+        Box<Expression>,
+        Box<Expression>,
+        Box<Expression>,
+    ),
 
     /// A prefix `++`.
     PrefixInc(Box<Expression>),
@@ -4889,71 +4890,69 @@ impl Parse for Expression {
         ) -> Result<(Expression, IndexStr<'b>)> {
             match input.try_split_at(2) {
                 None => Err(error::Error::UnexpectedEnd),
-                Some((head, tail)) => {
-                    match head.as_ref() {
-                        b"nw" => {
-                            let (exprs, tail) = zero_or_more::<Expression>(ctx, subs, tail)?;
-                            let tail = consume(b"_", tail)?;
-                            let (ty, tail) = TypeHandle::parse(ctx, subs, tail)?;
-                            if let Ok(tail) = consume(b"E", tail) {
-                                let expr = if is_global {
-                                    Expression::GlobalNew(exprs, ty, None)
-                                } else {
-                                    Expression::New(exprs, ty, None)
-                                };
-                                Ok((expr, tail))
-                            } else {
-                                let (init, tail) = Initializer::parse(ctx, subs, tail)?;
-                                let expr = if is_global {
-                                    Expression::GlobalNew(exprs, ty, Some(init))
-                                } else {
-                                    Expression::New(exprs, ty, Some(init))
-                                };
-                                Ok((expr, tail))
-                            }
-                        }
-                        b"na" => {
-                            let (exprs, tail) = zero_or_more::<Expression>(ctx, subs, tail)?;
-                            let tail = consume(b"_", tail)?;
-                            let (ty, tail) = TypeHandle::parse(ctx, subs, tail)?;
-                            if let Ok(tail) = consume(b"E", tail) {
-                                let expr = if is_global {
-                                    Expression::GlobalNewArray(exprs, ty, None)
-                                } else {
-                                    Expression::NewArray(exprs, ty, None)
-                                };
-                                Ok((expr, tail))
-                            } else {
-                                let (init, tail) = Initializer::parse(ctx, subs, tail)?;
-                                let expr = if is_global {
-                                    Expression::GlobalNewArray(exprs, ty, Some(init))
-                                } else {
-                                    Expression::NewArray(exprs, ty, Some(init))
-                                };
-                                Ok((expr, tail))
-                            }
-                        }
-                        b"dl" => {
-                            let (expr, tail) = Expression::parse(ctx, subs, tail)?;
+                Some((head, tail)) => match head.as_ref() {
+                    b"nw" => {
+                        let (exprs, tail) = zero_or_more::<Expression>(ctx, subs, tail)?;
+                        let tail = consume(b"_", tail)?;
+                        let (ty, tail) = TypeHandle::parse(ctx, subs, tail)?;
+                        if let Ok(tail) = consume(b"E", tail) {
                             let expr = if is_global {
-                                Expression::GlobalDelete(Box::new(expr))
+                                Expression::GlobalNew(exprs, ty, None)
                             } else {
-                                Expression::Delete(Box::new(expr))
+                                Expression::New(exprs, ty, None)
+                            };
+                            Ok((expr, tail))
+                        } else {
+                            let (init, tail) = Initializer::parse(ctx, subs, tail)?;
+                            let expr = if is_global {
+                                Expression::GlobalNew(exprs, ty, Some(init))
+                            } else {
+                                Expression::New(exprs, ty, Some(init))
                             };
                             Ok((expr, tail))
                         }
-                        b"da" => {
-                            let (expr, tail) = Expression::parse(ctx, subs, tail)?;
-                            let expr = if is_global {
-                                Expression::GlobalDeleteArray(Box::new(expr))
-                            } else {
-                                Expression::DeleteArray(Box::new(expr))
-                            };
-                            Ok((expr, tail))
-                        }
-                        _ => Err(error::Error::UnexpectedText),
                     }
-                }
+                    b"na" => {
+                        let (exprs, tail) = zero_or_more::<Expression>(ctx, subs, tail)?;
+                        let tail = consume(b"_", tail)?;
+                        let (ty, tail) = TypeHandle::parse(ctx, subs, tail)?;
+                        if let Ok(tail) = consume(b"E", tail) {
+                            let expr = if is_global {
+                                Expression::GlobalNewArray(exprs, ty, None)
+                            } else {
+                                Expression::NewArray(exprs, ty, None)
+                            };
+                            Ok((expr, tail))
+                        } else {
+                            let (init, tail) = Initializer::parse(ctx, subs, tail)?;
+                            let expr = if is_global {
+                                Expression::GlobalNewArray(exprs, ty, Some(init))
+                            } else {
+                                Expression::NewArray(exprs, ty, Some(init))
+                            };
+                            Ok((expr, tail))
+                        }
+                    }
+                    b"dl" => {
+                        let (expr, tail) = Expression::parse(ctx, subs, tail)?;
+                        let expr = if is_global {
+                            Expression::GlobalDelete(Box::new(expr))
+                        } else {
+                            Expression::Delete(Box::new(expr))
+                        };
+                        Ok((expr, tail))
+                    }
+                    b"da" => {
+                        let (expr, tail) = Expression::parse(ctx, subs, tail)?;
+                        let expr = if is_global {
+                            Expression::GlobalDeleteArray(Box::new(expr))
+                        } else {
+                            Expression::DeleteArray(Box::new(expr))
+                        };
+                        Ok((expr, tail))
+                    }
+                    _ => Err(error::Error::UnexpectedText),
+                },
             }
         }
     }
@@ -4979,7 +4978,11 @@ where
             }
             // These need an extra set of parens so that it doesn't close any
             // template argument accidentally.
-            Expression::Binary(OperatorName::Simple(SimpleOperatorName::Greater), ref lhs, ref rhs) => {
+            Expression::Binary(
+                OperatorName::Simple(SimpleOperatorName::Greater),
+                ref lhs,
+                ref rhs,
+            ) => {
                 write!(ctx, "((")?;
                 lhs.demangle(ctx, scope)?;
                 write!(ctx, ")>(")?;
@@ -4995,10 +4998,12 @@ where
                 rhs.demangle(ctx, scope)?;
                 write!(ctx, ")")
             }
-            Expression::Ternary(OperatorName::Simple(SimpleOperatorName::Question),
-                                ref condition,
-                                ref consequent,
-                                ref alternative) => {
+            Expression::Ternary(
+                OperatorName::Simple(SimpleOperatorName::Question),
+                ref condition,
+                ref consequent,
+                ref alternative,
+            ) => {
                 condition.demangle(ctx, scope)?;
                 write!(ctx, " ? ")?;
                 consequent.demangle(ctx, scope)?;
@@ -5338,7 +5343,11 @@ pub enum UnresolvedName {
     Global(BaseUnresolvedName),
 
     /// `T::x`  or `decltype(p)::x` or `T::N::x` or `decltype(p)::N::x`
-    Nested1(UnresolvedTypeHandle, Vec<UnresolvedQualifierLevel>, BaseUnresolvedName),
+    Nested1(
+        UnresolvedTypeHandle,
+        Vec<UnresolvedQualifierLevel>,
+        BaseUnresolvedName,
+    ),
 
     /// `A::x` or `N::y` or `A<T>::z`
     Nested2(Vec<UnresolvedQualifierLevel>, BaseUnresolvedName),
@@ -5795,9 +5804,13 @@ where
     ) -> io::Result<()> {
         log_demangle!(self, ctx, scope);
 
-        fn write_literal<W>(ctx: &mut DemangleContext<W>, start: usize, end: usize) -> io::Result<()>
+        fn write_literal<W>(
+            ctx: &mut DemangleContext<W>,
+            start: usize,
+            end: usize,
+        ) -> io::Result<()>
         where
-            W: io::Write
+            W: io::Write,
         {
             debug_assert!(start <= end);
             let start = if start < end && ctx.input[start] == b'n' {
@@ -5815,29 +5828,25 @@ where
                 TypeHandle::Builtin(BuiltinType::Standard(StandardBuiltinType::Bool)),
                 start,
                 end,
-            ) => {
-                match &ctx.input[start..end] {
-                    b"0" => write!(ctx, "false"),
-                    b"1" => write!(ctx, "true"),
-                    _ => {
-                        write!(ctx, "(bool)")?;
-                        write_literal(ctx, start, end)
-                    }
+            ) => match &ctx.input[start..end] {
+                b"0" => write!(ctx, "false"),
+                b"1" => write!(ctx, "true"),
+                _ => {
+                    write!(ctx, "(bool)")?;
+                    write_literal(ctx, start, end)
                 }
-            }
+            },
             ExprPrimary::Literal(
                 TypeHandle::Builtin(BuiltinType::Standard(StandardBuiltinType::Nullptr)),
                 _,
                 _,
-            ) => {
-                write!(ctx, "nullptr")
-            }
+            ) => write!(ctx, "nullptr"),
             ExprPrimary::Literal(
                 ref ty @ TypeHandle::Builtin(BuiltinType::Standard(StandardBuiltinType::Double)),
                 start,
                 end,
-            ) |
-            ExprPrimary::Literal(
+            )
+            | ExprPrimary::Literal(
                 ref ty @ TypeHandle::Builtin(BuiltinType::Standard(StandardBuiltinType::Float)),
                 start,
                 end,
@@ -5857,15 +5866,9 @@ where
             ExprPrimary::Literal(
                 TypeHandle::Builtin(BuiltinType::Standard(StandardBuiltinType::Int)),
                 start,
-                end
-            ) => {
-                write_literal(ctx, start, end)
-            }
-            ExprPrimary::Literal(
-                ref ty,
-                start,
                 end,
-            ) => {
+            ) => write_literal(ctx, start, end),
+            ExprPrimary::Literal(ref ty, start, end) => {
                 write!(ctx, "(")?;
                 ty.demangle(ctx, scope)?;
                 write!(ctx, ")")?;
@@ -5970,11 +5973,7 @@ impl Parse for LocalName {
             let tail = consume(b"_", tail)?;
             let (name, tail) = Name::parse(ctx, subs, tail)?;
             return Ok((
-                LocalName::Default(
-                    Box::new(encoding),
-                    param,
-                    Box::new(name),
-                ),
+                LocalName::Default(Box::new(encoding), param, Box::new(name)),
                 tail,
             ));
         }
@@ -5987,11 +5986,7 @@ impl Parse for LocalName {
         };
 
         Ok((
-            LocalName::Relative(
-                Box::new(encoding),
-                Some(Box::new(name)),
-                disc,
-            ),
+            LocalName::Relative(Box::new(encoding), Some(Box::new(name)), disc),
             tail,
         ))
     }
@@ -6029,8 +6024,9 @@ impl GetTemplateArgs for LocalName {
     fn get_template_args<'a>(&'a self, subs: &'a SubstitutionTable) -> Option<&'a TemplateArgs> {
         match *self {
             LocalName::Relative(_, None, _) => None,
-            LocalName::Relative(_, Some(ref name), _) |
-            LocalName::Default(_, _, ref name) => name.get_template_args(subs),
+            LocalName::Relative(_, Some(ref name), _) | LocalName::Default(_, _, ref name) => {
+                name.get_template_args(subs)
+            }
         }
     }
 }
@@ -6077,21 +6073,19 @@ impl Parse for Discriminator {
 
         match tail.try_split_at(1) {
             None => Err(error::Error::UnexpectedEnd),
-            Some((head, tail)) => {
-                match head.as_ref()[0] {
-                    b'0' => Ok((Discriminator(0), tail)),
-                    b'1' => Ok((Discriminator(1), tail)),
-                    b'2' => Ok((Discriminator(2), tail)),
-                    b'3' => Ok((Discriminator(3), tail)),
-                    b'4' => Ok((Discriminator(4), tail)),
-                    b'5' => Ok((Discriminator(5), tail)),
-                    b'6' => Ok((Discriminator(6), tail)),
-                    b'7' => Ok((Discriminator(7), tail)),
-                    b'8' => Ok((Discriminator(8), tail)),
-                    b'9' => Ok((Discriminator(9), tail)),
-                    _ => Err(error::Error::UnexpectedText),
-                }
-            }
+            Some((head, tail)) => match head.as_ref()[0] {
+                b'0' => Ok((Discriminator(0), tail)),
+                b'1' => Ok((Discriminator(1), tail)),
+                b'2' => Ok((Discriminator(2), tail)),
+                b'3' => Ok((Discriminator(3), tail)),
+                b'4' => Ok((Discriminator(4), tail)),
+                b'5' => Ok((Discriminator(5), tail)),
+                b'6' => Ok((Discriminator(6), tail)),
+                b'7' => Ok((Discriminator(7), tail)),
+                b'8' => Ok((Discriminator(8), tail)),
+                b'9' => Ok((Discriminator(9), tail)),
+                _ => Err(error::Error::UnexpectedText),
+            },
         }
     }
 }
@@ -6513,11 +6507,7 @@ impl Parse for SpecialName {
                 let (second, tail) = CallOffset::parse(ctx, subs, tail)?;
                 let (base, tail) = Encoding::parse(ctx, subs, tail)?;
                 Ok((
-                    SpecialName::VirtualOverrideThunkCovariant(
-                        first,
-                        second,
-                        Box::new(base),
-                    ),
+                    SpecialName::VirtualOverrideThunkCovariant(first, second, Box::new(base)),
                     tail,
                 ))
             }
@@ -6614,9 +6604,11 @@ where
                 write!(ctx, ")}}")?;
                 Ok(())
             }
-            SpecialName::VirtualOverrideThunkCovariant(ref this_offset,
-                                                       ref result_offset,
-                                                       ref encoding) => {
+            SpecialName::VirtualOverrideThunkCovariant(
+                ref this_offset,
+                ref result_offset,
+                ref encoding,
+            ) => {
                 write!(ctx, "{{virtual override thunk(")?;
                 this_offset.demangle(ctx, scope)?;
                 write!(ctx, ", ")?;
@@ -6754,9 +6746,7 @@ fn parse_number(base: u32, allow_signed: bool, mut input: IndexStr) -> Result<(i
         ::std::str::from_utf8_unchecked(head)
     };
 
-    let mut number = isize::from_str_radix(head, base).map_err(
-        |_| error::Error::Overflow,
-    )?;
+    let mut number = isize::from_str_radix(head, base).map_err(|_| error::Error::Overflow)?;
     if num_is_negative {
         number = -number;
     }
@@ -6803,20 +6793,21 @@ mod tests {
         let input = input.as_ref();
         let expected_tail = expected_tail.as_ref();
 
-        let expected_subs = SubstitutionTable::from_iter(subs.as_ref().iter().cloned().chain(
-            expected_new_subs.as_ref().iter().cloned(),
-        ));
+        let expected_subs = SubstitutionTable::from_iter(
+            subs.as_ref()
+                .iter()
+                .cloned()
+                .chain(expected_new_subs.as_ref().iter().cloned()),
+        );
         let mut subs = SubstitutionTable::from_iter(subs.as_ref().iter().cloned());
 
         match P::parse(&ctx, &mut subs, IndexStr::from(input)) {
-            Err(error) => {
-                panic!(
+            Err(error) => panic!(
                 "Parsing {:?} as {} failed: {}",
                 String::from_utf8_lossy(input),
                 production,
                 error
-            )
-            }
+            ),
             Ok((value, tail)) => {
                 if value != expected {
                     panic!(
@@ -6890,7 +6881,11 @@ mod tests {
             }
             Ok((value, tail)) => {
                 panic!(
-                    "Parsing {:?} as {} produced value\n\n{:#?}\n\nand tail {:?}, but we expected error kind {:?}",
+                    "Parsing {:?} as {} produced value\
+                     \n\n\
+                     {:#?}\
+                     \n\n\
+                     and tail {:?}, but we expected error kind {:?}",
                     String::from_utf8_lossy(input),
                     production,
                     value,

@@ -59,12 +59,11 @@ fn libxul_symbols_demangle() {
 
     while {
         line.clear();
-        let bytes_read = libxul_txt_file.read_until(b'\n', &mut line).expect(
-            "should read line",
-        );
+        let bytes_read = libxul_txt_file
+            .read_until(b'\n', &mut line)
+            .expect("should read line");
         bytes_read > 0
-    }
-    {
+    } {
         total += 1;
 
         // Grab the next symbol from libxul.txt.
@@ -93,12 +92,12 @@ fn libxul_symbols_demangle() {
 
                 // Finally, we are going to have `c++filt` demangle the
                 // symbol. Write the line into `c++filt`.
-                cppfilt_stdin.write_all(&line).expect(
-                    "should write line contents into c++filt",
-                );
-                cppfilt_stdin.write(b"\n").expect(
-                    "should write newline into c++filt",
-                );
+                cppfilt_stdin
+                    .write_all(&line)
+                    .expect("should write line contents into c++filt");
+                cppfilt_stdin
+                    .write(b"\n")
+                    .expect("should write newline into c++filt");
                 cppfilt_stdin.flush().expect("should flush c++filt stdin");
 
                 // Read its demangled version back out.

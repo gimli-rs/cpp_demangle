@@ -77,9 +77,7 @@ fn main() {
     let matches = App::new("cppfilt")
         .version(crate_version!())
         .author(crate_authors!())
-        .about(
-            "A c++filt clone as an example of how to use the cpp_demangle crate!",
-        )
+        .about("A c++filt clone as an example of how to use the cpp_demangle crate!")
         .arg(
             Arg::with_name("noparams")
                 .short("p")
@@ -102,7 +100,9 @@ fn main() {
     let stderr = io::stderr();
     let mut stderr = stderr.lock();
 
-    let options = DemangleOptions { no_params: matches.is_present("noparams") };
+    let options = DemangleOptions {
+        no_params: matches.is_present("noparams"),
+    };
 
     let demangle_result = if let Some(names) = matches.values_of("mangled_names") {
         let mut input = Cursor::new(names.fold(String::new(), |mut accumulated, name| {
