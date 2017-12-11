@@ -463,6 +463,7 @@ where
         }
     }
 
+    #[inline]
     fn ensure(&mut self, ch: char) -> io::Result<()> {
         if self.last_byte_written.map(|b| b as char) == Some(ch) {
             Ok(())
@@ -472,8 +473,22 @@ where
         }
     }
 
+    #[inline]
     fn ensure_space(&mut self) -> io::Result<()> {
         self.ensure(' ')
+    }
+
+    #[inline]
+    fn push_inner(&mut self, item: &'a DemangleAsInner<'a, W>) {
+        log!("DemangleContext::push_inner: {:?}", item);
+        self.inner.push(item);
+    }
+
+    #[inline]
+    fn pop_inner(&mut self) -> Option<&'a DemangleAsInner<'a, W>> {
+        let popped = self.inner.pop();
+        log!("DemangleContext::pop_inner: {:?}", popped);
+        popped
     }
 
     fn demangle_inner_prefixes<'prev>(
@@ -481,7 +496,7 @@ where
         scope: Option<ArgScopeStack<'prev, 'a>>,
     ) -> io::Result<()> {
         let mut new_inner = vec![];
-        while let Some(inner) = self.inner.pop() {
+        while let Some(inner) = self.pop_inner() {
             if inner.downcast_to_encoding().is_some()
                 || inner
                     .downcast_to_function_type()
@@ -501,7 +516,7 @@ where
         &mut self,
         scope: Option<ArgScopeStack<'prev, 'a>>,
     ) -> io::Result<()> {
-        while let Some(inner) = self.inner.pop() {
+        while let Some(inner) = self.pop_inner() {
             inner.demangle_as_inner(self, scope)?;
         }
         Ok(())
@@ -1211,9 +1226,9 @@ where
                     scope
                 };
 
-                ctx.inner.push(self);
+                ctx.push_inner(self);
                 name.demangle(ctx, scope)?;
-                if let Some(inner) = ctx.inner.pop() {
+                if let Some(inner) = ctx.pop_inner() {
                     inner.demangle_as_inner(ctx, scope)?;
                 }
 
@@ -1661,7 +1676,7 @@ where
             name.demangle(ctx, scope)?;
         }
 
-        if let Some(inner) = ctx.inner.pop() {
+        if let Some(inner) = ctx.pop_inner() {
             inner.demangle_as_inner(ctx, scope)?;
         }
 
@@ -3041,17 +3056,17 @@ where
             }
             Type::Decltype(ref dt) => dt.demangle(ctx, scope),
             Type::Qualified(_, ref ty) => {
-                ctx.inner.push(self);
+                ctx.push_inner(self);
                 ty.demangle(ctx, scope)?;
-                if let Some(inner) = ctx.inner.pop() {
+                if let Some(inner) = ctx.pop_inner() {
                     inner.demangle_as_inner(ctx, scope)?;
                 }
                 Ok(())
             }
             Type::PointerTo(ref ty) | Type::LvalueRef(ref ty) | Type::RvalueRef(ref ty) => {
-                ctx.inner.push(self);
+                ctx.push_inner(self);
                 ty.demangle(ctx, scope)?;
-                if let Some(inner) = ctx.inner.pop() {
+                if let Some(inner) = ctx.pop_inner() {
                     inner.demangle_as_inner(ctx, scope)?;
                 }
                 Ok(())
@@ -3407,9 +3422,9 @@ where
     ) -> io::Result<()> {
         log_demangle!(self, ctx, scope);
 
-        ctx.inner.push(&self.0);
+        ctx.push_inner(&self.0);
         self.1.demangle(ctx, scope)?;
-        if let Some(inner) = ctx.inner.pop() {
+        if let Some(inner) = ctx.pop_inner() {
             inner.demangle_as_inner(ctx, scope)?;
         }
         Ok(())
@@ -3498,9 +3513,9 @@ where
     ) -> io::Result<()> {
         log_demangle!(self, ctx, scope);
 
-        ctx.inner.push(self);
+        ctx.push_inner(self);
         self.bare.demangle(ctx, scope)?;
-        if let Some(inner) = ctx.inner.pop() {
+        if let Some(inner) = ctx.pop_inner() {
             inner.demangle_as_inner(ctx, scope)?;
         }
         Ok(())
@@ -3577,11 +3592,11 @@ where
     ) -> io::Result<()> {
         log_demangle!(self, ctx, scope);
 
-        ctx.inner.push(self);
+        ctx.push_inner(self);
 
         self.ret().demangle(ctx, scope)?;
 
-        if let Some(inner) = ctx.inner.pop() {
+        if let Some(inner) = ctx.pop_inner() {
             ctx.ensure_space()?;
             inner.demangle_as_inner(ctx, scope)?;
         }
@@ -3858,7 +3873,7 @@ where
     ) -> io::Result<()> {
         log_demangle!(self, ctx, scope);
 
-        ctx.inner.push(self);
+        ctx.push_inner(self);
 
         match *self {
             ArrayType::DimensionNumber(_, ref ty)
@@ -3868,7 +3883,7 @@ where
             }
         }
 
-        if let Some(inner) = ctx.inner.pop() {
+        if let Some(inner) = ctx.pop_inner() {
             inner.demangle_as_inner(ctx, scope)?;
         }
 
@@ -3890,7 +3905,7 @@ where
         // Whether we should add a final space before the dimensions.
         let mut needs_space = true;
 
-        while let Some(inner) = ctx.inner.pop() {
+        while let Some(inner) = ctx.pop_inner() {
             // We need to add parentheses around array inner types, unless they
             // are also (potentially qualified) arrays themselves, in which case
             // we format them as multi-dimensional arrays.
@@ -3994,7 +4009,7 @@ where
     ) -> io::Result<()> {
         log_demangle!(self, ctx, scope);
 
-        ctx.inner.push(self);
+        ctx.push_inner(self);
 
         match *self {
             VectorType::DimensionNumber(_, ref ty) | VectorType::DimensionExpression(_, ref ty) => {
@@ -4002,7 +4017,7 @@ where
             }
         }
 
-        if let Some(inner) = ctx.inner.pop() {
+        if let Some(inner) = ctx.pop_inner() {
             inner.demangle_as_inner(ctx, scope)?;
         }
 
@@ -4070,9 +4085,9 @@ where
     ) -> io::Result<()> {
         log_demangle!(self, ctx, scope);
 
-        ctx.inner.push(self);
+        ctx.push_inner(self);
         self.1.demangle(ctx, scope)?;
-        if let Some(inner) = ctx.inner.pop() {
+        if let Some(inner) = ctx.pop_inner() {
             inner.demangle_as_inner(ctx, scope)?;
         }
         Ok(())
