@@ -497,10 +497,9 @@ where
     ) -> io::Result<()> {
         let mut new_inner = vec![];
         while let Some(inner) = self.pop_inner() {
-            if inner.downcast_to_encoding().is_some()
-                || inner
-                    .downcast_to_function_type()
-                    .map_or(false, |f| !f.cv_qualifiers.is_empty())
+            if inner
+                .downcast_to_function_type()
+                .map_or(false, |f| !f.cv_qualifiers.is_empty())
             {
                 new_inner.push(inner);
             } else {
@@ -659,11 +658,6 @@ where
 
     /// Cast this `DemangleAsInner` to a `PointerToMember`.
     fn downcast_to_pointer_to_member(&self) -> Option<&PointerToMemberType> {
-        None
-    }
-
-    /// Cast this `DemangleAsInner` to an `Encoding`.
-    fn downcast_to_encoding(&self) -> Option<&Encoding> {
         None
     }
 }
@@ -1263,10 +1257,6 @@ where
         } else {
             unreachable!("we only push Encoding::Function onto the inner stack");
         }
-    }
-
-    fn downcast_to_encoding(&self) -> Option<&Encoding> {
-        Some(self)
     }
 }
 
