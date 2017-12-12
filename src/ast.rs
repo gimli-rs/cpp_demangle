@@ -81,6 +81,7 @@ impl AutoLogDemangle {
         production: &P,
         ctx: &DemangleContext<W>,
         scope: Option<ArgScopeStack>,
+        is_inner: bool,
     ) -> AutoLogDemangle
     where
         P: ?Sized + fmt::Debug,
@@ -93,9 +94,14 @@ impl AutoLogDemangle {
 
             let indent: String = (0..*depth.borrow() * 4).map(|_| ' ').collect();
             log!("{}(", indent);
-            log!("{}  {:?}", indent, production);
+            log!(
+                "{}  {}{:?}",
+                indent,
+                if is_inner { "as_inner: " } else { "" },
+                production
+            );
             log!("{}  inner = {:?}", indent, ctx.inner);
-            log!("{}  stack = {:?}", indent, scope);
+            log!("{}  scope = {:?}", indent, scope);
 
             *depth.borrow_mut() += 1;
         });
@@ -104,7 +110,12 @@ impl AutoLogDemangle {
 
     #[cfg(not(feature = "logging"))]
     #[inline(always)]
-    fn new<P, W>(_: &P, _: &DemangleContext<W>, _: Option<ArgScopeStack>) -> AutoLogDemangle
+    fn new<P, W>(
+        _: &P,
+        _: &DemangleContext<W>,
+        _: Option<ArgScopeStack>,
+        _: bool,
+    ) -> AutoLogDemangle
     where
         P: ?Sized + fmt::Debug,
         W: io::Write,
@@ -127,8 +138,16 @@ impl Drop for AutoLogDemangle {
 /// Automatically log start and end demangling in an s-expression format, when
 /// the `logging` feature is enabled.
 macro_rules! log_demangle {
-    ( $production:expr , $ctx:expr , $stack:expr ) => {
-        let _log = AutoLogDemangle::new($production, $ctx, $stack);
+    ( $production:expr , $ctx:expr , $scope:expr ) => {
+        let _log = AutoLogDemangle::new($production, $ctx, $scope, false);
+    }
+}
+
+/// Automatically log start and end demangling in an s-expression format, when
+/// the `logging` feature is enabled.
+macro_rules! log_demangle_as_inner {
+    ( $production:expr , $ctx:expr , $scope:expr ) => {
+        let _log = AutoLogDemangle::new($production, $ctx, $scope, true);
     }
 }
 
@@ -495,14 +514,23 @@ where
         &mut self,
         scope: Option<ArgScopeStack<'prev, 'a>>,
     ) -> io::Result<()> {
+        log!("DemangleContext::demangle_inner_prefixes");
         let mut new_inner = vec![];
         while let Some(inner) = self.pop_inner() {
             if inner
                 .downcast_to_function_type()
                 .map_or(false, |f| !f.cv_qualifiers.is_empty())
             {
+                log!(
+                    "DemangleContext::demangle_inner_prefixes: not a prefix, saving: {:?}",
+                    inner
+                );
                 new_inner.push(inner);
             } else {
+                log!(
+                    "DemangleContext::demangle_inner_prefixes: demangling prefix: {:?}",
+                    inner
+                );
                 inner.demangle_as_inner(self, scope)?;
             }
         }
@@ -3098,7 +3126,7 @@ where
         ctx: &'ctx mut DemangleContext<'subs, W>,
         scope: Option<ArgScopeStack<'prev, 'subs>>,
     ) -> io::Result<()> {
-        log_demangle!(self, ctx, scope);
+        log_demangle_as_inner!(self, ctx, scope);
 
         match *self {
             Type::Qualified(ref quals, _) => quals.demangle_as_inner(ctx, scope),
@@ -3521,7 +3549,7 @@ where
         ctx: &'ctx mut DemangleContext<'subs, W>,
         scope: Option<ArgScopeStack<'prev, 'subs>>,
     ) -> io::Result<()> {
-        log_demangle!(self, ctx, scope);
+        log_demangle_as_inner!(self, ctx, scope);
 
         if !self.cv_qualifiers.is_empty() {
             self.cv_qualifiers.demangle(ctx, scope)?;
@@ -3604,7 +3632,7 @@ where
         ctx: &'ctx mut DemangleContext<'subs, W>,
         scope: Option<ArgScopeStack<'prev, 'subs>>,
     ) -> io::Result<()> {
-        log_demangle!(self, ctx, scope);
+        log_demangle_as_inner!(self, ctx, scope);
         self.args().demangle_as_inner(ctx, scope)?;
         Ok(())
     }
@@ -3890,7 +3918,7 @@ where
         ctx: &'ctx mut DemangleContext<'subs, W>,
         scope: Option<ArgScopeStack<'prev, 'subs>>,
     ) -> io::Result<()> {
-        log_demangle!(self, ctx, scope);
+        log_demangle_as_inner!(self, ctx, scope);
 
         // Whether we should add a final space before the dimensions.
         let mut needs_space = true;
@@ -4024,7 +4052,7 @@ where
         ctx: &'ctx mut DemangleContext<'subs, W>,
         scope: Option<ArgScopeStack<'prev, 'subs>>,
     ) -> io::Result<()> {
-        log_demangle!(self, ctx, scope);
+        log_demangle_as_inner!(self, ctx, scope);
 
         match *self {
             VectorType::DimensionNumber(n, _) => {
@@ -4093,7 +4121,7 @@ where
         ctx: &'ctx mut DemangleContext<'subs, W>,
         scope: Option<ArgScopeStack<'prev, 'subs>>,
     ) -> io::Result<()> {
-        log_demangle!(self, ctx, scope);
+        log_demangle_as_inner!(self, ctx, scope);
 
         if ctx.last_byte_written != Some(b'(') {
             ctx.ensure_space()?;
