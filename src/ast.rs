@@ -12,6 +12,7 @@ use std::hash::{Hash, Hasher};
 use std::io::{self, Write};
 use std::mem;
 use std::ops;
+use std::ptr;
 use subs::{Substitutable, SubstitutionTable};
 
 struct AutoLogParse;
@@ -508,6 +509,22 @@ where
         let popped = self.inner.pop();
         log!("DemangleContext::pop_inner: {:?}", popped);
         popped
+    }
+
+    #[inline]
+    fn pop_inner_if(&mut self, inner: &'a DemangleAsInner<'a, W>) -> bool {
+        if {
+            let last = match self.inner.last() {
+                None => return false,
+                Some(last) => *last,
+            };
+            ptr::eq(last, inner)
+        } {
+            self.inner.pop();
+            true
+        } else {
+            false
+        }
     }
 
     fn demangle_inner_prefixes<'prev>(
@@ -1250,8 +1267,8 @@ where
 
                 ctx.push_inner(self);
                 name.demangle(ctx, scope)?;
-                if let Some(inner) = ctx.pop_inner() {
-                    inner.demangle_as_inner(ctx, scope)?;
+                if ctx.pop_inner_if(self) {
+                    self.demangle_as_inner(ctx, scope)?;
                 }
 
                 Ok(())
@@ -3076,16 +3093,16 @@ where
             Type::Qualified(_, ref ty) => {
                 ctx.push_inner(self);
                 ty.demangle(ctx, scope)?;
-                if let Some(inner) = ctx.pop_inner() {
-                    inner.demangle_as_inner(ctx, scope)?;
+                if ctx.pop_inner_if(self) {
+                    self.demangle_as_inner(ctx, scope)?;
                 }
                 Ok(())
             }
             Type::PointerTo(ref ty) | Type::LvalueRef(ref ty) | Type::RvalueRef(ref ty) => {
                 ctx.push_inner(self);
                 ty.demangle(ctx, scope)?;
-                if let Some(inner) = ctx.pop_inner() {
-                    inner.demangle_as_inner(ctx, scope)?;
+                if ctx.pop_inner_if(self) {
+                    self.demangle_as_inner(ctx, scope)?;
                 }
                 Ok(())
             }
@@ -3442,8 +3459,8 @@ where
 
         ctx.push_inner(&self.0);
         self.1.demangle(ctx, scope)?;
-        if let Some(inner) = ctx.pop_inner() {
-            inner.demangle_as_inner(ctx, scope)?;
+        if ctx.pop_inner_if(&self.0) {
+            self.0.demangle_as_inner(ctx, scope)?;
         }
         Ok(())
     }
@@ -3533,8 +3550,8 @@ where
 
         ctx.push_inner(self);
         self.bare.demangle(ctx, scope)?;
-        if let Some(inner) = ctx.pop_inner() {
-            inner.demangle_as_inner(ctx, scope)?;
+        if ctx.pop_inner_if(self) {
+            self.demangle_as_inner(ctx, scope)?;
         }
         Ok(())
     }
@@ -3614,9 +3631,9 @@ where
 
         self.ret().demangle(ctx, scope)?;
 
-        if let Some(inner) = ctx.pop_inner() {
+        if ctx.pop_inner_if(self) {
             ctx.ensure_space()?;
-            inner.demangle_as_inner(ctx, scope)?;
+            self.demangle_as_inner(ctx, scope)?;
         }
 
         Ok(())
@@ -3901,8 +3918,8 @@ where
             }
         }
 
-        if let Some(inner) = ctx.pop_inner() {
-            inner.demangle_as_inner(ctx, scope)?;
+        if ctx.pop_inner_if(self) {
+            self.demangle_as_inner(ctx, scope)?;
         }
 
         Ok(())
@@ -4035,8 +4052,8 @@ where
             }
         }
 
-        if let Some(inner) = ctx.pop_inner() {
-            inner.demangle_as_inner(ctx, scope)?;
+        if ctx.pop_inner_if(self) {
+            self.demangle_as_inner(ctx, scope)?;
         }
 
         Ok(())
@@ -4105,8 +4122,8 @@ where
 
         ctx.push_inner(self);
         self.1.demangle(ctx, scope)?;
-        if let Some(inner) = ctx.pop_inner() {
-            inner.demangle_as_inner(ctx, scope)?;
+        if ctx.pop_inner_if(self) {
+            self.demangle_as_inner(ctx, scope)?;
         }
         Ok(())
     }
