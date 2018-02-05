@@ -434,6 +434,10 @@ where
     // The last byte written to `out`, if any.
     last_byte_written: Option<u8>,
 
+    // We are currently demangling a lambda argument, so template substitution
+    // should be suppressed to match libiberty.
+    is_lambda_arg: bool,
+
     // Options passed to the demangling process.
     options: &'a DemangleOptions,
 }
@@ -479,6 +483,7 @@ where
             out: out,
             bytes_written: 0,
             last_byte_written: None,
+            is_lambda_arg: false,
             options: options,
         }
     }
@@ -4192,8 +4197,13 @@ where
     ) -> io::Result<()> {
         log_demangle!(self, ctx, scope);
 
-        let arg = self.resolve(scope)?;
-        arg.demangle(ctx, scope)
+        if ctx.is_lambda_arg {
+            // To match libiberty, template references are converted to `auto`.
+            write!(ctx, "auto:{}", self.0 + 1)
+        } else {
+            let arg = self.resolve(scope)?;
+            arg.demangle(ctx, scope)
+        }
     }
 }
 
@@ -6223,6 +6233,26 @@ impl ClosureTypeName {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct LambdaSig(Vec<TypeHandle>);
 
+impl LambdaSig {
+    fn demangle_args<'subs, 'prev, 'ctx, W>(
+        &'subs self,
+        ctx: &'ctx mut DemangleContext<'subs, W>,
+        scope: Option<ArgScopeStack<'prev, 'subs>>,
+    ) -> io::Result<()>
+        where W: 'subs + io::Write
+    {
+        let mut need_comma = false;
+        for ty in &self.0 {
+            if need_comma {
+                write!(ctx, ", ")?;
+            }
+            ty.demangle(ctx, scope)?;
+            need_comma = true;
+        }
+        Ok(())
+    }
+}
+
 impl Parse for LambdaSig {
     fn parse<'a, 'b>(
         ctx: &'a ParseContext,
@@ -6251,15 +6281,10 @@ where
     ) -> io::Result<()> {
         log_demangle!(self, ctx, scope);
 
-        let mut need_comma = false;
-        for ty in &self.0 {
-            if need_comma {
-                write!(ctx, ", ")?;
-            }
-            ty.demangle(ctx, scope)?;
-            need_comma = true;
-        }
-        Ok(())
+        ctx.is_lambda_arg = true;
+        let r = self.demangle_args(ctx, scope);
+        ctx.is_lambda_arg = false;
+        r
     }
 }
 
