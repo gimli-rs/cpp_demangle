@@ -1046,6 +1046,10 @@ impl<'a> GetLeafName<'a> for NonSubstitution {
 /// - a `Demangle` impl
 ///
 /// See the definition of `CTorDtorName` for an example of its use.
+///
+/// Optionally, a piece of user data can be attached to the definitions
+/// and be returned by a generated accessor. See `SimpleOperatorName` for
+/// an example.
 macro_rules! define_vocabulary {
     ( $(#[$attr:meta])* pub enum $typename:ident {
         $($variant:ident ( $mangled:expr, $printable:expr )),*
@@ -1119,7 +1123,33 @@ macro_rules! define_vocabulary {
                 false
             }
         }
+    };
+    ( $(#[$attr:meta])* pub enum $typename:ident {
+        $($variant:ident ( $mangled:expr, $printable:expr, $userdata:expr)),*
     }
+
+      impl $typename2:ident {
+          fn $fn_name:ident(&self) -> $userdata_ty:ty;
+    } ) => {
+        define_vocabulary! {
+            $(#[$attr])*
+            pub enum $typename {
+                $(
+                    $variant ( $mangled, $printable )
+                ),*
+            }
+        }
+
+        impl $typename2 {
+            fn $fn_name(&self) -> $userdata_ty {
+                match *self {
+                    $(
+                        $typename2::$variant => $userdata,
+                    )*
+                }
+            }
+        }
+    };
 }
 
 /// The root AST node, and starting production.
@@ -2455,6 +2485,43 @@ impl OperatorName {
     fn starts_with(byte: u8) -> bool {
         byte == b'c' || byte == b'l' || byte == b'v' || SimpleOperatorName::starts_with(byte)
     }
+
+    fn arity(&self) -> u8 {
+        match self {
+            &OperatorName::Cast(_) => 1,
+            &OperatorName::Literal(_) => 1,
+            &OperatorName::Simple(ref s) => s.arity(),
+            &OperatorName::VendorExtension(arity, _) => arity,
+        }
+    }
+
+    fn parse_arity<'a, 'b>(
+        self,
+        ctx: &'a ParseContext,
+        subs: &'a mut SubstitutionTable,
+        input: IndexStr<'b>
+    ) -> Result<(Expression, IndexStr<'b>)> {
+        let arity = self.arity();
+        if arity == 1 {
+            let (first, tail) = Expression::parse(ctx, subs, input)?;
+            let expr = Expression::Unary(self, Box::new(first));
+            Ok((expr, tail))
+        } else if arity == 2 {
+            let (first, tail) = Expression::parse(ctx, subs, input)?;
+            let (second, tail) = Expression::parse(ctx, subs, tail)?;
+            let expr = Expression::Binary(self, Box::new(first), Box::new(second));
+            Ok((expr, tail))
+        } else if arity == 3 {
+            let (first, tail) = Expression::parse(ctx, subs, input)?;
+            let (second, tail) = Expression::parse(ctx, subs, tail)?;
+            let (third, tail) = Expression::parse(ctx, subs, tail)?;
+            let expr =
+                Expression::Ternary(self, Box::new(first), Box::new(second), Box::new(third));
+            Ok((expr, tail))
+        } else {
+            Err(error::Error::UnexpectedText)
+        }
+    }
 }
 
 impl Parse for OperatorName {
@@ -2545,53 +2612,58 @@ define_vocabulary! {
     /// The `<simple-operator-name>` production.
     #[derive(Clone, Debug, PartialEq, Eq)]
     pub enum SimpleOperatorName {
-        New              (b"nw",  "new"),
-        NewArray         (b"na",  "new[]"),
-        Delete           (b"dl",  "delete"),
-        DeleteArray      (b"da",  "delete[]"),
-        UnaryPlus        (b"ps",  "+"), // unary
-        Neg              (b"ng",  "-"), // unary
-        AddressOf        (b"ad",  "&"), // unary
-        Deref            (b"de",  "*"), // unary
-        BitNot           (b"co",  "~"),
-        Add              (b"pl",  "+"),
-        Sub              (b"mi",  "-"),
-        Mul              (b"ml",  "*"),
-        Div              (b"dv",  "/"),
-        Rem              (b"rm",  "%"),
-        BitAnd           (b"an",  "&"),
-        BitOr            (b"or",  "|"),
-        BitXor           (b"eo",  "^"),
-        Assign           (b"aS",  "="),
-        AddAssign        (b"pL",  "+="),
-        SubAssign        (b"mI",  "-="),
-        MulAssign        (b"mL",  "*="),
-        DivAssign        (b"dV",  "/="),
-        RemAssign        (b"rM",  "%="),
-        BitAndAssign     (b"aN",  "&="),
-        BitOrAssign      (b"oR",  "|="),
-        BitXorAssign     (b"eO",  "^="),
-        Shl              (b"ls",  "<<"),
-        Shr              (b"rs",  ">>"),
-        ShlAssign        (b"lS",  "<<="),
-        ShrAssign        (b"rS",  ">>="),
-        Eq               (b"eq",  "=="),
-        Ne               (b"ne",  "!="),
-        Less             (b"lt",  "<"),
-        Greater          (b"gt",  ">"),
-        LessEq           (b"le",  "<="),
-        GreaterEq        (b"ge",  ">="),
-        Not              (b"nt",  "!"),
-        LogicalAnd       (b"aa",  "&&"),
-        LogicalOr        (b"oo",  "||"),
-        PostInc          (b"pp",  "++"), // (postfix in <expression> context)
-        PostDec          (b"mm",  "--"), // (postfix in <expression> context)
-        Comma            (b"cm",  ","),
-        DerefMemberPtr   (b"pm",  "->*"),
-        DerefMember      (b"pt",  "->"),
-        Call             (b"cl",  "()"),
-        Index            (b"ix",  "[]"),
-        Question         (b"qu",  "?:")
+        New              (b"nw",  "new",      3),
+        NewArray         (b"na",  "new[]",    3),
+        Delete           (b"dl",  "delete",   1),
+        DeleteArray      (b"da",  "delete[]", 1),
+        UnaryPlus        (b"ps",  "+",        1),
+        Neg              (b"ng",  "-",        1),
+        AddressOf        (b"ad",  "&",        1),
+        Deref            (b"de",  "*",        1),
+        BitNot           (b"co",  "~",        1),
+        Add              (b"pl",  "+",        2),
+        Sub              (b"mi",  "-",        2),
+        Mul              (b"ml",  "*",        2),
+        Div              (b"dv",  "/",        2),
+        Rem              (b"rm",  "%",        2),
+        BitAnd           (b"an",  "&",        2),
+        BitOr            (b"or",  "|",        2),
+        BitXor           (b"eo",  "^",        2),
+        Assign           (b"aS",  "=",        2),
+        AddAssign        (b"pL",  "+=",       2),
+        SubAssign        (b"mI",  "-=",       2),
+        MulAssign        (b"mL",  "*=",       2),
+        DivAssign        (b"dV",  "/=",       2),
+        RemAssign        (b"rM",  "%=",       2),
+        BitAndAssign     (b"aN",  "&=",       2),
+        BitOrAssign      (b"oR",  "|=",       2),
+        BitXorAssign     (b"eO",  "^=",       2),
+        Shl              (b"ls",  "<<",       2),
+        Shr              (b"rs",  ">>",       2),
+        ShlAssign        (b"lS",  "<<=",      2),
+        ShrAssign        (b"rS",  ">>=",      2),
+        Eq               (b"eq",  "==",       2),
+        Ne               (b"ne",  "!=",       2),
+        Less             (b"lt",  "<",        2),
+        Greater          (b"gt",  ">",        2),
+        LessEq           (b"le",  "<=",       2),
+        GreaterEq        (b"ge",  ">=",       2),
+        Not              (b"nt",  "!",        1),
+        LogicalAnd       (b"aa",  "&&",       2),
+        LogicalOr        (b"oo",  "||",       2),
+        PostInc          (b"pp",  "++",       1), // (postfix in <expression> context)
+        PostDec          (b"mm",  "--",       1), // (postfix in <expression> context)
+        Comma            (b"cm",  ",",        2),
+        DerefMemberPtr   (b"pm",  "->*",      2),
+        DerefMember      (b"pt",  "->",       2),
+        Call             (b"cl",  "()",       2),
+        Index            (b"ix",  "[]",       2),
+        Question         (b"qu",  "?:",       3)
+    }
+
+    impl SimpleOperatorName {
+        // Automatically implemented by define_vocabulary!
+        fn arity(&self) -> u8;
     }
 }
 
@@ -4916,20 +4988,8 @@ impl Parse for Expression {
         //
         // TODO: Should we check if the operator matches the arity here?
         let (opname, tail) = OperatorName::parse(ctx, subs, input)?;
-        let (first, tail) = Expression::parse(ctx, subs, tail)?;
-        return if let Ok((second, tail)) = Expression::parse(ctx, subs, tail) {
-            if let Ok((third, tail)) = Expression::parse(ctx, subs, tail) {
-                let expr =
-                    Expression::Ternary(opname, Box::new(first), Box::new(second), Box::new(third));
-                Ok((expr, tail))
-            } else {
-                let expr = Expression::Binary(opname, Box::new(first), Box::new(second));
-                Ok((expr, tail))
-            }
-        } else {
-            let expr = Expression::Unary(opname, Box::new(first));
-            Ok((expr, tail))
-        };
+        let (expr, tail) = opname.parse_arity(ctx, subs, tail)?;
+        return Ok((expr, tail));
 
         // Parse the various expressions that can optionally have a leading "gs"
         // to indicate that they are in the global namespace. The input is after
@@ -8820,6 +8880,43 @@ mod tests {
                                                     })))))))),
                         b"...",
                         []
+                    }
+                    // An expression where arity matters
+                    b"cldtdefpT4TypeadsrT_5EnterE..." => {
+                        Expression::Call(
+                            Box::new(Expression::Member(
+                                Box::new(Expression::Unary(OperatorName::Simple(SimpleOperatorName::Deref),
+                                                           Box::new(Expression::FunctionParam(
+                                                               FunctionParam(0,
+                                                                             CvQualifiers::default(),
+                                                                             None)
+                                                           ))
+                                )),
+                                UnresolvedName::Name(
+                                    BaseUnresolvedName::Name (
+                                        SimpleId(
+                                            SourceName(Identifier {
+                                                start: 10,
+                                                end: 14,
+                                            }),
+                                            None)
+                                    )
+                                )
+                            )),
+                            vec![Expression::Unary(OperatorName::Simple(SimpleOperatorName::AddressOf),
+                                                   Box::new(Expression::TypeUnqualifiedName(
+                                                       TypeHandle::BackReference(1),
+                                                       UnqualifiedName::Source(
+                                                           SourceName(Identifier {
+                                                               start: 21,
+                                                               end: 26,
+                                                           })))))]
+
+                        ),
+                        b"...",
+                        [
+                            Substitutable::Type(Type::TemplateParam(TemplateParam(0)))
+                        ]
                     }
                 }
                 Err => {
