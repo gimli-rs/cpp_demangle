@@ -4324,12 +4324,11 @@ impl Parse for FunctionParam {
         let (param, tail) = if tail.peek() == Some(b'T') {
             (None, consume(b"T", tail)?)
         } else if let Ok((num, tail)) = parse_number(10, false, tail) {
-            (Some(num as usize + 1), tail)
+            (Some(num as usize + 1), consume(b"_", tail)?)
         } else {
-            (Some(0), tail)
+            (Some(0), consume(b"_", tail)?)
         };
 
-        let tail = consume(b"_", tail)?;
         Ok((FunctionParam(scope as _, qualifiers, param), tail))
     }
 }
