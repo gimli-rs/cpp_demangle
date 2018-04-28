@@ -335,3 +335,7 @@ demangles!(
     __ZN6ISiS_Z3b_dE1ES0_7__dIFFFdhl,
     "ISiS_Z::b_d(E, E, __dIFFF, double, unsigned char, long)"
 );
+demangles!(
+    _ZN9__gnu_cxxmiIPKtPtNSt7__cxx1112basic_stringItN4base18string16_internals20string16_char_traitsESaItEEEEEDTmicldtfp_4baseEcldtfp0_4baseEERKNS_17__normal_iteratorIT_T1_EERKNSC_IT0_SE_EE,
+    "decltype ((({parm#1}.base)())-(({parm#2}.base)())) __gnu_cxx::operator-<unsigned short const*, unsigned short*, std::__cxx11::basic_string<unsigned short, base::string16_internals::string16_char_traits, std::allocator<unsigned short> > >(__gnu_cxx::__normal_iterator<unsigned short const*, std::__cxx11::basic_string<unsigned short, base::string16_internals::string16_char_traits, std::allocator<unsigned short> > > const&, __gnu_cxx::__normal_iterator<unsigned short*, std::__cxx11::basic_string<unsigned short, base::string16_internals::string16_char_traits, std::allocator<unsigned short> > > const&)"
+);

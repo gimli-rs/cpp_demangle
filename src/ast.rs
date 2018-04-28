@@ -4329,10 +4329,12 @@ impl Parse for FunctionParam {
 
         let (qualifiers, tail) = CvQualifiers::parse(ctx, subs, tail)?;
 
-        let (param, tail) = if let Ok((num, tail)) = parse_number(10, false, tail) {
-            (Some(num as _), tail)
+        let (param, tail) = if tail.peek() == Some(b'T') {
+            (None, consume(b"T", tail)?)
+        } else if let Ok((num, tail)) = parse_number(10, false, tail) {
+            (Some(num as usize + 1), tail)
         } else {
-            (None, tail)
+            (Some(0), tail)
         };
 
         let tail = consume(b"_", tail)?;
@@ -4351,11 +4353,10 @@ where
     ) -> io::Result<()> {
         log_demangle!(self, ctx, scope);
 
-        // TODO: this needs more finesse.
-        let ty = scope
-            .get_function_arg(self.0)
-            .map_err(|e| io::Error::new(io::ErrorKind::Other, e.description()))?;
-        ty.demangle(ctx, scope)
+        match self.2 {
+            None => write!(ctx, "this"),
+            Some(i) => write!(ctx, "{{parm#{}}}", i + 1),
+        }
     }
 }
 
@@ -8727,7 +8728,7 @@ mod tests {
                         []
                     }
                     b"fp_..." => {
-                        Expression::FunctionParam(FunctionParam(0, CvQualifiers::default(), None)),
+                        Expression::FunctionParam(FunctionParam(0, CvQualifiers::default(), Some(0))),
                         b"...",
                         []
                     }
@@ -8776,7 +8777,7 @@ mod tests {
                     }
                     b"sZfp_..." => {
                         Expression::SizeofFunctionPack(
-                            FunctionParam(0, CvQualifiers::default(), None)),
+                            FunctionParam(0, CvQualifiers::default(), Some(0))),
                         b"...",
                         []
                     }
@@ -9598,7 +9599,7 @@ mod tests {
                                       volatile: false,
                                       const_: true,
                                   },
-                                  None),
+                                  Some(0)),
                     b"..."
                 }
                 b"fL1pK_..." => {
@@ -9608,7 +9609,7 @@ mod tests {
                                       volatile: false,
                                       const_: true,
                                   },
-                                  None),
+                                  Some(0)),
                     b"..."
                 }
                 b"fpK3_..." => {
@@ -9618,7 +9619,7 @@ mod tests {
                                       volatile: false,
                                       const_: true,
                                   },
-                                  Some(3)),
+                                  Some(4)),
                     b"..."
                 }
                 b"fL1pK4_..." => {
@@ -9628,7 +9629,7 @@ mod tests {
                                       volatile: false,
                                       const_: true,
                                   },
-                                  Some(4)),
+                                  Some(5)),
                     b"..."
                 }
             }
