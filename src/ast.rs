@@ -340,6 +340,9 @@ trait ArgScopeStackExt<'prev, 'subs>: Copy {
         &'prev self,
         item: &'subs ArgScope<'subs, 'subs>,
     ) -> Option<ArgScopeStack<'prev, 'subs>>;
+
+    /// Determine if this is the top-most scope.
+    fn is_top(&self) -> bool;
 }
 
 impl<'prev, 'subs> ArgScopeStackExt<'prev, 'subs> for Option<ArgScopeStack<'prev, 'subs>> {
@@ -352,6 +355,13 @@ impl<'prev, 'subs> ArgScopeStackExt<'prev, 'subs> for Option<ArgScopeStack<'prev
             prev: self.as_ref(),
             item: item,
         })
+    }
+
+    fn is_top(&self) -> bool {
+        match self {
+            &None => true,
+            &Some(s) => s.prev.is_none(),
+        }
     }
 }
 
@@ -792,7 +802,7 @@ where
     ) -> io::Result<()> {
         log_demangle!(self, ctx, scope);
 
-        if ctx.options.no_params && scope.is_none() {
+        if ctx.options.no_params && scope.is_top() {
             return Ok(());
         }
 
