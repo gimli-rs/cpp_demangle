@@ -4735,6 +4735,7 @@ impl Parse for Expression {
                 b"cl" => {
                     let (func, tail) = Expression::parse(ctx, subs, tail)?;
                     let (args, tail) = zero_or_more::<Expression>(ctx, subs, tail)?;
+                    let tail = consume(b"E", tail)?;
                     let expr = Expression::Call(Box::new(func), args);
                     return Ok((expr, tail));
                 }
@@ -8399,7 +8400,7 @@ mod tests {
                         b"...",
                         []
                     }
-                    b"clLS_1E..." => {
+                    b"clLS_1EE..." => {
                         Expression::Call(
                             Box::new(Expression::Primary(
                                 ExprPrimary::Literal(
