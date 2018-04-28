@@ -1903,7 +1903,7 @@ impl Parse for PrefixHandle {
                     }
                 }
                 Some(b'I')
-                    if current.is_some() && current.as_ref().unwrap().is_template_prefix(subs) =>
+                    if current.is_some() && current.as_ref().unwrap().is_template_prefix() =>
                 {
                     // <prefix> ::= <template-prefix> <template-args>
                     let (args, tail_tail) = TemplateArgs::parse(ctx, subs, tail)?;
@@ -2028,32 +2028,14 @@ where
     }
 }
 
-impl Prefix {
+impl PrefixHandle {
     // Is this <prefix> also a valid <template-prefix> production? Not to be
     // confused with the `GetTemplateArgs` trait.
     fn is_template_prefix(&self) -> bool {
         match *self {
-            Prefix::Unqualified(..) | Prefix::Nested(..) | Prefix::TemplateParam(..) => true,
-            _ => false,
-        }
-    }
-}
-
-impl PrefixHandle {
-    fn is_template_prefix(&self, subs: &SubstitutionTable) -> bool {
-        match *self {
-            PrefixHandle::BackReference(idx) => {
-                if let Some(&Substitutable::Prefix(ref p)) = subs.get(idx) {
-                    p.is_template_prefix()
-                } else {
-                    false
-                }
-            }
-            // Accept all `WellKnownComponent`s as template prefixes (even if
-            // that's not particularly sensible, for example 'Si', 'So',
-            // and 'St', because libiberty does).
+            PrefixHandle::BackReference(_) |
             PrefixHandle::WellKnown(_) => true,
-            _ => false,
+            PrefixHandle::NonSubstitution(_) => false,
         }
     }
 }
