@@ -1,6 +1,7 @@
 extern crate glob;
 
 use glob::glob;
+use std::collections::HashSet;
 use std::env;
 use std::fs;
 use std::io::{self, BufRead, Write};
@@ -92,11 +93,6 @@ fn test_afl_seed_{}() {{
     Ok(())
 }
 
-// Ratcheting number that is increased as more libiberty tests start
-// passing. Once they are all passing, this can be removed and we can enable all
-// of them by default.
-const LIBIBERTY_TEST_THRESHOLD: usize = 85;
-
 /// Read `tests/libiberty-demangle-expected`, parse its input mangled symbols,
 /// and expected output demangled symbols, and generate test cases for them.
 ///
@@ -120,6 +116,31 @@ extern crate diff;
 use std::fmt::Write;
 "
     )?;
+
+    // The set of libiberty tests that pass. This should only ever grow!
+    let libiberty_passing_tests: HashSet<_> = {
+        (0..86).into_iter()
+            .chain(87..89)
+            .chain(92..93)
+            .chain(94..105)
+            .chain(107..108)
+            .chain(116..118)
+            .chain(122..124)
+            .chain(128..131)
+            .chain(133..134)
+            .chain(141..143)
+            .chain(151..152)
+            .chain(153..154)
+            .chain(158..168)
+            .chain(169..170)
+            .chain(179..180)
+            .chain(181..182)
+            .chain(185..186)
+            .chain(188..189)
+            .chain(201..202)
+            .chain(203..204)
+            .collect()
+    };
 
     let libiberty_tests = get_crate_test_path("libiberty-demangle-expected")?;
     let libiberty_tests = fs::File::open(libiberty_tests)?;
@@ -184,7 +205,7 @@ use std::fmt::Write;
             continue;
         }
 
-        let cfg = if n <= LIBIBERTY_TEST_THRESHOLD {
+        let cfg = if libiberty_passing_tests.contains(&n) {
             ""
         } else {
             r###"#[cfg(feature = "run_libiberty_tests")]"###
