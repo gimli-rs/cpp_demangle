@@ -93,13 +93,19 @@ instead of the `parse_and_stringify` target.
 ### Fuzzing with AFL
 
 What follows is a TLDR, for detailed instructions see
-the [`afl.rs` book](https://rust-fuzz.github.io/afl.rs/setup.html).
+the [`afl.rs` book](https://rust-fuzz.github.io/book/afl/setup.html).
 
-1. [Install docker](https://docker.com/getdocker)
-2. `$ docker pull corey/afl.rs`
-3. `$ docker run -v $CPP_DEMANGLE_REPO:/source -it corey/afl.rs sh`
-4. `$ cargo build`
-5. `$ afl-fuzz -i in -o out target/debug/afl_runner`
+1. Install the afl.rs command line tool:
+
+    `cargo install afl`
+
+1. Build the cpp_mangle AFL fuzz target:
+
+    `cargo afl build --features afl`
+
+1. Run AFL:
+
+     `cargo afl fuzz -i in -o out target/debug/afl_runner`
 
 ## Automatic code formatting
 

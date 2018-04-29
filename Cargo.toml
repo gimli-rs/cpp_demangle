@@ -21,16 +21,17 @@ name = "cppfilt"
 path = "src/bin/cppfilt.rs"
 required-features = ["cppfilt"]
 
+[[bin]]
+name = "afl_runner"
+path = "src/bin/afl_runner.rs"
+required-features = ["afl"]
+
 [build-dependencies]
 glob = "0.2.11"
 
 [dependencies.afl]
 optional = true
-version = "0.1.5"
-
-[dependencies.afl-plugin]
-optional = true
-version = "0.1.5"
+version = "0.3"
 
 [dependencies.clap]
 optional = true
@@ -45,9 +46,6 @@ cppfilt = ["clap"]
 
 # Default features.
 default = ["cppfilt"]
-
-# Build with support for fuzzing with AFL.rs.
-fuzz = ["afl", "afl-plugin"]
 
 # Enable copious amounts of logging. Only useful for hacking on `cpp_demangle`
 # itself.
