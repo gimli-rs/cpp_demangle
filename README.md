@@ -72,7 +72,7 @@ Despite that, I believe `cpp_demangle` is fairly robust. I've been
 running [AFL][] on `cpp_demangle` overnight and it hasn't found any panics for a
 long time now (and never found any crashes -- thanks Rust!).
 
-[AFL]: https://github.com/frewsxcv/afl.rs
+[AFL]: https://github.com/rust-fuzz/afl.rs
 
 ## License
 
