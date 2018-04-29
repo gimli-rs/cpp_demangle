@@ -1591,7 +1591,11 @@ pub struct UnscopedTemplateName(UnscopedName);
 
 define_handle! {
     /// A handle to an `UnscopedTemplateName`.
-    pub enum UnscopedTemplateNameHandle
+    pub enum UnscopedTemplateNameHandle {
+        /// A handle to some `<unscoped-name>` component that isn't by itself
+        /// substitutable.
+        extra NonSubstitution(NonSubstitution),
+    }
 }
 
 impl Parse for UnscopedTemplateNameHandle {
@@ -4583,6 +4587,52 @@ where
     }
 }
 
+/// In libiberty, Member and DerefMember expressions have special handling.
+/// They parse an `UnqualifiedName` (not an `UnscopedName` as the cxxabi docs
+/// say) and optionally a `TemplateArgs` if it is present. We can't just parse
+/// a `Name` or an `UnscopedTemplateName` here because that allows other inputs
+/// that libiberty does not.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct MemberName(Name);
+
+impl Parse for MemberName {
+    fn parse<'a, 'b>(
+        ctx: &'a ParseContext,
+        subs: &'a mut SubstitutionTable,
+        input: IndexStr<'b>,
+    ) -> Result<(MemberName, IndexStr<'b>)> {
+        try_begin_parse!("MemberName", ctx, input);
+
+        let (name, tail) = UnqualifiedName::parse(ctx, subs, input)?;
+        let name = UnscopedName::Unqualified(name);
+        if let Ok((template, tail)) = TemplateArgs::parse(ctx, subs, tail) {
+            let name = UnscopedTemplateName(name);
+            // In libiberty, these are unsubstitutable.
+            let idx = subs.insert_non_substitution(Substitutable::UnscopedTemplateName(name));
+            let handle = UnscopedTemplateNameHandle::NonSubstitution(NonSubstitution(idx));
+            Ok((MemberName(Name::UnscopedTemplate(handle, template)), tail))
+        } else {
+            Ok((MemberName(Name::Unscoped(name)), tail))
+        }
+    }
+}
+
+
+impl<'subs, W> Demangle<'subs, W> for MemberName
+where
+    W: 'subs + io::Write,
+{
+    fn demangle<'prev, 'ctx>(
+        &'subs self,
+        ctx: &'ctx mut DemangleContext<'subs, W>,
+        scope: Option<ArgScopeStack<'prev, 'subs>>,
+    ) -> io::Result<()> {
+        log_demangle!(self, ctx, scope);
+
+        self.0.demangle(ctx, scope)
+    }
+}
+
 /// The `<expression>` production.
 ///
 /// ```text
@@ -4732,10 +4782,10 @@ pub enum Expression {
     FunctionParam(FunctionParam),
 
     /// `expr.name`
-    Member(Box<Expression>, UnresolvedName),
+    Member(Box<Expression>, MemberName),
 
     /// `expr->name`
-    DerefMember(Box<Expression>, UnresolvedName),
+    DerefMember(Box<Expression>, MemberName),
 
     /// `expr.*expr`
     PointerToMember(Box<Expression>, Box<Expression>),
@@ -4890,13 +4940,13 @@ impl Parse for Expression {
                 }
                 b"dt" => {
                     let (expr, tail) = Expression::parse(ctx, subs, tail)?;
-                    let (name, tail) = UnresolvedName::parse(ctx, subs, tail)?;
+                    let (name, tail) = MemberName::parse(ctx, subs, tail)?;
                     let expr = Expression::Member(Box::new(expr), name);
                     return Ok((expr, tail));
                 }
                 b"pt" => {
                     let (expr, tail) = Expression::parse(ctx, subs, tail)?;
-                    let (name, tail) = UnresolvedName::parse(ctx, subs, tail)?;
+                    let (name, tail) = MemberName::parse(ctx, subs, tail)?;
                     let expr = Expression::DerefMember(Box::new(expr), name);
                     return Ok((expr, tail));
                 }
@@ -6888,12 +6938,12 @@ mod tests {
                 ClassEnumType, ClosureTypeName, CtorDtorName, CvQualifiers, DataMemberPrefix,
                 Decltype, DestructorName, Discriminator, Encoding, ExprPrimary, Expression,
                 FunctionParam, FunctionType, GlobalCtorDtor, Identifier, Initializer, LambdaSig,
-                LocalName, MangledName, Name, NestedName, NonSubstitution, Number, NvOffset,
-                OperatorName, Parse, ParseContext, PointerToMemberType, Prefix, PrefixHandle,
-                RefQualifier, SeqId, SimpleId, SimpleOperatorName, SourceName, SpecialName,
-                StandardBuiltinType, Substitution, TaggedName, TemplateArg, TemplateArgs,
-                TemplateParam, TemplateTemplateParam, TemplateTemplateParamHandle, Type,
-                TypeHandle, UnnamedTypeName, UnqualifiedName, UnresolvedName,
+                LocalName, MangledName, MemberName, Name, NestedName, NonSubstitution, Number,
+                NvOffset, OperatorName, Parse, ParseContext, PointerToMemberType, Prefix,
+                PrefixHandle, RefQualifier, SeqId, SimpleId, SimpleOperatorName, SourceName,
+                SpecialName, StandardBuiltinType, Substitution, TaggedName, TemplateArg,
+                TemplateArgs, TemplateParam, TemplateTemplateParam, TemplateTemplateParamHandle,
+                Type, TypeHandle, UnnamedTypeName, UnqualifiedName, UnresolvedName,
                 UnresolvedQualifierLevel, UnresolvedType, UnresolvedTypeHandle, UnscopedName,
                 UnscopedTemplateName, UnscopedTemplateNameHandle, VOffset, VectorType,
                 WellKnownComponent};
@@ -8786,32 +8836,56 @@ mod tests {
                     b"dtT_3abc..." => {
                         Expression::Member(
                             Box::new(Expression::TemplateParam(TemplateParam(0))),
-                            UnresolvedName::Name(
-                                BaseUnresolvedName::Name(
-                                    SimpleId(
-                                        SourceName(
-                                            Identifier {
-                                                start: 5,
-                                                end: 8,
-                                            }),
-                                        None)))),
+                            MemberName(
+                                Name::Unscoped(
+                                    UnscopedName::Unqualified(
+                                        UnqualifiedName::Source(
+                                            SourceName(
+                                                Identifier {
+                                                    start: 5,
+                                                    end: 8,
+                                                })))))),
                         b"...",
                         []
                     }
                     b"ptT_3abc..." => {
                         Expression::DerefMember(
                             Box::new(Expression::TemplateParam(TemplateParam(0))),
-                            UnresolvedName::Name(
-                                BaseUnresolvedName::Name(
-                                    SimpleId(
-                                        SourceName(
-                                            Identifier {
-                                                start: 5,
-                                                end: 8,
-                                            }),
-                                        None)))),
+                            MemberName(
+                                Name::Unscoped(
+                                    UnscopedName::Unqualified(
+                                        UnqualifiedName::Source(
+                                            SourceName(
+                                                Identifier {
+                                                    start: 5,
+                                                    end: 8,
+                                                })))))),
                         b"...",
                         []
+                    }
+                    b"dtfp_clI3abcE..." => {
+                        Expression::Member(
+                            Box::new(Expression::FunctionParam(FunctionParam(0, CvQualifiers::default(), Some(0)))),
+                            MemberName(
+                                Name::UnscopedTemplate(
+                                    UnscopedTemplateNameHandle::NonSubstitution(NonSubstitution(0)),
+                                    TemplateArgs(vec![
+                                        TemplateArg::Type(
+                                            TypeHandle::BackReference(1))])))),
+                        b"...",
+                        [
+                            Substitutable::Type(
+                                Type::ClassEnum(
+                                    ClassEnumType::Named(
+                                        Name::Unscoped(
+                                            UnscopedName::Unqualified(
+                                                UnqualifiedName::Source(
+                                                    SourceName(
+                                                        Identifier {
+                                                            start: 9,
+                                                            end: 12
+                                                        })))))))
+                        ]
                     }
                     //               ::= ds <expression> <expression>                 # expr.*expr
                     b"dsT_T_..." => {
@@ -8892,15 +8966,15 @@ mod tests {
                                                                              None)
                                                            ))
                                 )),
-                                UnresolvedName::Name(
-                                    BaseUnresolvedName::Name (
-                                        SimpleId(
-                                            SourceName(Identifier {
-                                                start: 10,
-                                                end: 14,
-                                            }),
-                                            None)
-                                    )
+                                MemberName(
+                                    Name::Unscoped(
+                                        UnscopedName::Unqualified(
+                                            UnqualifiedName::Source(
+                                                SourceName(Identifier {
+                                                    start: 10,
+                                                    end: 14,
+                                                })))
+                                     )
                                 )
                             )),
                             vec![Expression::Unary(OperatorName::Simple(SimpleOperatorName::AddressOf),
@@ -8920,6 +8994,7 @@ mod tests {
                     }
                 }
                 Err => {
+                    b"dtStfp_clI3abcE..." => Error::UnexpectedText,
                 }
             }
         });
