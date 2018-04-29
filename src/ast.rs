@@ -340,6 +340,9 @@ trait ArgScopeStackExt<'prev, 'subs>: Copy {
         &'prev self,
         item: &'subs ArgScope<'subs, 'subs>,
     ) -> Option<ArgScopeStack<'prev, 'subs>>;
+
+    /// Determine if this is the top-most scope.
+    fn is_top(&self) -> bool;
 }
 
 impl<'prev, 'subs> ArgScopeStackExt<'prev, 'subs> for Option<ArgScopeStack<'prev, 'subs>> {
@@ -352,6 +355,13 @@ impl<'prev, 'subs> ArgScopeStackExt<'prev, 'subs> for Option<ArgScopeStack<'prev
             prev: self.as_ref(),
             item: item,
         })
+    }
+
+    fn is_top(&self) -> bool {
+        match self {
+            &None => true,
+            &Some(s) => s.prev.is_none(),
+        }
     }
 }
 
@@ -434,6 +444,10 @@ where
     // The last byte written to `out`, if any.
     last_byte_written: Option<u8>,
 
+    // We are currently demangling a lambda argument, so template substitution
+    // should be suppressed to match libiberty.
+    is_lambda_arg: bool,
+
     // Options passed to the demangling process.
     options: &'a DemangleOptions,
 }
@@ -479,6 +493,7 @@ where
             out: out,
             bytes_written: 0,
             last_byte_written: None,
+            is_lambda_arg: false,
             options: options,
         }
     }
@@ -787,7 +802,7 @@ where
     ) -> io::Result<()> {
         log_demangle!(self, ctx, scope);
 
-        if ctx.options.no_params && scope.is_none() {
+        if ctx.options.no_params && scope.is_top() {
             return Ok(());
         }
 
@@ -1031,6 +1046,10 @@ impl<'a> GetLeafName<'a> for NonSubstitution {
 /// - a `Demangle` impl
 ///
 /// See the definition of `CTorDtorName` for an example of its use.
+///
+/// Optionally, a piece of user data can be attached to the definitions
+/// and be returned by a generated accessor. See `SimpleOperatorName` for
+/// an example.
 macro_rules! define_vocabulary {
     ( $(#[$attr:meta])* pub enum $typename:ident {
         $($variant:ident ( $mangled:expr, $printable:expr )),*
@@ -1104,7 +1123,33 @@ macro_rules! define_vocabulary {
                 false
             }
         }
+    };
+    ( $(#[$attr:meta])* pub enum $typename:ident {
+        $($variant:ident ( $mangled:expr, $printable:expr, $userdata:expr)),*
     }
+
+      impl $typename2:ident {
+          fn $fn_name:ident(&self) -> $userdata_ty:ty;
+    } ) => {
+        define_vocabulary! {
+            $(#[$attr])*
+            pub enum $typename {
+                $(
+                    $variant ( $mangled, $printable )
+                ),*
+            }
+        }
+
+        impl $typename2 {
+            fn $fn_name(&self) -> $userdata_ty {
+                match *self {
+                    $(
+                        $typename2::$variant => $userdata,
+                    )*
+                }
+            }
+        }
+    };
 }
 
 /// The root AST node, and starting production.
@@ -1546,7 +1591,11 @@ pub struct UnscopedTemplateName(UnscopedName);
 
 define_handle! {
     /// A handle to an `UnscopedTemplateName`.
-    pub enum UnscopedTemplateNameHandle
+    pub enum UnscopedTemplateNameHandle {
+        /// A handle to some `<unscoped-name>` component that isn't by itself
+        /// substitutable.
+        extra NonSubstitution(NonSubstitution),
+    }
 }
 
 impl Parse for UnscopedTemplateNameHandle {
@@ -1888,7 +1937,7 @@ impl Parse for PrefixHandle {
                     }
                 }
                 Some(b'I')
-                    if current.is_some() && current.as_ref().unwrap().is_template_prefix(subs) =>
+                    if current.is_some() && current.as_ref().unwrap().is_template_prefix() =>
                 {
                     // <prefix> ::= <template-prefix> <template-args>
                     let (args, tail_tail) = TemplateArgs::parse(ctx, subs, tail)?;
@@ -2013,32 +2062,14 @@ where
     }
 }
 
-impl Prefix {
+impl PrefixHandle {
     // Is this <prefix> also a valid <template-prefix> production? Not to be
     // confused with the `GetTemplateArgs` trait.
     fn is_template_prefix(&self) -> bool {
         match *self {
-            Prefix::Unqualified(..) | Prefix::Nested(..) | Prefix::TemplateParam(..) => true,
-            _ => false,
-        }
-    }
-}
-
-impl PrefixHandle {
-    fn is_template_prefix(&self, subs: &SubstitutionTable) -> bool {
-        match *self {
-            PrefixHandle::BackReference(idx) => {
-                if let Some(&Substitutable::Prefix(ref p)) = subs.get(idx) {
-                    p.is_template_prefix()
-                } else {
-                    false
-                }
-            }
-            // Accept all `WellKnownComponent`s as template prefixes (even if
-            // that's not particularly sensible, for example 'Si', 'So',
-            // and 'St', because libiberty does).
+            PrefixHandle::BackReference(_) |
             PrefixHandle::WellKnown(_) => true,
-            _ => false,
+            PrefixHandle::NonSubstitution(_) => false,
         }
     }
 }
@@ -2458,6 +2489,43 @@ impl OperatorName {
     fn starts_with(byte: u8) -> bool {
         byte == b'c' || byte == b'l' || byte == b'v' || SimpleOperatorName::starts_with(byte)
     }
+
+    fn arity(&self) -> u8 {
+        match self {
+            &OperatorName::Cast(_) => 1,
+            &OperatorName::Literal(_) => 1,
+            &OperatorName::Simple(ref s) => s.arity(),
+            &OperatorName::VendorExtension(arity, _) => arity,
+        }
+    }
+
+    fn parse_arity<'a, 'b>(
+        self,
+        ctx: &'a ParseContext,
+        subs: &'a mut SubstitutionTable,
+        input: IndexStr<'b>
+    ) -> Result<(Expression, IndexStr<'b>)> {
+        let arity = self.arity();
+        if arity == 1 {
+            let (first, tail) = Expression::parse(ctx, subs, input)?;
+            let expr = Expression::Unary(self, Box::new(first));
+            Ok((expr, tail))
+        } else if arity == 2 {
+            let (first, tail) = Expression::parse(ctx, subs, input)?;
+            let (second, tail) = Expression::parse(ctx, subs, tail)?;
+            let expr = Expression::Binary(self, Box::new(first), Box::new(second));
+            Ok((expr, tail))
+        } else if arity == 3 {
+            let (first, tail) = Expression::parse(ctx, subs, input)?;
+            let (second, tail) = Expression::parse(ctx, subs, tail)?;
+            let (third, tail) = Expression::parse(ctx, subs, tail)?;
+            let expr =
+                Expression::Ternary(self, Box::new(first), Box::new(second), Box::new(third));
+            Ok((expr, tail))
+        } else {
+            Err(error::Error::UnexpectedText)
+        }
+    }
 }
 
 impl Parse for OperatorName {
@@ -2548,53 +2616,58 @@ define_vocabulary! {
     /// The `<simple-operator-name>` production.
     #[derive(Clone, Debug, PartialEq, Eq)]
     pub enum SimpleOperatorName {
-        New              (b"nw",  "new"),
-        NewArray         (b"na",  "new[]"),
-        Delete           (b"dl",  "delete"),
-        DeleteArray      (b"da",  "delete[]"),
-        UnaryPlus        (b"ps",  "+"), // unary
-        Neg              (b"ng",  "-"), // unary
-        AddressOf        (b"ad",  "&"), // unary
-        Deref            (b"de",  "*"), // unary
-        BitNot           (b"co",  "~"),
-        Add              (b"pl",  "+"),
-        Sub              (b"mi",  "-"),
-        Mul              (b"ml",  "*"),
-        Div              (b"dv",  "/"),
-        Rem              (b"rm",  "%"),
-        BitAnd           (b"an",  "&"),
-        BitOr            (b"or",  "|"),
-        BitXor           (b"eo",  "^"),
-        Assign           (b"aS",  "="),
-        AddAssign        (b"pL",  "+="),
-        SubAssign        (b"mI",  "-="),
-        MulAssign        (b"mL",  "*="),
-        DivAssign        (b"dV",  "/="),
-        RemAssign        (b"rM",  "%="),
-        BitAndAssign     (b"aN",  "&="),
-        BitOrAssign      (b"oR",  "|="),
-        BitXorAssign     (b"eO",  "^="),
-        Shl              (b"ls",  "<<"),
-        Shr              (b"rs",  ">>"),
-        ShlAssign        (b"lS",  "<<="),
-        ShrAssign        (b"rS",  ">>="),
-        Eq               (b"eq",  "=="),
-        Ne               (b"ne",  "!="),
-        Less             (b"lt",  "<"),
-        Greater          (b"gt",  ">"),
-        LessEq           (b"le",  "<="),
-        GreaterEq        (b"ge",  ">="),
-        Not              (b"nt",  "!"),
-        LogicalAnd       (b"aa",  "&&"),
-        LogicalOr        (b"oo",  "||"),
-        PostInc          (b"pp",  "++"), // (postfix in <expression> context)
-        PostDec          (b"mm",  "--"), // (postfix in <expression> context)
-        Comma            (b"cm",  ","),
-        DerefMemberPtr   (b"pm",  "->*"),
-        DerefMember      (b"pt",  "->"),
-        Call             (b"cl",  "()"),
-        Index            (b"ix",  "[]"),
-        Question         (b"qu",  "?:")
+        New              (b"nw",  "new",      3),
+        NewArray         (b"na",  "new[]",    3),
+        Delete           (b"dl",  "delete",   1),
+        DeleteArray      (b"da",  "delete[]", 1),
+        UnaryPlus        (b"ps",  "+",        1),
+        Neg              (b"ng",  "-",        1),
+        AddressOf        (b"ad",  "&",        1),
+        Deref            (b"de",  "*",        1),
+        BitNot           (b"co",  "~",        1),
+        Add              (b"pl",  "+",        2),
+        Sub              (b"mi",  "-",        2),
+        Mul              (b"ml",  "*",        2),
+        Div              (b"dv",  "/",        2),
+        Rem              (b"rm",  "%",        2),
+        BitAnd           (b"an",  "&",        2),
+        BitOr            (b"or",  "|",        2),
+        BitXor           (b"eo",  "^",        2),
+        Assign           (b"aS",  "=",        2),
+        AddAssign        (b"pL",  "+=",       2),
+        SubAssign        (b"mI",  "-=",       2),
+        MulAssign        (b"mL",  "*=",       2),
+        DivAssign        (b"dV",  "/=",       2),
+        RemAssign        (b"rM",  "%=",       2),
+        BitAndAssign     (b"aN",  "&=",       2),
+        BitOrAssign      (b"oR",  "|=",       2),
+        BitXorAssign     (b"eO",  "^=",       2),
+        Shl              (b"ls",  "<<",       2),
+        Shr              (b"rs",  ">>",       2),
+        ShlAssign        (b"lS",  "<<=",      2),
+        ShrAssign        (b"rS",  ">>=",      2),
+        Eq               (b"eq",  "==",       2),
+        Ne               (b"ne",  "!=",       2),
+        Less             (b"lt",  "<",        2),
+        Greater          (b"gt",  ">",        2),
+        LessEq           (b"le",  "<=",       2),
+        GreaterEq        (b"ge",  ">=",       2),
+        Not              (b"nt",  "!",        1),
+        LogicalAnd       (b"aa",  "&&",       2),
+        LogicalOr        (b"oo",  "||",       2),
+        PostInc          (b"pp",  "++",       1), // (postfix in <expression> context)
+        PostDec          (b"mm",  "--",       1), // (postfix in <expression> context)
+        Comma            (b"cm",  ",",        2),
+        DerefMemberPtr   (b"pm",  "->*",      2),
+        DerefMember      (b"pt",  "->",       2),
+        Call             (b"cl",  "()",       2),
+        Index            (b"ix",  "[]",       2),
+        Question         (b"qu",  "?:",       3)
+    }
+
+    impl SimpleOperatorName {
+        // Automatically implemented by define_vocabulary!
+        fn arity(&self) -> u8;
     }
 }
 
@@ -4192,8 +4265,13 @@ where
     ) -> io::Result<()> {
         log_demangle!(self, ctx, scope);
 
-        let arg = self.resolve(scope)?;
-        arg.demangle(ctx, scope)
+        if ctx.is_lambda_arg {
+            // To match libiberty, template references are converted to `auto`.
+            write!(ctx, "auto:{}", self.0 + 1)
+        } else {
+            let arg = self.resolve(scope)?;
+            arg.demangle(ctx, scope)
+        }
     }
 }
 
@@ -4319,13 +4397,14 @@ impl Parse for FunctionParam {
 
         let (qualifiers, tail) = CvQualifiers::parse(ctx, subs, tail)?;
 
-        let (param, tail) = if let Ok((num, tail)) = parse_number(10, false, tail) {
-            (Some(num as _), tail)
+        let (param, tail) = if tail.peek() == Some(b'T') {
+            (None, consume(b"T", tail)?)
+        } else if let Ok((num, tail)) = parse_number(10, false, tail) {
+            (Some(num as usize + 1), consume(b"_", tail)?)
         } else {
-            (None, tail)
+            (Some(0), consume(b"_", tail)?)
         };
 
-        let tail = consume(b"_", tail)?;
         Ok((FunctionParam(scope as _, qualifiers, param), tail))
     }
 }
@@ -4341,11 +4420,10 @@ where
     ) -> io::Result<()> {
         log_demangle!(self, ctx, scope);
 
-        // TODO: this needs more finesse.
-        let ty = scope
-            .get_function_arg(self.0)
-            .map_err(|e| io::Error::new(io::ErrorKind::Other, e.description()))?;
-        ty.demangle(ctx, scope)
+        match self.2 {
+            None => write!(ctx, "this"),
+            Some(i) => write!(ctx, "{{parm#{}}}", i + 1),
+        }
     }
 }
 
@@ -4509,6 +4587,52 @@ where
     }
 }
 
+/// In libiberty, Member and DerefMember expressions have special handling.
+/// They parse an `UnqualifiedName` (not an `UnscopedName` as the cxxabi docs
+/// say) and optionally a `TemplateArgs` if it is present. We can't just parse
+/// a `Name` or an `UnscopedTemplateName` here because that allows other inputs
+/// that libiberty does not.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct MemberName(Name);
+
+impl Parse for MemberName {
+    fn parse<'a, 'b>(
+        ctx: &'a ParseContext,
+        subs: &'a mut SubstitutionTable,
+        input: IndexStr<'b>,
+    ) -> Result<(MemberName, IndexStr<'b>)> {
+        try_begin_parse!("MemberName", ctx, input);
+
+        let (name, tail) = UnqualifiedName::parse(ctx, subs, input)?;
+        let name = UnscopedName::Unqualified(name);
+        if let Ok((template, tail)) = TemplateArgs::parse(ctx, subs, tail) {
+            let name = UnscopedTemplateName(name);
+            // In libiberty, these are unsubstitutable.
+            let idx = subs.insert_non_substitution(Substitutable::UnscopedTemplateName(name));
+            let handle = UnscopedTemplateNameHandle::NonSubstitution(NonSubstitution(idx));
+            Ok((MemberName(Name::UnscopedTemplate(handle, template)), tail))
+        } else {
+            Ok((MemberName(Name::Unscoped(name)), tail))
+        }
+    }
+}
+
+
+impl<'subs, W> Demangle<'subs, W> for MemberName
+where
+    W: 'subs + io::Write,
+{
+    fn demangle<'prev, 'ctx>(
+        &'subs self,
+        ctx: &'ctx mut DemangleContext<'subs, W>,
+        scope: Option<ArgScopeStack<'prev, 'subs>>,
+    ) -> io::Result<()> {
+        log_demangle!(self, ctx, scope);
+
+        self.0.demangle(ctx, scope)
+    }
+}
+
 /// The `<expression>` production.
 ///
 /// ```text
@@ -4658,10 +4782,10 @@ pub enum Expression {
     FunctionParam(FunctionParam),
 
     /// `expr.name`
-    Member(Box<Expression>, UnresolvedName),
+    Member(Box<Expression>, MemberName),
 
     /// `expr->name`
-    DerefMember(Box<Expression>, UnresolvedName),
+    DerefMember(Box<Expression>, MemberName),
 
     /// `expr.*expr`
     PointerToMember(Box<Expression>, Box<Expression>),
@@ -4725,6 +4849,7 @@ impl Parse for Expression {
                 b"cl" => {
                     let (func, tail) = Expression::parse(ctx, subs, tail)?;
                     let (args, tail) = zero_or_more::<Expression>(ctx, subs, tail)?;
+                    let tail = consume(b"E", tail)?;
                     let expr = Expression::Call(Box::new(func), args);
                     return Ok((expr, tail));
                 }
@@ -4815,13 +4940,13 @@ impl Parse for Expression {
                 }
                 b"dt" => {
                     let (expr, tail) = Expression::parse(ctx, subs, tail)?;
-                    let (name, tail) = UnresolvedName::parse(ctx, subs, tail)?;
+                    let (name, tail) = MemberName::parse(ctx, subs, tail)?;
                     let expr = Expression::Member(Box::new(expr), name);
                     return Ok((expr, tail));
                 }
                 b"pt" => {
                     let (expr, tail) = Expression::parse(ctx, subs, tail)?;
-                    let (name, tail) = UnresolvedName::parse(ctx, subs, tail)?;
+                    let (name, tail) = MemberName::parse(ctx, subs, tail)?;
                     let expr = Expression::DerefMember(Box::new(expr), name);
                     return Ok((expr, tail));
                 }
@@ -4913,20 +5038,8 @@ impl Parse for Expression {
         //
         // TODO: Should we check if the operator matches the arity here?
         let (opname, tail) = OperatorName::parse(ctx, subs, input)?;
-        let (first, tail) = Expression::parse(ctx, subs, tail)?;
-        return if let Ok((second, tail)) = Expression::parse(ctx, subs, tail) {
-            if let Ok((third, tail)) = Expression::parse(ctx, subs, tail) {
-                let expr =
-                    Expression::Ternary(opname, Box::new(first), Box::new(second), Box::new(third));
-                Ok((expr, tail))
-            } else {
-                let expr = Expression::Binary(opname, Box::new(first), Box::new(second));
-                Ok((expr, tail))
-            }
-        } else {
-            let expr = Expression::Unary(opname, Box::new(first));
-            Ok((expr, tail))
-        };
+        let (expr, tail) = opname.parse_arity(ctx, subs, tail)?;
+        return Ok((expr, tail));
 
         // Parse the various expressions that can optionally have a leading "gs"
         // to indicate that they are in the global namespace. The input is after
@@ -6223,6 +6336,26 @@ impl ClosureTypeName {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct LambdaSig(Vec<TypeHandle>);
 
+impl LambdaSig {
+    fn demangle_args<'subs, 'prev, 'ctx, W>(
+        &'subs self,
+        ctx: &'ctx mut DemangleContext<'subs, W>,
+        scope: Option<ArgScopeStack<'prev, 'subs>>,
+    ) -> io::Result<()>
+        where W: 'subs + io::Write
+    {
+        let mut need_comma = false;
+        for ty in &self.0 {
+            if need_comma {
+                write!(ctx, ", ")?;
+            }
+            ty.demangle(ctx, scope)?;
+            need_comma = true;
+        }
+        Ok(())
+    }
+}
+
 impl Parse for LambdaSig {
     fn parse<'a, 'b>(
         ctx: &'a ParseContext,
@@ -6251,15 +6384,10 @@ where
     ) -> io::Result<()> {
         log_demangle!(self, ctx, scope);
 
-        let mut need_comma = false;
-        for ty in &self.0 {
-            if need_comma {
-                write!(ctx, ", ")?;
-            }
-            ty.demangle(ctx, scope)?;
-            need_comma = true;
-        }
-        Ok(())
+        ctx.is_lambda_arg = true;
+        let r = self.demangle_args(ctx, scope);
+        ctx.is_lambda_arg = false;
+        r
     }
 }
 
@@ -6810,12 +6938,12 @@ mod tests {
                 ClassEnumType, ClosureTypeName, CtorDtorName, CvQualifiers, DataMemberPrefix,
                 Decltype, DestructorName, Discriminator, Encoding, ExprPrimary, Expression,
                 FunctionParam, FunctionType, GlobalCtorDtor, Identifier, Initializer, LambdaSig,
-                LocalName, MangledName, Name, NestedName, NonSubstitution, Number, NvOffset,
-                OperatorName, Parse, ParseContext, PointerToMemberType, Prefix, PrefixHandle,
-                RefQualifier, SeqId, SimpleId, SimpleOperatorName, SourceName, SpecialName,
-                StandardBuiltinType, Substitution, TaggedName, TemplateArg, TemplateArgs,
-                TemplateParam, TemplateTemplateParam, TemplateTemplateParamHandle, Type,
-                TypeHandle, UnnamedTypeName, UnqualifiedName, UnresolvedName,
+                LocalName, MangledName, MemberName, Name, NestedName, NonSubstitution, Number,
+                NvOffset, OperatorName, Parse, ParseContext, PointerToMemberType, Prefix,
+                PrefixHandle, RefQualifier, SeqId, SimpleId, SimpleOperatorName, SourceName,
+                SpecialName, StandardBuiltinType, Substitution, TaggedName, TemplateArg,
+                TemplateArgs, TemplateParam, TemplateTemplateParam, TemplateTemplateParamHandle,
+                Type, TypeHandle, UnnamedTypeName, UnqualifiedName, UnresolvedName,
                 UnresolvedQualifierLevel, UnresolvedType, UnresolvedTypeHandle, UnscopedName,
                 UnscopedTemplateName, UnscopedTemplateNameHandle, VOffset, VectorType,
                 WellKnownComponent};
@@ -8374,7 +8502,7 @@ mod tests {
                         b"...",
                         []
                     }
-                    b"clLS_1E..." => {
+                    b"clLS_1EE..." => {
                         Expression::Call(
                             Box::new(Expression::Primary(
                                 ExprPrimary::Literal(
@@ -8701,39 +8829,63 @@ mod tests {
                         []
                     }
                     b"fp_..." => {
-                        Expression::FunctionParam(FunctionParam(0, CvQualifiers::default(), None)),
+                        Expression::FunctionParam(FunctionParam(0, CvQualifiers::default(), Some(0))),
                         b"...",
                         []
                     }
                     b"dtT_3abc..." => {
                         Expression::Member(
                             Box::new(Expression::TemplateParam(TemplateParam(0))),
-                            UnresolvedName::Name(
-                                BaseUnresolvedName::Name(
-                                    SimpleId(
-                                        SourceName(
-                                            Identifier {
-                                                start: 5,
-                                                end: 8,
-                                            }),
-                                        None)))),
+                            MemberName(
+                                Name::Unscoped(
+                                    UnscopedName::Unqualified(
+                                        UnqualifiedName::Source(
+                                            SourceName(
+                                                Identifier {
+                                                    start: 5,
+                                                    end: 8,
+                                                })))))),
                         b"...",
                         []
                     }
                     b"ptT_3abc..." => {
                         Expression::DerefMember(
                             Box::new(Expression::TemplateParam(TemplateParam(0))),
-                            UnresolvedName::Name(
-                                BaseUnresolvedName::Name(
-                                    SimpleId(
-                                        SourceName(
-                                            Identifier {
-                                                start: 5,
-                                                end: 8,
-                                            }),
-                                        None)))),
+                            MemberName(
+                                Name::Unscoped(
+                                    UnscopedName::Unqualified(
+                                        UnqualifiedName::Source(
+                                            SourceName(
+                                                Identifier {
+                                                    start: 5,
+                                                    end: 8,
+                                                })))))),
                         b"...",
                         []
+                    }
+                    b"dtfp_clI3abcE..." => {
+                        Expression::Member(
+                            Box::new(Expression::FunctionParam(FunctionParam(0, CvQualifiers::default(), Some(0)))),
+                            MemberName(
+                                Name::UnscopedTemplate(
+                                    UnscopedTemplateNameHandle::NonSubstitution(NonSubstitution(0)),
+                                    TemplateArgs(vec![
+                                        TemplateArg::Type(
+                                            TypeHandle::BackReference(1))])))),
+                        b"...",
+                        [
+                            Substitutable::Type(
+                                Type::ClassEnum(
+                                    ClassEnumType::Named(
+                                        Name::Unscoped(
+                                            UnscopedName::Unqualified(
+                                                UnqualifiedName::Source(
+                                                    SourceName(
+                                                        Identifier {
+                                                            start: 9,
+                                                            end: 12
+                                                        })))))))
+                        ]
                     }
                     //               ::= ds <expression> <expression>                 # expr.*expr
                     b"dsT_T_..." => {
@@ -8750,7 +8902,7 @@ mod tests {
                     }
                     b"sZfp_..." => {
                         Expression::SizeofFunctionPack(
-                            FunctionParam(0, CvQualifiers::default(), None)),
+                            FunctionParam(0, CvQualifiers::default(), Some(0))),
                         b"...",
                         []
                     }
@@ -8803,8 +8955,46 @@ mod tests {
                         b"...",
                         []
                     }
+                    // An expression where arity matters
+                    b"cldtdefpT4TypeadsrT_5EnterE..." => {
+                        Expression::Call(
+                            Box::new(Expression::Member(
+                                Box::new(Expression::Unary(OperatorName::Simple(SimpleOperatorName::Deref),
+                                                           Box::new(Expression::FunctionParam(
+                                                               FunctionParam(0,
+                                                                             CvQualifiers::default(),
+                                                                             None)
+                                                           ))
+                                )),
+                                MemberName(
+                                    Name::Unscoped(
+                                        UnscopedName::Unqualified(
+                                            UnqualifiedName::Source(
+                                                SourceName(Identifier {
+                                                    start: 10,
+                                                    end: 14,
+                                                })))
+                                     )
+                                )
+                            )),
+                            vec![Expression::Unary(OperatorName::Simple(SimpleOperatorName::AddressOf),
+                                                   Box::new(Expression::TypeUnqualifiedName(
+                                                       TypeHandle::BackReference(1),
+                                                       UnqualifiedName::Source(
+                                                           SourceName(Identifier {
+                                                               start: 21,
+                                                               end: 26,
+                                                           })))))]
+
+                        ),
+                        b"...",
+                        [
+                            Substitutable::Type(Type::TemplateParam(TemplateParam(0)))
+                        ]
+                    }
                 }
                 Err => {
+                    b"dtStfp_clI3abcE..." => Error::UnexpectedText,
                 }
             }
         });
@@ -9572,7 +9762,7 @@ mod tests {
                                       volatile: false,
                                       const_: true,
                                   },
-                                  None),
+                                  Some(0)),
                     b"..."
                 }
                 b"fL1pK_..." => {
@@ -9582,7 +9772,7 @@ mod tests {
                                       volatile: false,
                                       const_: true,
                                   },
-                                  None),
+                                  Some(0)),
                     b"..."
                 }
                 b"fpK3_..." => {
@@ -9592,7 +9782,7 @@ mod tests {
                                       volatile: false,
                                       const_: true,
                                   },
-                                  Some(3)),
+                                  Some(4)),
                     b"..."
                 }
                 b"fL1pK4_..." => {
@@ -9602,7 +9792,7 @@ mod tests {
                                       volatile: false,
                                       const_: true,
                                   },
-                                  Some(4)),
+                                  Some(5)),
                     b"..."
                 }
             }
