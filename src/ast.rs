@@ -5164,13 +5164,9 @@ where
                 write!(ctx, "))")
             }
             Expression::Binary(ref op, ref lhs, ref rhs) => {
-                write!(ctx, "(")?;
-                lhs.demangle(ctx, scope)?;
-                write!(ctx, ")")?;
+                lhs.demangle_as_subexpr(ctx, scope)?;
                 op.demangle(ctx, scope)?;
-                write!(ctx, "(")?;
-                rhs.demangle(ctx, scope)?;
-                write!(ctx, ")")
+                rhs.demangle_as_subexpr(ctx, scope)
             }
             Expression::Ternary(
                 OperatorName::Simple(SimpleOperatorName::Question),
@@ -5493,6 +5489,33 @@ where
             Expression::UnresolvedName(ref name) => name.demangle(ctx, scope),
             Expression::Primary(ref expr) => expr.demangle(ctx, scope),
         }
+    }
+}
+
+impl Expression {
+    fn demangle_as_subexpr<'subs, 'prev, 'ctx, W>(
+        &'subs self,
+        ctx: &'ctx mut DemangleContext<'subs, W>,
+        scope: Option<ArgScopeStack<'prev, 'subs>>,
+    ) -> io::Result<()>
+        where W: 'subs + io::Write
+    {
+        let needs_parens = match *self {
+            Expression::FunctionParam(_) => false,
+            _ => true,
+        };
+
+        if needs_parens {
+            write!(ctx, "(")?;
+        }
+
+        self.demangle(ctx, scope)?;
+
+        if needs_parens {
+            write!(ctx, ")")?;
+        }
+
+        Ok(())
     }
 }
 
