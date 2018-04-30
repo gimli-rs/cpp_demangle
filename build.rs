@@ -124,6 +124,7 @@ use std::fmt::Write;
         s.extend(92..93);
         s.extend(94..105);
         s.extend(107..108);
+        s.extend(112..113);
         s.extend(116..118);
         s.extend(122..124);
         s.extend(128..131);

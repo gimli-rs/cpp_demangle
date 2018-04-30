@@ -4629,7 +4629,18 @@ where
     ) -> io::Result<()> {
         log_demangle!(self, ctx, scope);
 
-        self.0.demangle(ctx, scope)
+        let needs_parens = self.0.get_template_args(ctx.subs).is_some();
+        if needs_parens {
+            write!(ctx, "(")?;
+        }
+
+        self.0.demangle(ctx, scope)?;
+
+        if needs_parens {
+            write!(ctx, ")")?;
+        }
+
+        Ok(())
     }
 }
 
