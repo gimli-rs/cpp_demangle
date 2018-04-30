@@ -5204,9 +5204,8 @@ where
                 expr.demangle(ctx, scope)
             }
             Expression::Call(ref functor_expr, ref args) => {
+                functor_expr.demangle_as_subexpr(ctx, scope)?;
                 write!(ctx, "(")?;
-                functor_expr.demangle(ctx, scope)?;
-                write!(ctx, ")(")?;
                 let mut need_comma = false;
                 for arg in args {
                     if need_comma {
@@ -5501,7 +5500,8 @@ impl Expression {
         where W: 'subs + io::Write
     {
         let needs_parens = match *self {
-            Expression::FunctionParam(_) => false,
+            Expression::FunctionParam(_) |
+            Expression::Primary(ExprPrimary::External(_)) => false,
             _ => true,
         };
 
