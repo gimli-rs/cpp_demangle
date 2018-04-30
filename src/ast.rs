@@ -5144,6 +5144,13 @@ where
         log_demangle!(self, ctx, scope);
 
         match *self {
+            Expression::Unary(
+                OperatorName::Simple(ref op),
+                ref expr
+            ) if *op == SimpleOperatorName::PostInc || *op == SimpleOperatorName::PostDec => {
+                expr.demangle_as_subexpr(ctx, scope)?;
+                op.demangle(ctx, scope)
+            }
             Expression::Unary(ref op, ref expr) => {
                 op.demangle(ctx, scope)?;
                 expr.demangle_as_subexpr(ctx, scope)
