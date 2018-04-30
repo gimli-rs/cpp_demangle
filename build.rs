@@ -118,28 +118,28 @@ use std::fmt::Write;
     )?;
 
     // The set of libiberty tests that pass. This should only ever grow!
-    let libiberty_passing_tests: HashSet<_> = {
-        (0..86).into_iter()
-            .chain(87..89)
-            .chain(92..93)
-            .chain(94..105)
-            .chain(107..108)
-            .chain(116..118)
-            .chain(122..124)
-            .chain(128..131)
-            .chain(133..134)
-            .chain(141..143)
-            .chain(151..152)
-            .chain(153..154)
-            .chain(158..168)
-            .chain(169..170)
-            .chain(179..180)
-            .chain(181..182)
-            .chain(185..186)
-            .chain(188..189)
-            .chain(201..202)
-            .chain(203..204)
-            .collect()
+    let libiberty_passing_tests = {
+        let mut s: HashSet<_> = (0..86).collect();
+        s.extend(87..89);
+        s.extend(92..93);
+        s.extend(94..105);
+        s.extend(107..108);
+        s.extend(116..118);
+        s.extend(122..124);
+        s.extend(128..131);
+        s.extend(133..134);
+        s.extend(141..143);
+        s.extend(151..152);
+        s.extend(153..154);
+        s.extend(158..168);
+        s.extend(169..170);
+        s.extend(179..180);
+        s.extend(181..182);
+        s.extend(185..186);
+        s.extend(188..189);
+        s.extend(201..202);
+        s.extend(203..204);
+        s
     };
 
     let libiberty_tests = get_crate_test_path("libiberty-demangle-expected")?;
