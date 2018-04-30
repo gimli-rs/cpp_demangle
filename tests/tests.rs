@@ -316,6 +316,16 @@ demangles!(
     "WTF::RunLoop::performWork()"
 );
 
+demangles!(
+    _Z4funcINS_6ObjectEENS0_IT_EEi,
+    "func::Object<func::Object> func<func::Object>(int)"
+);
+
+demangles!(
+    _ZN4funcINS_6ObjectEEENS0_IT_EEi,
+    "func::Object<func::Object> func<func::Object>(int)"
+);
+
 // Test cases found via differential testing against `c++filt` with `cargo-fuzz`
 // and `libFuzzer`.
 
