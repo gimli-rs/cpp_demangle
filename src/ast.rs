@@ -5146,9 +5146,7 @@ where
         match *self {
             Expression::Unary(ref op, ref expr) => {
                 op.demangle(ctx, scope)?;
-                write!(ctx, "(")?;
-                expr.demangle(ctx, scope)?;
-                write!(ctx, ")")
+                expr.demangle_as_subexpr(ctx, scope)
             }
             // These need an extra set of parens so that it doesn't close any
             // template argument accidentally.
@@ -5422,7 +5420,7 @@ where
             Expression::TemplateParam(ref param) => param.demangle(ctx, scope),
             Expression::FunctionParam(ref param) => param.demangle(ctx, scope),
             Expression::Member(ref expr, ref name) => {
-                expr.demangle(ctx, scope)?;
+                expr.demangle_as_subexpr(ctx, scope)?;
                 write!(ctx, ".")?;
                 name.demangle(ctx, scope)
             }
