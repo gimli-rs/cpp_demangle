@@ -130,7 +130,7 @@ use std::fmt::Write;
         s.extend(128..131);
         s.extend(133..134);
         s.extend(137..138);
-        s.extend(141..143);
+        s.extend(141..144);
         s.extend(146..147);
         s.extend(149..152);
         s.extend(153..154);

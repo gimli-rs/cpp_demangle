@@ -5172,11 +5172,11 @@ where
                 ref consequent,
                 ref alternative,
             ) => {
-                condition.demangle(ctx, scope)?;
-                write!(ctx, " ? ")?;
-                consequent.demangle(ctx, scope)?;
+                condition.demangle_as_subexpr(ctx, scope)?;
+                write!(ctx, "?")?;
+                consequent.demangle_as_subexpr(ctx, scope)?;
                 write!(ctx, " : ")?;
-                alternative.demangle(ctx, scope)
+                alternative.demangle_as_subexpr(ctx, scope)
             }
             Expression::Ternary(ref op, ref e1, ref e2, ref e3) => {
                 // Nonsensical ternary operator? Just print it like a function call,
