@@ -60,7 +60,11 @@ use std::io::Read;
 
     let mut in_dir = get_crate_dir()?;
     in_dir.push("in");
-    assert!(in_dir.is_dir());
+    if !in_dir.is_dir() {
+        // We are in `cargo publish` and the `in/` directory isn't included in
+        // the distributed package.
+        return Ok(());
+    }
 
     let entries = fs::read_dir(in_dir)?;
 
@@ -103,6 +107,14 @@ fn test_afl_seed_{}() {{
 /// language symbol mangling.
 fn generate_compatibility_tests_from_libiberty() -> io::Result<()> {
     println!("cargo:rerun-if-changed=tests/libiberty-demangle-expected");
+
+    let mut tests_dir = get_crate_dir()?;
+    tests_dir.push("tests");
+    if !tests_dir.is_dir() {
+        // We are in `cargo publish` and the `in/` directory isn't included in
+        // the distributed package.
+        return Ok(());
+    }
 
     let test_path = get_test_path("libiberty.rs")?;
     let _ = fs::remove_file(&test_path);
