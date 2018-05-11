@@ -4,6 +4,7 @@ build = "build.rs"
 categories = ["development-tools::debugging", "development-tools::ffi"]
 description = "A crate for demangling C++ symbols"
 documentation = "https://docs.rs/cpp_demangle"
+exclude = ["tests/**", "in/**"]
 keywords = ["demangle", "symbolicate", "c-plus-plus", "itanium"]
 license = "Apache-2.0/MIT"
 name = "cpp_demangle"
