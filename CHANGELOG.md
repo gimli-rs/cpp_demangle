@@ -28,6 +28,31 @@ Released YYYY/MM/DD
 
 --------------------------------------------------------------------------------
 
+# 0.2.8
+
+Released 2018/05/11
+
+Bug fixes, more `libiberty` tests passing, and we can now parse and demangle all
+but one symbol from Firefox's `libxul`:
+
+```
+Total number of libxul symbols:                       274346
+Number of libxul symbols parsed:                      274345 (100.00%)
+Number of libxul symbols demangled:                   274345 (100.00%)
+Number of libxul symbols demangled same as libiberty: 227259 (82.84%)
+```
+
+## Fixed
+
+* AFL.rs fuzzing integration is fixed for the new AFL.rs releases.
+* Fixed formatting of constructors and destructors.
+* Fixed parsing of the `<function-param>` production.
+* Fixed parsing of call expression productions.
+* Parsing an operator's operands will only parse as many operands as the
+  operator's arity, instead of as many as it can.
+
+--------------------------------------------------------------------------------
+
 # 0.2.7
 
 Released 2017/11/27
