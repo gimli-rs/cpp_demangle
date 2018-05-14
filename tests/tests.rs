@@ -336,6 +336,27 @@ demangles!(
     "std::__1::tuple<bool tconcurrent::detail::shared<void ()>::shared<void tconcurrent::yielder::await_suspend<tconcurrent::task_promise<void> >(std::experimental::coroutines_v1::coroutine_handle<tconcurrent::task_promise<void> >)::{lambda()#1}>(std::__1::shared_ptr<tconcurrent::cancelation_token>, void tconcurrent::yielder::await_suspend<tconcurrent::task_promise<void> >(std::experimental::coroutines_v1::coroutine_handle<tconcurrent::task_promise<void> >)::{lambda()#1}&&, void*)::{lambda(tconcurrent::cancelation_token&, auto:1&&...)#1} const&&&...> std::__1::forward_as_tuple<bool tconcurrent::detail::shared<void ()>::shared<void tconcurrent::yielder::await_suspend<tconcurrent::task_promise<void> >(std::experimental::coroutines_v1::coroutine_handle<tconcurrent::task_promise<void> >)::{lambda()#1}>(std::__1::shared_ptr<tconcurrent::cancelation_token>, void tconcurrent::yielder::await_suspend<tconcurrent::task_promise<void> >(std::experimental::coroutines_v1::coroutine_handle<tconcurrent::task_promise<void> >)::{lambda()#1}&&, void*)::{lambda(tconcurrent::cancelation_token&, auto:1&&...)#1} const&>(bool tconcurrent::detail::shared<void ()>::shared<void tconcurrent::yielder::await_suspend<tconcurrent::task_promise<void> >(std::experimental::coroutines_v1::coroutine_handle<tconcurrent::task_promise<void> >)::{lambda()#1}>(std::__1::shared_ptr<tconcurrent::cancelation_token>, void tconcurrent::yielder::await_suspend<tconcurrent::task_promise<void> >(std::experimental::coroutines_v1::coroutine_handle<tconcurrent::task_promise<void> >)::{lambda()#1}&&, void*)::{lambda(tconcurrent::cancelation_token&, auto:1&&...)#1} const&&&...)"
 );
 
+demangles!(
+    _Z1jI1AEDTcldtfp_cvPT_EES1_,
+    // TODO: libiberty formats this as
+    //
+    //   decltype (({parm#1}.(operator A*))()) j<A>(A)
+    "decltype (({parm#1}.operator A*)()) j<A>(A)"
+);
+
+demangles!(
+    _Z3MinIiiEDTqultfp_fp0_cl7forwardIT_Efp_Ecl7forwardIT0_Efp0_EEOS0_OS1_,
+    // TODO: libiberty formats this as
+    //
+    //   decltype (({parm#1}<{parm#2})?((forward<int>)({parm#1})) : ((forward<int>)({parm#2}))) Min<int, int>(int&&, int&&)
+    "decltype (({parm#1})<({parm#2}) ? (forward<int>)({parm#1}) : (forward<int>)({parm#2})) Min<int, int>(int&&, int&&)"
+);
+
+demangles!(
+    _ZN16already_AddRefedIN7mozilla6detail16RunnableFunctionIZNS0_3ipc21AsyncMinidumpAnalyzer3RunEvEUlvE_EEEC4Ev,
+    "already_AddRefed<mozilla::detail::RunnableFunction<mozilla::ipc::AsyncMinidumpAnalyzer::Run()::{lambda()#1}> >::already_AddRefed()"
+);
+
 // Test cases found via differential testing against `c++filt` with `cargo-fuzz`
 // and `libFuzzer`.
 
