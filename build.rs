@@ -39,12 +39,13 @@ fn get_test_path(file_name: &str) -> io::Result<path::PathBuf> {
 /// the seed test cases that we pass to AFL.rs assert (including the failing
 /// test cases historically found by AFL.rs).
 fn generate_sanity_tests_from_afl_seeds() -> io::Result<()> {
-    for entry in glob("./in/*").expect("should read glob pattern") {
-        if let Ok(path) = entry {
-            println!("cargo:rerun-if-changed={}", path.display());
-        }
+    let mut in_dir = get_crate_dir()?;
+    in_dir.push("in");
+    if !in_dir.is_dir() {
+        // We are in `cargo publish` and the `in/` directory isn't included in
+        // the distributed package.
+        return Ok(());
     }
-    println!("cargo:rerun-if-changed=tests/afl_seeds.rs");
 
     let test_path = get_test_path("afl_seeds.rs")?;
     let mut test_file = fs::File::create(test_path)?;
@@ -58,13 +59,13 @@ use std::io::Read;
 "
     )?;
 
-    let mut in_dir = get_crate_dir()?;
-    in_dir.push("in");
-    if !in_dir.is_dir() {
-        // We are in `cargo publish` and the `in/` directory isn't included in
-        // the distributed package.
-        return Ok(());
+    for entry in glob("./in/*").expect("should read glob pattern") {
+        if let Ok(path) = entry {
+            println!("cargo:rerun-if-changed={}", path.display());
+        }
     }
+    println!("cargo:rerun-if-changed=tests/afl_seeds.rs");
+
 
     let entries = fs::read_dir(in_dir)?;
 
@@ -106,15 +107,15 @@ fn test_afl_seed_{}() {{
 /// C++ ABI), and none of the legacy C/C++ compiler formats, nor Java/D/etc
 /// language symbol mangling.
 fn generate_compatibility_tests_from_libiberty() -> io::Result<()> {
-    println!("cargo:rerun-if-changed=tests/libiberty-demangle-expected");
-
     let mut tests_dir = get_crate_dir()?;
     tests_dir.push("tests");
     if !tests_dir.is_dir() {
-        // We are in `cargo publish` and the `in/` directory isn't included in
-        // the distributed package.
+        // We are in `cargo publish` and the `tests/` directory isn't included
+        // in the distributed package.
         return Ok(());
     }
+
+    println!("cargo:rerun-if-changed=tests/libiberty-demangle-expected");
 
     let test_path = get_test_path("libiberty.rs")?;
     let _ = fs::remove_file(&test_path);
