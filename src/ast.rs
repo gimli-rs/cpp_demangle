@@ -4629,7 +4629,18 @@ where
     ) -> io::Result<()> {
         log_demangle!(self, ctx, scope);
 
-        self.0.demangle(ctx, scope)
+        let needs_parens = self.0.get_template_args(ctx.subs).is_some();
+        if needs_parens {
+            write!(ctx, "(")?;
+        }
+
+        self.0.demangle(ctx, scope)?;
+
+        if needs_parens {
+            write!(ctx, ")")?;
+        }
+
+        Ok(())
     }
 }
 
@@ -5133,11 +5144,16 @@ where
         log_demangle!(self, ctx, scope);
 
         match *self {
+            Expression::Unary(
+                OperatorName::Simple(ref op),
+                ref expr
+            ) if *op == SimpleOperatorName::PostInc || *op == SimpleOperatorName::PostDec => {
+                expr.demangle_as_subexpr(ctx, scope)?;
+                op.demangle(ctx, scope)
+            }
             Expression::Unary(ref op, ref expr) => {
                 op.demangle(ctx, scope)?;
-                write!(ctx, "(")?;
-                expr.demangle(ctx, scope)?;
-                write!(ctx, ")")
+                expr.demangle_as_subexpr(ctx, scope)
             }
             // These need an extra set of parens so that it doesn't close any
             // template argument accidentally.
@@ -5153,13 +5169,9 @@ where
                 write!(ctx, "))")
             }
             Expression::Binary(ref op, ref lhs, ref rhs) => {
-                write!(ctx, "(")?;
-                lhs.demangle(ctx, scope)?;
-                write!(ctx, ")")?;
+                lhs.demangle_as_subexpr(ctx, scope)?;
                 op.demangle(ctx, scope)?;
-                write!(ctx, "(")?;
-                rhs.demangle(ctx, scope)?;
-                write!(ctx, ")")
+                rhs.demangle_as_subexpr(ctx, scope)
             }
             Expression::Ternary(
                 OperatorName::Simple(SimpleOperatorName::Question),
@@ -5167,11 +5179,11 @@ where
                 ref consequent,
                 ref alternative,
             ) => {
-                condition.demangle(ctx, scope)?;
-                write!(ctx, " ? ")?;
-                consequent.demangle(ctx, scope)?;
+                condition.demangle_as_subexpr(ctx, scope)?;
+                write!(ctx, "?")?;
+                consequent.demangle_as_subexpr(ctx, scope)?;
                 write!(ctx, " : ")?;
-                alternative.demangle(ctx, scope)
+                alternative.demangle_as_subexpr(ctx, scope)
             }
             Expression::Ternary(ref op, ref e1, ref e2, ref e3) => {
                 // Nonsensical ternary operator? Just print it like a function call,
@@ -5197,9 +5209,8 @@ where
                 expr.demangle(ctx, scope)
             }
             Expression::Call(ref functor_expr, ref args) => {
+                functor_expr.demangle_as_subexpr(ctx, scope)?;
                 write!(ctx, "(")?;
-                functor_expr.demangle(ctx, scope)?;
-                write!(ctx, ")(")?;
                 let mut need_comma = false;
                 for arg in args {
                     if need_comma {
@@ -5416,7 +5427,7 @@ where
             Expression::TemplateParam(ref param) => param.demangle(ctx, scope),
             Expression::FunctionParam(ref param) => param.demangle(ctx, scope),
             Expression::Member(ref expr, ref name) => {
-                expr.demangle(ctx, scope)?;
+                expr.demangle_as_subexpr(ctx, scope)?;
                 write!(ctx, ".")?;
                 name.demangle(ctx, scope)
             }
@@ -5482,6 +5493,34 @@ where
             Expression::UnresolvedName(ref name) => name.demangle(ctx, scope),
             Expression::Primary(ref expr) => expr.demangle(ctx, scope),
         }
+    }
+}
+
+impl Expression {
+    fn demangle_as_subexpr<'subs, 'prev, 'ctx, W>(
+        &'subs self,
+        ctx: &'ctx mut DemangleContext<'subs, W>,
+        scope: Option<ArgScopeStack<'prev, 'subs>>,
+    ) -> io::Result<()>
+        where W: 'subs + io::Write
+    {
+        let needs_parens = match *self {
+            Expression::FunctionParam(_) |
+            Expression::Primary(ExprPrimary::External(_)) => false,
+            _ => true,
+        };
+
+        if needs_parens {
+            write!(ctx, "(")?;
+        }
+
+        self.demangle(ctx, scope)?;
+
+        if needs_parens {
+            write!(ctx, ")")?;
+        }
+
+        Ok(())
     }
 }
 
