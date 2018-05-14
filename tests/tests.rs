@@ -326,6 +326,16 @@ demangles!(
     "func::Object<func::Object> func<func::Object>(int)"
 );
 
+demangles!(
+    _ZNK7mozilla6layers19CapturedBufferState20ForEachTextureClientIZNS0_21CompositorBridgeChild21NotifyBeginAsyncPaintI6RefPtrIS1_EEEvRT_EUlS7_E_EEvS7_,
+    "void mozilla::layers::CapturedBufferState::ForEachTextureClient<void mozilla::layers::CompositorBridgeChild::NotifyBeginAsyncPaint<RefPtr<mozilla::layers::CapturedBufferState> >(RefPtr<mozilla::layers::CapturedBufferState>&)::{lambda(auto:1)#1}>(void mozilla::layers::CompositorBridgeChild::NotifyBeginAsyncPaint<RefPtr<mozilla::layers::CapturedBufferState> >(RefPtr<mozilla::layers::CapturedBufferState>&)::{lambda(auto:1)#1}) const"
+);
+
+demangles!(
+    _ZNSt3__116forward_as_tupleIJRKZN11tconcurrent6detail6sharedIFvvEEC1IZNS1_7yielder13await_suspendINS1_12task_promiseIvEEEEvNSt12experimental13coroutines_v116coroutine_handleIT_EEEUlvE_EEbNS_10shared_ptrINS1_17cancelation_tokenEEEOSE_PvEUlRSI_DpOT_E_EEENS_5tupleIJSP_EEESP_,
+    "std::__1::tuple<bool tconcurrent::detail::shared<void ()>::shared<void tconcurrent::yielder::await_suspend<tconcurrent::task_promise<void> >(std::experimental::coroutines_v1::coroutine_handle<tconcurrent::task_promise<void> >)::{lambda()#1}>(std::__1::shared_ptr<tconcurrent::cancelation_token>, void tconcurrent::yielder::await_suspend<tconcurrent::task_promise<void> >(std::experimental::coroutines_v1::coroutine_handle<tconcurrent::task_promise<void> >)::{lambda()#1}&&, void*)::{lambda(tconcurrent::cancelation_token&, auto:1&&...)#1} const&&&...> std::__1::forward_as_tuple<bool tconcurrent::detail::shared<void ()>::shared<void tconcurrent::yielder::await_suspend<tconcurrent::task_promise<void> >(std::experimental::coroutines_v1::coroutine_handle<tconcurrent::task_promise<void> >)::{lambda()#1}>(std::__1::shared_ptr<tconcurrent::cancelation_token>, void tconcurrent::yielder::await_suspend<tconcurrent::task_promise<void> >(std::experimental::coroutines_v1::coroutine_handle<tconcurrent::task_promise<void> >)::{lambda()#1}&&, void*)::{lambda(tconcurrent::cancelation_token&, auto:1&&...)#1} const&>(bool tconcurrent::detail::shared<void ()>::shared<void tconcurrent::yielder::await_suspend<tconcurrent::task_promise<void> >(std::experimental::coroutines_v1::coroutine_handle<tconcurrent::task_promise<void> >)::{lambda()#1}>(std::__1::shared_ptr<tconcurrent::cancelation_token>, void tconcurrent::yielder::await_suspend<tconcurrent::task_promise<void> >(std::experimental::coroutines_v1::coroutine_handle<tconcurrent::task_promise<void> >)::{lambda()#1}&&, void*)::{lambda(tconcurrent::cancelation_token&, auto:1&&...)#1} const&&&...)"
+);
+
 // Test cases found via differential testing against `c++filt` with `cargo-fuzz`
 // and `libFuzzer`.
 
