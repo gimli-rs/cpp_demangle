@@ -34,7 +34,7 @@ Add `cpp_demangle` to your crate's `Cargo.toml`:
 
 ```toml
 [dependencies]
-cpp_demangle = "0.2.8"
+cpp_demangle = "0.2.9"
 ```
 
 And then demangle some C++ symbols!

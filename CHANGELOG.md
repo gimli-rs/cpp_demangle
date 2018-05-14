@@ -28,6 +28,19 @@ Released YYYY/MM/DD
 
 --------------------------------------------------------------------------------
 
+# 0.2.9
+
+Released 2018/05/14
+
+## Fixed
+
+* Fixed a few issues with parentheticals.
+* Should not force recompilation via build.rs for every compile anymore (bug
+  introduced in 0.2.8 when trying to make the package that is distributed on
+  crates.io smaller).
+
+--------------------------------------------------------------------------------
+
 # 0.2.8
 
 Released 2018/05/11
