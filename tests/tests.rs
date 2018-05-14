@@ -346,10 +346,7 @@ demangles!(
 
 demangles!(
     _Z3MinIiiEDTqultfp_fp0_cl7forwardIT_Efp_Ecl7forwardIT0_Efp0_EEOS0_OS1_,
-    // TODO: libiberty formats this as
-    //
-    //   decltype (({parm#1}<{parm#2})?((forward<int>)({parm#1})) : ((forward<int>)({parm#2}))) Min<int, int>(int&&, int&&)
-    "decltype (({parm#1})<({parm#2}) ? (forward<int>)({parm#1}) : (forward<int>)({parm#2})) Min<int, int>(int&&, int&&)"
+    "decltype (({parm#1}<{parm#2})?((forward<int>)({parm#1})) : ((forward<int>)({parm#2}))) Min<int, int>(int&&, int&&)"
 );
 
 demangles!(
