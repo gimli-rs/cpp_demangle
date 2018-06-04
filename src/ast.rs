@@ -2855,7 +2855,10 @@ where
 
         let leaf = scope
             .leaf_name()
-            .map_err(|_| fmt::Error)?;
+            .map_err(|e| {
+                log!("Error getting leaf name: {}", e);
+                fmt::Error
+            })?;
 
         match *self {
             CtorDtorName::CompleteConstructor
@@ -4276,7 +4279,10 @@ impl TemplateParam {
     ) -> ::std::result::Result<&'subs TemplateArg, fmt::Error> {
         scope
             .get_template_arg(self.0)
-            .map_err(|_| fmt::Error)
+            .map_err(|e| {
+                log!("Error obtaining template argument: {}", e);
+                fmt::Error
+            })
     }
 }
 
@@ -6015,7 +6021,10 @@ where
             } else {
                 start
             };
-            let s = ::std::str::from_utf8(&ctx.input[start..end]).map_err(|_| fmt::Error)?;
+            let s = ::std::str::from_utf8(&ctx.input[start..end]).map_err(|e| {
+                log!("Error writing literal: {}", e);
+                fmt::Error
+            })?;
             ctx.write_str(s)
         }
 
@@ -6057,7 +6066,10 @@ where
                     write!(ctx, ")[")?;
                     start
                 };
-                let s = ::std::str::from_utf8(&ctx.input[start..end]).map_err(|_| fmt::Error)?;
+                let s = ::std::str::from_utf8(&ctx.input[start..end]).map_err(|e| {
+                    log!("Error writing literal: {}", e);
+                    fmt::Error
+                })?;
                 ctx.write_str(s)?;
                 write!(ctx, "]")
             }
