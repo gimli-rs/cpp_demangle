@@ -31,6 +31,7 @@ script:
       travis-cargo test
       travis-cargo bench
       travis-cargo --only stable doc
+      travis-cargo --only nightly build -- --no-default-features
   fi
 
 after_success:

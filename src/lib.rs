@@ -34,6 +34,44 @@
 #![allow(unknown_lints)]
 #![allow(inline_always)]
 
+#![no_std]
+#![cfg_attr(not(feature = "std"), feature(alloc))]
+
+#[cfg(feature = "std")]
+#[macro_use]
+extern crate std;
+
+#[cfg(not(feature = "std"))]
+#[macro_use]
+extern crate core as std;
+
+#[cfg(not(feature = "std"))]
+#[macro_use]
+extern crate alloc;
+
+#[cfg(feature = "std")]
+mod imports {
+    pub use std::boxed;
+    pub use std::vec;
+    pub use std::string;
+    pub use std::borrow;
+    pub use std::collections::btree_map;
+}
+
+#[cfg(not(feature = "std"))]
+mod imports {
+    pub use alloc::boxed;
+    pub use alloc::vec;
+    pub use alloc::string;
+    pub use alloc::borrow;
+    pub use alloc::btree_map;
+}
+
+use imports::*;
+
+use string::String;
+use vec::Vec;
+
 #[macro_use]
 mod logging;
 
@@ -128,18 +166,16 @@ where
             parsed: parsed,
         };
 
-        if cfg!(feature = "logging") {
-            println!(
-                "Successfully parsed '{}' as
+        log!(
+            "Successfully parsed '{}' as
 
 AST = {:#?}
 
 substitutions = {:#?}",
-                String::from_utf8_lossy(symbol.raw.as_ref()),
-                symbol.parsed,
-                symbol.substitutions
-            );
-        }
+            String::from_utf8_lossy(symbol.raw.as_ref()),
+            symbol.parsed,
+            symbol.substitutions
+        );
 
         Ok(symbol)
     }
@@ -215,18 +251,16 @@ impl<T> Symbol<T> {
             parsed: parsed,
         };
 
-        if cfg!(feature = "logging") {
-            println!(
-                "Successfully parsed '{}' as
+        log!(
+            "Successfully parsed '{}' as
 
 AST = {:#?}
 
 substitutions = {:#?}",
-                String::from_utf8_lossy(symbol.raw.as_ref()),
-                symbol.parsed,
-                symbol.substitutions
-            );
-        }
+            String::from_utf8_lossy(symbol.raw.as_ref()),
+            symbol.parsed,
+            symbol.substitutions
+        );
 
         Ok((symbol, tail.into()))
     }
