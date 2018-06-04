@@ -4292,7 +4292,7 @@ impl<'a> Hash for &'a TemplateParam {
         H: Hasher,
     {
         let self_ref: &TemplateParam = *self;
-        let self_ptr = self_ref as *const _;
+        let self_ptr = self_ref as *const TemplateParam;
         self_ptr.hash(state);
     }
 }
