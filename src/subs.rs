@@ -2,7 +2,6 @@
 
 use ast;
 use std::fmt;
-use std::io;
 use std::iter::FromIterator;
 use std::ops::Deref;
 
@@ -29,13 +28,13 @@ pub enum Substitutable {
 
 impl<'subs, W> ast::Demangle<'subs, W> for Substitutable
 where
-    W: 'subs + io::Write,
+    W: 'subs + fmt::Write,
 {
     fn demangle<'prev, 'ctx>(
         &'subs self,
         ctx: &'ctx mut ast::DemangleContext<'subs, W>,
         scope: Option<ast::ArgScopeStack<'prev, 'subs>>,
-    ) -> io::Result<()> {
+    ) -> fmt::Result {
         match *self {
             Substitutable::UnscopedTemplateName(ref name) => name.demangle(ctx, scope),
             Substitutable::Type(ref ty) => ty.demangle(ctx, scope),

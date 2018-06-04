@@ -46,7 +46,6 @@ use ast::{Demangle, Parse, ParseContext};
 use error::{Error, Result};
 use index_str::IndexStr;
 use std::fmt;
-use std::io;
 
 /// Options to control the demangling process.
 #[derive(Clone, Copy, Debug, Default)]
@@ -164,8 +163,8 @@ substitutions = {:#?}",
     /// let demangled_again = sym.demangle(&options).unwrap();
     /// assert_eq!(demangled_again, demangled);
     /// ```
-    pub fn demangle(&self, options: &DemangleOptions) -> io::Result<String> {
-        let mut out = vec![];
+    pub fn demangle(&self, options: &DemangleOptions) -> ::std::result::Result<String, fmt::Error> {
+        let mut out = String::new();
         {
             let mut ctx = ast::DemangleContext::new(
                 &self.substitutions,
@@ -176,7 +175,7 @@ substitutions = {:#?}",
             self.parsed.demangle(&mut ctx, None)?;
         }
 
-        Ok(String::from_utf8(out).unwrap())
+        Ok(out)
     }
 }
 
@@ -238,7 +237,7 @@ where
     T: AsRef<[u8]>,
 {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        let mut out = vec![];
+        let mut out = String::new();
         {
             let options = DemangleOptions::default();
             let mut ctx = ast::DemangleContext::new(
@@ -252,6 +251,6 @@ where
                 fmt::Error
             })?;
         }
-        write!(f, "{}", String::from_utf8_lossy(&out))
+        write!(f, "{}", &out)
     }
 }
