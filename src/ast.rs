@@ -7,16 +7,21 @@ use std::cell::Cell;
 #[cfg(feature = "logging")]
 use std::cell::RefCell;
 use std::fmt::{self, Write};
+#[cfg(feature = "logging")]
+use std::error::Error;
 use std::hash::{Hash, Hasher};
 use std::mem;
 use std::ops;
 use std::ptr;
 use subs::{Substitutable, SubstitutionTable};
+use string::String;
+use vec::Vec;
+use boxed::Box;
 
 struct AutoLogParse;
 
+#[cfg(feature = "logging")]
 thread_local! {
-    #[cfg(feature = "logging")]
     static LOG_DEPTH: RefCell<usize> = RefCell::new(0);
 }
 
@@ -6994,6 +6999,9 @@ mod tests {
                 UnresolvedQualifierLevel, UnresolvedType, UnresolvedTypeHandle, UnscopedName,
                 UnscopedTemplateName, UnscopedTemplateNameHandle, VOffset, VectorType,
                 WellKnownComponent};
+
+    use string::String;
+    use boxed::Box;
     use error::Error;
     use index_str::IndexStr;
     use std::fmt::Debug;

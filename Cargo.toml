@@ -42,11 +42,14 @@ version = "2.27.1"
 diff = "0.1.10"
 
 [features]
+# Build using the std library
+std = []
+
 # Build the `c++filt` clone executable.
 cppfilt = ["clap"]
 
 # Default features.
-default = ["cppfilt"]
+default = ["cppfilt", "std"]
 
 # Enable copious amounts of logging. Only useful for hacking on `cpp_demangle`
 # itself.

@@ -1,5 +1,6 @@
 //! Custom `Error` and `Result` types for the `cpp_demangle` crate.
 
+#[cfg(feature = "std")]
 use std::error;
 use std::fmt;
 
@@ -81,6 +82,7 @@ impl fmt::Display for Error {
     }
 }
 
+#[cfg(feature = "std")]
 impl error::Error for Error {
     fn description(&self) -> &str {
         match *self {

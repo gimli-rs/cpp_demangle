@@ -3,6 +3,7 @@
 
 use std::fmt;
 use std::ops::{Range, RangeFrom, RangeTo};
+use string::String;
 
 /// The `IndexStr` type allows us to take substrings from an original input and
 /// keep track of what index the substring is at in the original input.

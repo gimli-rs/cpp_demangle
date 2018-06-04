@@ -4,6 +4,7 @@ use ast;
 use std::fmt;
 use std::iter::FromIterator;
 use std::ops::Deref;
+use vec::Vec;
 
 /// An enumeration of all of the types that can end up in the substitution
 /// table.

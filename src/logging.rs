@@ -1,12 +1,17 @@
+#[cfg(feature = "logging")]
 macro_rules! log {
     ( $fmt:expr ) => {
-        if cfg!(feature = "logging") {
-            println!($fmt);
-        }
+        println!($fmt);
     };
     ( $fmt:expr, $($x:tt)* ) => {
-        if cfg!(feature = "logging") {
-            println!($fmt, $($x)*);
-        }
+        println!($fmt, $($x)*);
     }
+}
+
+#[cfg(not(feature = "logging"))]
+macro_rules! log {
+    ( $fmt:expr ) => {};
+    ( $fmt:expr, $($x:tt)* ) => {
+        if false { let _ = format!($fmt, $($x)*); }
+    };
 }
