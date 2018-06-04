@@ -44,7 +44,7 @@ where
         write!(out, "{}", String::from_utf8_lossy(&line[..idx]))?;
 
         if let Ok((sym, tail)) = BorrowedSymbol::with_tail(&line[idx..]) {
-            let demangled = sym.demangle(options)?;
+            let demangled = sym.demangle(options).map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
             write!(out, "{}", demangled)?;
             line = tail;
         } else {
