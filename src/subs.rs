@@ -56,6 +56,15 @@ impl<'a> ast::GetLeafName<'a> for Substitutable {
     }
 }
 
+impl ast::IsCtorDtorConversion for Substitutable {
+    fn is_ctor_dtor_conversion(&self, subs: &SubstitutionTable) -> bool {
+        match *self {
+            Substitutable::Prefix(ref prefix) => prefix.is_ctor_dtor_conversion(subs),
+            _ => false,
+        }
+    }
+}
+
 /// The table of substitutable components that we have parsed thus far, and for
 /// which there are potential back-references.
 #[doc(hidden)]
@@ -74,6 +83,10 @@ impl fmt::Debug for SubstitutionTable {
         f.pad("SubstitutionTable ")?;
         f.debug_map()
             .entries(self.substitutions.iter().enumerate())
+            .finish()?;
+        f.pad("non_substitutions ")?;
+        f.debug_map()
+            .entries(self.non_substitutions.iter().enumerate())
             .finish()
     }
 }
