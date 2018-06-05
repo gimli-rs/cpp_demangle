@@ -155,22 +155,30 @@ macro_rules! log_demangle_as_inner {
     }
 }
 
+#[derive(Debug, Default, Clone, Copy)]
+struct ParseContextState {
+    // The current recursion level. Should always be less than or equal to the
+    // maximum.
+    recursion_level: u32,
+    // Whether or not we are currently parsing a conversion operator.
+    in_conversion: bool,
+}
+
 /// Common context needed when parsing.
 #[derive(Debug, Clone)]
 pub struct ParseContext {
     // Maximum amount of recursive parsing calls we will allow. If this is too
     // large, we can blow the stack.
     max_recursion: u32,
-    // The current recursion level. Should always be less than or equal to the
-    // maximum.
-    recursion_level: Cell<u32>,
+    // Mutable state within the `ParseContext`.
+    state: Cell<ParseContextState>,
 }
 
 impl Default for ParseContext {
     fn default() -> ParseContext {
         ParseContext {
             max_recursion: 64,
-            recursion_level: Cell::new(0),
+            state: Cell::new(ParseContextState::default()),
         }
     }
 }
@@ -178,26 +186,43 @@ impl Default for ParseContext {
 impl ParseContext {
     /// Get the current recursion level for this context.
     pub fn recursion_level(&self) -> u32 {
-        self.recursion_level.get()
+        self.state.get().recursion_level
     }
 
     #[inline]
     fn enter_recursion(&self) -> error::Result<()> {
-        let new_recursion_level = self.recursion_level.get() + 1;
+        let mut state = self.state.get();
+        let new_recursion_level = state.recursion_level + 1;
 
         if new_recursion_level >= self.max_recursion {
             log!("Hit too much recursion at level {}", self.max_recursion);
             Err(error::Error::TooMuchRecursion)
         } else {
-            self.recursion_level.set(new_recursion_level);
+            state.recursion_level = new_recursion_level;
+            self.state.set(state);
             Ok(())
         }
     }
 
     #[inline]
     fn exit_recursion(&self) {
-        debug_assert!(self.recursion_level.get() >= 1);
-        self.recursion_level.set(self.recursion_level.get() - 1);
+        let mut state = self.state.get();
+        debug_assert!(state.recursion_level >= 1);
+        state.recursion_level -= 1;
+        self.state.set(state);
+    }
+
+    #[inline]
+    fn in_conversion(&self) -> bool {
+        self.state.get().in_conversion
+    }
+
+    fn set_in_conversion(&self, in_conversion: bool) -> bool {
+        let mut state = self.state.get();
+        let previously_in_conversion = state.in_conversion;
+        state.in_conversion = in_conversion;
+        self.state.set(state);
+        previously_in_conversion
     }
 }
 
@@ -287,6 +312,12 @@ where
 /// and if so get its leaf name.
 pub(crate) trait GetLeafName<'a> {
     fn get_leaf_name(&'a self, subs: &'a SubstitutionTable) -> Option<LeafName<'a>>;
+}
+
+/// Determine whether this AST node is a constructor, destructor, or conversion
+/// function.
+pub(crate) trait IsCtorDtorConversion {
+    fn is_ctor_dtor_conversion(&self, subs: &SubstitutionTable) -> bool;
 }
 
 /// When formatting a mangled symbol's parsed AST as a demangled symbol, we need
@@ -1288,7 +1319,8 @@ where
                 // appears.
                 //
                 // * Templates and functions in a type or parameter position
-                // always have return types.
+                // have return types, unless they are constructors, destructors,
+                // or conversion operator functions.
                 //
                 // * Non-template functions that are not in a type or parameter
                 // position do not have a return type.
@@ -1300,9 +1332,10 @@ where
                 // http://itanium-cxx-abi.github.io/cxx-abi/abi.html#mangle.function-type
                 let scope = if let Some(template_args) = name.get_template_args(ctx.subs) {
                     let scope = scope.push(template_args);
-
-                    fun_ty.0[0].demangle(ctx, scope)?;
-                    write!(ctx, " ")?;
+                    if !name.is_ctor_dtor_conversion(ctx.subs) {
+                        fun_ty.0[0].demangle(ctx, scope)?;
+                        write!(ctx, " ")?;
+                    }
 
                     scope
                 } else {
@@ -1515,6 +1548,17 @@ impl<'a> GetLeafName<'a> for Name {
     }
 }
 
+impl IsCtorDtorConversion for Name {
+    fn is_ctor_dtor_conversion(&self, subs: &SubstitutionTable) -> bool {
+        match *self {
+            Name::Unscoped(ref unscoped) => unscoped.is_ctor_dtor_conversion(subs),
+            Name::Nested(ref nested) => nested.is_ctor_dtor_conversion(subs),
+            Name::Local(_) |
+            Name::UnscopedTemplate(..) => false,
+        }
+    }
+}
+
 /// The `<unscoped-name>` production.
 ///
 /// ```text
@@ -1575,6 +1619,14 @@ impl<'a> GetLeafName<'a> for UnscopedName {
             UnscopedName::Unqualified(ref name) | UnscopedName::Std(ref name) => {
                 name.get_leaf_name(subs)
             }
+        }
+    }
+}
+
+impl IsCtorDtorConversion for UnscopedName {
+    fn is_ctor_dtor_conversion(&self, subs: &SubstitutionTable) -> bool {
+        match *self {
+            UnscopedName::Unqualified(ref name) | UnscopedName::Std(ref name) => name.is_ctor_dtor_conversion(subs),
         }
     }
 }
@@ -1792,6 +1844,12 @@ impl<'a> GetLeafName<'a> for NestedName {
                 .or_else(|| prefix.get_leaf_name(subs)),
             NestedName::Template(_, _, ref prefix) => prefix.get_leaf_name(subs),
         }
+    }
+}
+
+impl IsCtorDtorConversion for NestedName {
+    fn is_ctor_dtor_conversion(&self, subs: &SubstitutionTable) -> bool {
+        self.prefix().is_ctor_dtor_conversion(subs)
     }
 }
 
@@ -2061,6 +2119,39 @@ where
     }
 }
 
+impl IsCtorDtorConversion for Prefix {
+    fn is_ctor_dtor_conversion(&self, subs: &SubstitutionTable) -> bool {
+        match *self {
+            Prefix::Unqualified(ref unqualified) |
+            Prefix::Nested(_, ref unqualified) => unqualified.is_ctor_dtor_conversion(subs),
+            Prefix::Template(ref prefix, _) => prefix.is_ctor_dtor_conversion(subs),
+            _ => false,
+        }
+    }
+}
+
+impl IsCtorDtorConversion for PrefixHandle {
+    fn is_ctor_dtor_conversion(&self, subs: &SubstitutionTable) -> bool {
+        match *self {
+            PrefixHandle::BackReference(idx) => {
+                if let Some(sub) = subs.get(idx) {
+                    sub.is_ctor_dtor_conversion(subs)
+                } else {
+                    false
+                }
+            }
+            PrefixHandle::NonSubstitution(NonSubstitution(idx)) => {
+                if let Some(sub) = subs.get_non_substitution(idx) {
+                    sub.is_ctor_dtor_conversion(subs)
+                } else {
+                    false
+                }
+            }
+            PrefixHandle::WellKnown(_) => false,
+        }
+    }
+}
+
 impl PrefixHandle {
     // Is this <prefix> also a valid <template-prefix> production? Not to be
     // confused with the `GetTemplateArgs` trait.
@@ -2188,6 +2279,21 @@ impl<'a> GetLeafName<'a> for UnqualifiedName {
             UnqualifiedName::Source(ref name) | UnqualifiedName::LocalSourceName(ref name, _) => {
                 Some(LeafName::SourceName(name))
             }
+        }
+    }
+}
+
+impl IsCtorDtorConversion for UnqualifiedName {
+    fn is_ctor_dtor_conversion(&self, _: &SubstitutionTable) -> bool {
+        match *self {
+            UnqualifiedName::CtorDtor(_) |
+            UnqualifiedName::Operator(OperatorName::Conversion(_)) => true,
+            UnqualifiedName::Operator(_) |
+            UnqualifiedName::Source(_) |
+            UnqualifiedName::LocalSourceName(..) |
+            UnqualifiedName::UnnamedType(_) |
+            UnqualifiedName::ClosureType(_) |
+            UnqualifiedName::ABITag(_) => false,
         }
     }
 }
@@ -2477,6 +2583,9 @@ pub enum OperatorName {
     /// A type cast.
     Cast(TypeHandle),
 
+    /// A type conversion.
+    Conversion(TypeHandle),
+
     /// Operator literal, ie `operator ""`.
     Literal(SourceName),
 
@@ -2491,47 +2600,48 @@ impl OperatorName {
 
     fn arity(&self) -> u8 {
         match self {
-            &OperatorName::Cast(_) => 1,
+            &OperatorName::Cast(_) |
+            &OperatorName::Conversion(_) |
             &OperatorName::Literal(_) => 1,
             &OperatorName::Simple(ref s) => s.arity(),
             &OperatorName::VendorExtension(arity, _) => arity,
         }
     }
 
-    fn parse_arity<'a, 'b>(
-        self,
+    fn parse_from_expr<'a, 'b>(
         ctx: &'a ParseContext,
         subs: &'a mut SubstitutionTable,
         input: IndexStr<'b>
     ) -> Result<(Expression, IndexStr<'b>)> {
-        let arity = self.arity();
+        let (operator, tail) = OperatorName::parse_internal(ctx, subs, input, true)?;
+
+        let arity = operator.arity();
         if arity == 1 {
-            let (first, tail) = Expression::parse(ctx, subs, input)?;
-            let expr = Expression::Unary(self, Box::new(first));
+            let (first, tail) = Expression::parse(ctx, subs, tail)?;
+            let expr = Expression::Unary(operator, Box::new(first));
             Ok((expr, tail))
         } else if arity == 2 {
-            let (first, tail) = Expression::parse(ctx, subs, input)?;
+            let (first, tail) = Expression::parse(ctx, subs, tail)?;
             let (second, tail) = Expression::parse(ctx, subs, tail)?;
-            let expr = Expression::Binary(self, Box::new(first), Box::new(second));
+            let expr = Expression::Binary(operator, Box::new(first), Box::new(second));
             Ok((expr, tail))
         } else if arity == 3 {
-            let (first, tail) = Expression::parse(ctx, subs, input)?;
+            let (first, tail) = Expression::parse(ctx, subs, tail)?;
             let (second, tail) = Expression::parse(ctx, subs, tail)?;
             let (third, tail) = Expression::parse(ctx, subs, tail)?;
             let expr =
-                Expression::Ternary(self, Box::new(first), Box::new(second), Box::new(third));
+                Expression::Ternary(operator, Box::new(first), Box::new(second), Box::new(third));
             Ok((expr, tail))
         } else {
             Err(error::Error::UnexpectedText)
         }
     }
-}
 
-impl Parse for OperatorName {
-    fn parse<'a, 'b>(
+    fn parse_internal<'a, 'b>(
         ctx: &'a ParseContext,
         subs: &'a mut SubstitutionTable,
         input: IndexStr<'b>,
+        from_expr: bool,
     ) -> Result<(OperatorName, IndexStr<'b>)> {
         try_begin_parse!("OperatorName", ctx, input);
 
@@ -2540,8 +2650,17 @@ impl Parse for OperatorName {
         }
 
         if let Ok(tail) = consume(b"cv", input) {
-            let (ty, tail) = TypeHandle::parse(ctx, subs, tail)?;
-            return Ok((OperatorName::Cast(ty), tail));
+            // If we came through the expression path, we're a cast. If not,
+            // we're a conversion.
+            let previously_in_conversion = ctx.set_in_conversion(!from_expr);
+            let parse_result = TypeHandle::parse(ctx, subs, tail);
+            ctx.set_in_conversion(previously_in_conversion);
+            let (ty, tail) = parse_result?;
+            if from_expr {
+                return Ok((OperatorName::Cast(ty), tail));
+            } else {
+                return Ok((OperatorName::Conversion(ty), tail));
+            }
         }
 
         if let Ok(tail) = consume(b"li", input) {
@@ -2557,6 +2676,16 @@ impl Parse for OperatorName {
         };
         let (name, tail) = SourceName::parse(ctx, subs, tail)?;
         Ok((OperatorName::VendorExtension(arity, name), tail))
+    }
+}
+
+impl Parse for OperatorName {
+    fn parse<'a, 'b>(
+        ctx: &'a ParseContext,
+        subs: &'a mut SubstitutionTable,
+        input: IndexStr<'b>,
+    ) -> Result<(OperatorName, IndexStr<'b>)> {
+        OperatorName::parse_internal(ctx, subs, input, false)
     }
 }
 
@@ -2584,7 +2713,8 @@ where
                 }
                 simple.demangle(ctx, scope)
             }
-            OperatorName::Cast(ref ty) => {
+            OperatorName::Cast(ref ty) |
+            OperatorName::Conversion(ref ty) => {
                 ctx.ensure_space()?;
 
                 // Cast operators can refer to template arguments before they
@@ -3061,6 +3191,32 @@ impl Parse for TypeHandle {
             if tail.peek() != Some(b'I') {
                 let ty = Type::TemplateParam(param);
                 return insert_and_return_handle(ty, subs, tail);
+            } else if ctx.in_conversion() {
+                // This may be <template-template-param> <template-args>.
+                // But if we're here for a conversion operator, that's only
+                // possible if the grammar looks like:
+                //
+                // <nested-name>
+                // -> <source-name> cv <template-template-param> <template-args> <template-args>
+                //
+                // That is, there must be *another* <template-args> production after ours.
+                // If there isn't one, then this really is a <template-param>.
+                //
+                // NB: Parsing a <template-args> production may modify the substitutions
+                // table, so we need to avoid contaminating the official copy.
+                let mut tmp_subs = subs.clone();
+                if let Ok((_, new_tail)) = TemplateArgs::parse(ctx, &mut tmp_subs, tail) {
+                    if new_tail.peek() != Some(b'I') {
+                        // Don't consume the TemplateArgs.
+                        let ty = Type::TemplateParam(param);
+                        return insert_and_return_handle(ty, subs, tail);
+                    }
+                    // We really do have a <template-template-param>. Fall through.
+                    // NB: We can't use the arguments we just parsed because a
+                    // TemplateTemplateParam is substitutable, and if we use it
+                    // any substitutions in the arguments will come *before* it,
+                    // putting the substitution table out of order.
+                }
             }
         }
 
@@ -4324,7 +4480,6 @@ impl Parse for TemplateTemplateParamHandle {
     ) -> Result<(TemplateTemplateParamHandle, IndexStr<'b>)> {
         try_begin_parse!("TemplateTemplateParamHandle", ctx, input);
 
-
         if let Ok((sub, tail)) = Substitution::parse(ctx, subs, input) {
             match sub {
                 Substitution::WellKnown(component) => {
@@ -5051,10 +5206,7 @@ impl Parse for Expression {
         // code (e.g., for the -> operator) takes precedence over one that is
         // expressed in terms of (unary/binary/ternary) <operator-name>." So try
         // and parse unary/binary/ternary expressions last.
-        //
-        // TODO: Should we check if the operator matches the arity here?
-        let (opname, tail) = OperatorName::parse(ctx, subs, input)?;
-        let (expr, tail) = opname.parse_arity(ctx, subs, tail)?;
+        let (expr, tail) = OperatorName::parse_from_expr(ctx, subs, input)?;
         return Ok((expr, tail));
 
         // Parse the various expressions that can optionally have a leading "gs"
@@ -10370,7 +10522,7 @@ mod tests {
                     b"..."
                 }
                 b"cvi..." => {
-                    OperatorName::Cast(
+                    OperatorName::Conversion(
                         TypeHandle::Builtin(
                             BuiltinType::Standard(
                                 StandardBuiltinType::Int))),
