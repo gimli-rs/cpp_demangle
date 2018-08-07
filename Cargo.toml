@@ -32,7 +32,7 @@ glob = "0.2.11"
 
 [dependencies.afl]
 optional = true
-version = "0.3"
+version = "0.4"
 
 [dependencies.clap]
 optional = true
