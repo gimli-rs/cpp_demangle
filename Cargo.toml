@@ -61,6 +61,8 @@ nightly = []
 # Run all libiberty tests, even the ones that are known not to pass yet.
 run_libiberty_tests = []
 
+fuzz = ["afl"]
+
 [profile]
 
 [profile.release]

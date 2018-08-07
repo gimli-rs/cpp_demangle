@@ -64,7 +64,7 @@ mod imports {
     pub use alloc::vec;
     pub use alloc::string;
     pub use alloc::borrow;
-    pub use alloc::btree_map;
+    pub use alloc::collections::btree_map;
 }
 
 use imports::*;
