@@ -385,3 +385,11 @@ demangles!(
     _ZNK7mozilla15NativeEventDatacvPKT_I12_GdkEventKeyEEv,
     "mozilla::NativeEventData::operator _GdkEventKey const*<_GdkEventKey>() const"
 );
+demangles!(
+    _ZN5boost9unordered18unordered_multimapItN3xxx6xxxxxx6xxxxxx14xxxxxxxxxxxxxxENS_4hashItEESt8equal_toItESaISt4pairIKtS5_EEE7emplaceIISC_EEENS0_15iterator_detail8iteratorINS0_6detail16grouped_ptr_nodeISC_EEEEDpOT_,
+    "boost::unordered::iterator_detail::iterator<boost::unordered::detail::grouped_ptr_node<std::pair<unsigned short const, xxx::xxxxxx::xxxxxx::xxxxxxxxxxxxxx> > > boost::unordered::unordered_multimap<unsigned short, xxx::xxxxxx::xxxxxx::xxxxxxxxxxxxxx, boost::hash<unsigned short>, std::equal_to<unsigned short>, std::allocator<std::pair<unsigned short const, xxx::xxxxxx::xxxxxx::xxxxxxxxxxxxxx> > >::emplace<std::pair<unsigned short const, xxx::xxxxxx::xxxxxx::xxxxxxxxxxxxxx> >(std::pair<unsigned short const, xxx::xxxxxx::xxxxxx::xxxxxxxxxxxxxx>&&...)"
+);
+demangles!(
+    _ZNSt6vectorIN3xxx6xxxxxx15xxxxxxxxxxxxxxxESaIS2_EE12emplace_backIIS2_EEEvDpOT_,
+    "void std::vector<xxx::xxxxxx::xxxxxxxxxxxxxxx, std::allocator<xxx::xxxxxx::xxxxxxxxxxxxxxx> >::emplace_back<xxx::xxxxxx::xxxxxxxxxxxxxxx>(xxx::xxxxxx::xxxxxxxxxxxxxxx&&...)"
+);

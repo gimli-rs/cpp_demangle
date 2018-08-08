@@ -4706,7 +4706,12 @@ impl Parse for TemplateArg {
             return Ok((TemplateArg::Type(ty), tail));
         }
 
-        let tail = consume(b"J", input)?;
+        let tail = if input.peek() == Some(b'J') {
+            consume(b"J", input)?
+        } else {
+            consume(b"I", input)?
+        };
+
         let (args, tail) = if tail.peek() == Some(b'E') {
             (vec![], tail)
         } else {
