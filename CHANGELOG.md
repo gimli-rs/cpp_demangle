@@ -28,6 +28,29 @@ Released YYYY/MM/DD
 
 --------------------------------------------------------------------------------
 
+# 0.2.10
+
+Released 2018/08/08
+
+## Added
+
+* Added support for `nostd`! This currently requires nightly Rust's `alloc`
+  feature to get access to `BTreeMap`. Enable `nostd` support by building
+  without the on-by-default `std` feature. [#148][]
+
+## Fixed
+
+* Fixed formatting of some conversion operators. [#149][]
+* Fixed parsing some tricky symbols with template argument packs that came out
+  of boost. [#150][] [#152][]
+
+[#148]: https://github.com/gimli-rs/cpp_demangle/pull/148
+[#149]: https://github.com/gimli-rs/cpp_demangle/pull/149
+[#150]: https://github.com/gimli-rs/cpp_demangle/pull/150
+[#152]: https://github.com/gimli-rs/cpp_demangle/pull/152
+
+--------------------------------------------------------------------------------
+
 # 0.2.9
 
 Released 2018/05/14

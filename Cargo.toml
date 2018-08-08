@@ -10,7 +10,7 @@ license = "Apache-2.0/MIT"
 name = "cpp_demangle"
 readme = "./README.md"
 repository = "https://github.com/gimli-rs/cpp_demangle"
-version = "0.2.9"
+version = "0.2.10"
 
 [badges]
 
@@ -42,28 +42,30 @@ version = "2.27.1"
 diff = "0.1.10"
 
 [features]
-# Build using the std library
+# Default features.
+default = ["cppfilt", "std"]
+
+# Build using the `std` library. Disabling this feature enables `nostd` support.
 std = []
 
 # Build the `c++filt` clone executable.
 cppfilt = ["clap"]
 
-# Default features.
-default = ["cppfilt", "std"]
-
-# Enable copious amounts of logging. Only useful for hacking on `cpp_demangle`
-# itself.
+# Enable copious amounts of logging. This is for internal use only, and is only
+# useful for hacking on `cpp_demangle` itself.
 logging = []
 
-# Enable nightly-only features for testing, clippy, etc.
-nightly = []
-
-# Run all libiberty tests, even the ones that are known not to pass yet.
+# Run all libiberty tests, even the ones that are known not to pass yet. This is
+# for internal use only.
 run_libiberty_tests = []
 
+# Enable fuzzing support. This is for internal use only.
 fuzz = ["afl"]
 
-[profile]
+# DEPRECATED. Don't use this, it does nothing.
+#
+# TODO: remove on next breaking version bump.
+nightly = []
 
 [profile.release]
 debug = true
