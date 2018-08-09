@@ -34,7 +34,7 @@ Add `cpp_demangle` to your crate's `Cargo.toml`:
 
 ```toml
 [dependencies]
-cpp_demangle = "0.2.9"
+cpp_demangle = "0.2.11"
 ```
 
 And then demangle some C++ symbols!
@@ -53,13 +53,36 @@ let demangled = sym.to_string();
 assert_eq!(demangled, "space::foo(int, bool, char)");
 ```
 
+### `no_std` Support
+
+`cpp_demangle` may be configured for working in `no_std` environments that still
+have allocation support via the `alloc` crate. This is nightly rust only, at the
+moment, since the `alloc` crate's collections aren't stabilized.
+
+Disable the "std" feature, and enable the "alloc" feature:
+
+```tom
+[dependencies]
+cpp_demangle = {
+  version = "0.2.11",
+  default-features = false,
+  features = ["alloc"]
+}
+```
+
 ## Documentation
 
 [Documentation on docs.rs](https://docs.rs/cpp_demangle)
 
 Example programs:
 
-* [A `c++filt` clone](./src/bin/cppfilt.rs)
+* [A `c++filt` clone.](./src/bin/cppfilt.rs)
+
+  Install it locally with this command:
+
+  ```
+  cargo install cpp_demangle --example cppfilt
+  ```
 
 ## Implementation Status
 
