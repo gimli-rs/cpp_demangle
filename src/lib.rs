@@ -30,41 +30,38 @@
 #![deny(missing_docs)]
 #![deny(missing_debug_implementations)]
 #![deny(unsafe_code)]
+
 // Clippy stuff.
 #![allow(unknown_lints)]
 #![allow(inline_always)]
 
-#![no_std]
-#![cfg_attr(not(feature = "std"), feature(alloc))]
+#![cfg_attr(all(not(feature = "std"), feature = "alloc"), no_std)]
+#![cfg_attr(all(not(feature = "std"), feature = "alloc"), feature(alloc))]
 
-#[cfg(feature = "std")]
 #[macro_use]
-extern crate std;
+extern crate cfg_if;
 
-#[cfg(not(feature = "std"))]
-#[macro_use]
-extern crate core as std;
-
-#[cfg(not(feature = "std"))]
-#[macro_use]
-extern crate alloc;
-
-#[cfg(feature = "std")]
-mod imports {
-    pub use std::boxed;
-    pub use std::vec;
-    pub use std::string;
-    pub use std::borrow;
-    pub use std::collections::btree_map;
-}
-
-#[cfg(not(feature = "std"))]
-mod imports {
-    pub use alloc::boxed;
-    pub use alloc::vec;
-    pub use alloc::string;
-    pub use alloc::borrow;
-    pub use alloc::collections::btree_map;
+cfg_if! {
+    if #[cfg(feature = "std")] {
+        mod imports {
+            pub use std::boxed;
+            pub use std::vec;
+            pub use std::string;
+            pub use std::borrow;
+            pub use std::collections::btree_map;
+        }
+    } else if #[cfg(feature = "alloc")] {
+        extern crate core as std;
+        #[macro_use]
+        extern crate alloc;
+        mod imports {
+            pub use alloc::boxed;
+            pub use alloc::vec;
+            pub use alloc::string;
+            pub use alloc::borrow;
+            pub use alloc::collections::btree_map;
+        }
+    }
 }
 
 use imports::*;

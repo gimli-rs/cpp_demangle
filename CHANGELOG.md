@@ -28,14 +28,27 @@ Released YYYY/MM/DD
 
 --------------------------------------------------------------------------------
 
+# 0.2.11
+
+Released 2018/08/09
+
+## Fixed
+
+* Fixed builds using `no-default-features = true` to not accidentally enable
+  `no_std` mode, which requires nightly rust, and break builds on non-nightly
+  channels. Enabling the `no_std` mode now requires disabling the `std` feature
+  *and* enabling the `alloc` feature.
+
+--------------------------------------------------------------------------------
+
 # 0.2.10
 
 Released 2018/08/08
 
 ## Added
 
-* Added support for `nostd`! This currently requires nightly Rust's `alloc`
-  feature to get access to `BTreeMap`. Enable `nostd` support by building
+* Added support for `no_std`! This currently requires nightly Rust's `alloc`
+  feature to get access to `BTreeMap`. Enable `no_std` support by building
   without the on-by-default `std` feature. [#148][]
 
 ## Fixed

@@ -30,26 +30,28 @@ required-features = ["afl"]
 [build-dependencies]
 glob = "0.2.11"
 
+[dependencies]
+cfg-if = "0.1.4"
+
 [dependencies.afl]
 optional = true
 version = "0.4"
 
-[dependencies.clap]
-optional = true
-version = "2.27.1"
-
 [dev-dependencies]
+clap = "2.27.1"
 diff = "0.1.10"
 
 [features]
 # Default features.
-default = ["cppfilt", "std"]
+default = ["std"]
 
-# Build using the `std` library. Disabling this feature enables `nostd` support.
+# Build using the `std` library. Disabling this and enabling the `alloc` feature
+# enables `no_std` support.
 std = []
 
-# Build the `c++filt` clone executable.
-cppfilt = ["clap"]
+# Use collections from the `alloc` crate rather than from `std`. Combined with
+# disabling `std`, this enables `no_std` support.
+alloc = []
 
 # Enable copious amounts of logging. This is for internal use only, and is only
 # useful for hacking on `cpp_demangle` itself.
@@ -62,10 +64,12 @@ run_libiberty_tests = []
 # Enable fuzzing support. This is for internal use only.
 fuzz = ["afl"]
 
-# DEPRECATED. Don't use this, it does nothing.
+# DEPRECATED. Don't use these features, they do nothing.
 #
 # TODO: remove on next breaking version bump.
 nightly = []
+cppfilt = []
+
 
 [profile.release]
 debug = true

@@ -8,8 +8,8 @@ matrix:
       env: JOB=fuzz
       script: cargo build --features fuzz
     - rust: nightly
-      env: JOB=nostd
-      script: cargo build --no-default-features
+      env: JOB=test-nostd
+      script: cargo test --no-default-features --features alloc
     - rust: stable
       env: JOB=doc
       script: cargo doc
