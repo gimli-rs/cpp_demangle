@@ -42,15 +42,7 @@
 extern crate cfg_if;
 
 cfg_if! {
-    if #[cfg(feature = "std")] {
-        mod imports {
-            pub use std::boxed;
-            pub use std::vec;
-            pub use std::string;
-            pub use std::borrow;
-            pub use std::collections::btree_map;
-        }
-    } else if #[cfg(feature = "alloc")] {
+    if #[cfg(all(not(feature = "std"), feature = "alloc"))] {
         extern crate core as std;
         #[macro_use]
         extern crate alloc;
@@ -60,6 +52,14 @@ cfg_if! {
             pub use alloc::string;
             pub use alloc::borrow;
             pub use alloc::collections::btree_map;
+        }
+    } else {
+        mod imports {
+            pub use std::boxed;
+            pub use std::vec;
+            pub use std::string;
+            pub use std::borrow;
+            pub use std::collections::btree_map;
         }
     }
 }
