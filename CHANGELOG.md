@@ -28,6 +28,19 @@ Released YYYY/MM/DD
 
 --------------------------------------------------------------------------------
 
+# 0.2.12
+
+Released 2018/08/09
+
+## Fixed
+
+* *Actually* fixed builds using `no-default-features = true` to not accidentally
+  enable `no_std` mode, which requires nightly rust, and break builds on
+  non-nightly channels. Enabling the `no_std` mode now requires disabling the
+  `std` feature *and* enabling the `alloc` feature.
+
+--------------------------------------------------------------------------------
+
 # 0.2.11
 
 Released 2018/08/09

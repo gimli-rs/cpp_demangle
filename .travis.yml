@@ -9,7 +9,9 @@ matrix:
       script: cargo build --features fuzz
     - rust: nightly
       env: JOB=test-nostd
-      script: cargo test --no-default-features --features alloc
+      script:
+        - cargo test --no-default-features
+        - cargo test --no-default-features --features alloc
     - rust: stable
       env: JOB=doc
       script: cargo doc
