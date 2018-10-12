@@ -374,9 +374,6 @@ trait ArgScopeStackExt<'prev, 'subs>: Copy {
         &'prev self,
         item: &'subs ArgScope<'subs, 'subs>,
     ) -> Option<ArgScopeStack<'prev, 'subs>>;
-
-    /// Determine if this is the top-most scope.
-    fn is_top(&self) -> bool;
 }
 
 impl<'prev, 'subs> ArgScopeStackExt<'prev, 'subs> for Option<ArgScopeStack<'prev, 'subs>> {
@@ -389,13 +386,6 @@ impl<'prev, 'subs> ArgScopeStackExt<'prev, 'subs> for Option<ArgScopeStack<'prev
             prev: self.as_ref(),
             item: item,
         })
-    }
-
-    fn is_top(&self) -> bool {
-        match self {
-            &None => true,
-            &Some(s) => s.prev.is_none(),
-        }
     }
 }
 
@@ -831,10 +821,6 @@ where
         scope: Option<ArgScopeStack<'prev, 'subs>>,
     ) -> fmt::Result {
         log_demangle!(self, ctx, scope);
-
-        if ctx.options.no_params && scope.is_top() {
-            return Ok(());
-        }
 
         let mut saw_needs_paren = false;
         let (needs_space, needs_paren) = ctx.inner
@@ -1332,7 +1318,7 @@ where
                 // http://itanium-cxx-abi.github.io/cxx-abi/abi.html#mangle.function-type
                 let scope = if let Some(template_args) = name.get_template_args(ctx.subs) {
                     let scope = scope.push(template_args);
-                    if !name.is_ctor_dtor_conversion(ctx.subs) {
+                    if !ctx.options.no_params && !name.is_ctor_dtor_conversion(ctx.subs) {
                         fun_ty.0[0].demangle(ctx, scope)?;
                         write!(ctx, " ")?;
                     }
@@ -1365,6 +1351,9 @@ where
         ctx: &'ctx mut DemangleContext<'subs, W>,
         scope: Option<ArgScopeStack<'prev, 'subs>>,
     ) -> fmt::Result {
+        if ctx.options.no_params {
+            return Ok(());
+        }
         if let Encoding::Function(ref name, ref fun_ty) = *self {
             let (scope, function_args) =
                 if let Some(template_args) = name.get_template_args(ctx.subs) {

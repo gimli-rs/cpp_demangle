@@ -5,13 +5,19 @@ extern crate diff;
 
 use std::io::Write;
 
-fn assert_demangles_as(mangled: &str, expected: &str) {
+use cpp_demangle::DemangleOptions;
+
+fn assert_demangles_as(mangled: &str, expected: &str, options: Option<DemangleOptions>) {
     let sym = cpp_demangle::BorrowedSymbol::new(mangled.as_bytes())
         .expect("should parse mangled symbol ok");
 
-    let mut actual = vec![];
-    write!(&mut actual, "{}", sym).expect("should demangle symbol ok");
-    let actual = String::from_utf8(actual).expect("should demangle to valid utf-8");
+    let actual = if let Some(o) = options {
+        sym.demangle(&o).expect("should demangle ok")
+    } else {
+        let mut actual = vec![];
+        write!(&mut actual, "{}", sym).expect("should demangle symbol ok");
+        String::from_utf8(actual).expect("should demangle to valid utf-8")
+    };
 
     if expected != actual {
         println!("");
@@ -56,9 +62,22 @@ macro_rules! demangles {
     ( $name:ident , $mangled:expr , $demangled:expr ) => {
         #[test]
         fn $name() {
-            assert_demangles_as($mangled, $demangled);
+            assert_demangles_as($mangled, $demangled, None);
         }
-    }
+    };
+}
+
+macro_rules! demangles_no_param {
+    ( $mangled:ident , $demangled:expr ) => {
+        demangles_no_param!($mangled, stringify!($mangled), $demangled);
+    };
+    ( $name:ident , $mangled:expr , $demangled:expr ) => {
+        #[test]
+        fn $name() {
+            let options = DemangleOptions { no_params: true };
+            assert_demangles_as($mangled, $demangled, Some(options));
+        }
+    };
 }
 
 macro_rules! does_not_demangle {
@@ -392,4 +411,8 @@ demangles!(
 demangles!(
     _ZNSt6vectorIN3xxx6xxxxxx15xxxxxxxxxxxxxxxESaIS2_EE12emplace_backIIS2_EEEvDpOT_,
     "void std::vector<xxx::xxxxxx::xxxxxxxxxxxxxxx, std::allocator<xxx::xxxxxx::xxxxxxxxxxxxxxx> >::emplace_back<xxx::xxxxxx::xxxxxxxxxxxxxxx>(xxx::xxxxxx::xxxxxxxxxxxxxxx&&...)"
+);
+demangles_no_param!(
+    _ZN2js9LifoAlloc21newArrayUninitializedI17OffsetAndDefIndexEEPT_m,
+    "js::LifoAlloc::newArrayUninitialized<OffsetAndDefIndex>"
 );
