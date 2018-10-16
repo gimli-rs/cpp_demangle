@@ -472,8 +472,8 @@ where
     // should be suppressed to match libiberty.
     is_lambda_arg: bool,
 
-    // Options passed to the demangling process.
-    options: &'a DemangleOptions,
+    // Whether to show function parameters and (if applicable) return types.
+    show_params: bool,
 }
 
 impl<'a, W> fmt::Write for DemangleContext<'a, W>
@@ -503,7 +503,7 @@ where
     pub fn new(
         subs: &'a SubstitutionTable,
         input: &'a [u8],
-        options: &'a DemangleOptions,
+        options: &DemangleOptions,
         out: W,
     ) -> DemangleContext<'a, W> {
         DemangleContext {
@@ -514,7 +514,7 @@ where
             bytes_written: 0,
             last_char_written: None,
             is_lambda_arg: false,
-            options: options,
+            show_params: !options.no_params,
         }
     }
 
@@ -1284,7 +1284,10 @@ where
         log_demangle!(self, ctx, scope);
         inner_barrier!(ctx);
 
-        match *self {
+        let show_params = ctx.show_params;
+        ctx.show_params = true;
+
+        let ret = match *self {
             Encoding::Function(ref name, ref fun_ty) => {
                 // Even if this function takes no args and doesn't have a return
                 // value (see below), it will have the void parameter.
@@ -1318,7 +1321,7 @@ where
                 // http://itanium-cxx-abi.github.io/cxx-abi/abi.html#mangle.function-type
                 let scope = if let Some(template_args) = name.get_template_args(ctx.subs) {
                     let scope = scope.push(template_args);
-                    if !ctx.options.no_params && !name.is_ctor_dtor_conversion(ctx.subs) {
+                    if show_params && !name.is_ctor_dtor_conversion(ctx.subs) {
                         fun_ty.0[0].demangle(ctx, scope)?;
                         write!(ctx, " ")?;
                     }
@@ -1328,17 +1331,24 @@ where
                     scope
                 };
 
-                ctx.push_inner(self);
-                name.demangle(ctx, scope)?;
-                if ctx.pop_inner_if(self) {
-                    self.demangle_as_inner(ctx, scope)?;
+                if show_params {
+                    ctx.push_inner(self);
+                    name.demangle(ctx, scope)?;
+                    if ctx.pop_inner_if(self) {
+                        self.demangle_as_inner(ctx, scope)?;
+                    }
+                } else {
+                    name.demangle(ctx, scope)?;
                 }
 
                 Ok(())
             }
             Encoding::Data(ref name) => name.demangle(ctx, scope),
             Encoding::Special(ref name) => name.demangle(ctx, scope),
-        }
+        };
+
+        ctx.show_params = show_params;
+        ret
     }
 }
 
@@ -1351,9 +1361,6 @@ where
         ctx: &'ctx mut DemangleContext<'subs, W>,
         scope: Option<ArgScopeStack<'prev, 'subs>>,
     ) -> fmt::Result {
-        if ctx.options.no_params {
-            return Ok(());
-        }
         if let Encoding::Function(ref name, ref fun_ty) = *self {
             let (scope, function_args) =
                 if let Some(template_args) = name.get_template_args(ctx.subs) {

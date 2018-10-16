@@ -416,3 +416,7 @@ demangles_no_param!(
     _ZN2js9LifoAlloc21newArrayUninitializedI17OffsetAndDefIndexEEPT_m,
     "js::LifoAlloc::newArrayUninitialized<OffsetAndDefIndex>"
 );
+demangles_no_param!(
+    _Z4callIXadL_Z5helloiEEEvi,
+    "call<&hello(int)>"
+);
