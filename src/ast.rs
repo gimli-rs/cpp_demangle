@@ -473,6 +473,8 @@ where
     is_lambda_arg: bool,
 
     // Whether to show function parameters and (if applicable) return types.
+    // This must be set to true before calling `demangle` on `Encoding`
+    // unless that call is via the toplevel call to `MangledName::demangle`.
     show_params: bool,
 }
 
@@ -1284,10 +1286,7 @@ where
         log_demangle!(self, ctx, scope);
         inner_barrier!(ctx);
 
-        let show_params = ctx.show_params;
-        ctx.show_params = true;
-
-        let ret = match *self {
+        match *self {
             Encoding::Function(ref name, ref fun_ty) => {
                 // Even if this function takes no args and doesn't have a return
                 // value (see below), it will have the void parameter.
@@ -1321,7 +1320,7 @@ where
                 // http://itanium-cxx-abi.github.io/cxx-abi/abi.html#mangle.function-type
                 let scope = if let Some(template_args) = name.get_template_args(ctx.subs) {
                     let scope = scope.push(template_args);
-                    if show_params && !name.is_ctor_dtor_conversion(ctx.subs) {
+                    if ctx.show_params && !name.is_ctor_dtor_conversion(ctx.subs) {
                         fun_ty.0[0].demangle(ctx, scope)?;
                         write!(ctx, " ")?;
                     }
@@ -1331,7 +1330,7 @@ where
                     scope
                 };
 
-                if show_params {
+                if ctx.show_params {
                     ctx.push_inner(self);
                     name.demangle(ctx, scope)?;
                     if ctx.pop_inner_if(self) {
@@ -1345,10 +1344,7 @@ where
             }
             Encoding::Data(ref name) => name.demangle(ctx, scope),
             Encoding::Special(ref name) => name.demangle(ctx, scope),
-        };
-
-        ctx.show_params = show_params;
-        ret
+        }
     }
 }
 
@@ -1428,7 +1424,9 @@ where
         log_demangle!(self, ctx, scope);
         inner_barrier!(ctx);
 
-        match *self {
+        let saved_show_params = ctx.show_params;
+        ctx.show_params = true;
+        let ret = match *self {
             GlobalCtorDtor::Ctor(ref name) => {
                 write!(ctx, "global constructors keyed to ")?;
                 name.demangle(ctx, scope)
@@ -1437,7 +1435,9 @@ where
                 write!(ctx, "global destructors keyed to ")?;
                 name.demangle(ctx, scope)
             }
-        }
+        };
+        ctx.show_params = saved_show_params;
+        ret
     }
 }
 
@@ -1811,7 +1811,7 @@ where
             inner.demangle_as_inner(ctx, scope)?;
         }
 
-        if self.cv_qualifiers() != &CvQualifiers::default() {
+        if self.cv_qualifiers() != &CvQualifiers::default() && ctx.show_params {
             self.cv_qualifiers().demangle(ctx, scope)?;
         }
 
@@ -6187,7 +6187,13 @@ where
         }
 
         match *self {
-            ExprPrimary::External(ref name) => name.demangle(ctx, scope),
+            ExprPrimary::External(ref name) => {
+                let saved_show_params = ctx.show_params;
+                ctx.show_params = true;
+                let ret = name.demangle(ctx, scope);
+                ctx.show_params = saved_show_params;
+                ret
+            }
             ExprPrimary::Literal(
                 TypeHandle::Builtin(BuiltinType::Standard(StandardBuiltinType::Bool)),
                 start,
@@ -6371,7 +6377,9 @@ where
     ) -> fmt::Result {
         log_demangle!(self, ctx, scope);
 
-        match *self {
+        let saved_show_params = ctx.show_params;
+        ctx.show_params = true;
+        let ret = match *self {
             LocalName::Relative(ref encoding, Some(ref name), _) => {
                 encoding.demangle(ctx, scope)?;
                 write!(ctx, "::")?;
@@ -6384,7 +6392,9 @@ where
                 Ok(())
             }
             LocalName::Default(ref encoding, _, _) => encoding.demangle(ctx, scope),
-        }
+        };
+        ctx.show_params = saved_show_params;
+        ret
     }
 }
 
