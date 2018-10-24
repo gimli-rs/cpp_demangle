@@ -420,3 +420,7 @@ demangles_no_param!(
     _Z4callIXadL_Z5helloiEEEvi,
     "call<&hello(int)>"
 );
+demangles_no_param!(
+    _ZNK5Hello6methodEv,
+    "Hello::method"
+);
