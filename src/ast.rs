@@ -5159,21 +5159,27 @@ impl Parse for Expression {
                     return Ok((expr, tail));
                 }
                 b"gs" => {
-                    return can_be_global(true, ctx, subs, tail);
+                    if let Ok((expr, tail)) = can_be_global(true, ctx, subs, tail) {
+                        return Ok((expr, tail));
+                    }
                 }
                 b"sr" => {
-                    let (ty, tail) = TypeHandle::parse(ctx, subs, tail)?;
-                    let (name, tail) = UnqualifiedName::parse(ctx, subs, tail)?;
-                    let (expr, tail) = if tail.peek() == Some(b'I') {
-                        let (template_args, tail) = TemplateArgs::parse(ctx, subs, tail)?;
-                        (
-                            Expression::TypeUnqualifiedNameTemplateArgs(ty, name, template_args),
-                            tail,
-                        )
-                    } else {
-                        (Expression::TypeUnqualifiedName(ty, name), tail)
-                    };
-                    return Ok((expr, tail));
+                    // If we can't parse <type> <unqualified-name> here,
+                    // keep going because we might need to parse as <unresolved-name>
+                    if let Ok((ty, tail)) = TypeHandle::parse(ctx, subs, tail) {
+                        if let Ok((name, tail)) = UnqualifiedName::parse(ctx, subs, tail) {
+                            let (expr, tail) = if tail.peek() == Some(b'I') {
+                                let (template_args, tail) = TemplateArgs::parse(ctx, subs, tail)?;
+                                (
+                                    Expression::TypeUnqualifiedNameTemplateArgs(ty, name, template_args),
+                                    tail,
+                                )
+                            } else {
+                                (Expression::TypeUnqualifiedName(ty, name), tail)
+                            };
+                            return Ok((expr, tail));
+                        }
+                    }
                 }
                 _ => {}
             }
@@ -5782,16 +5788,17 @@ where
             }
             UnresolvedName::Nested1(ref ty, ref levels, ref name) => {
                 ty.demangle(ctx, scope)?;
+                write!(ctx, "::")?;
                 for lvl in &levels[..] {
-                    write!(ctx, "::")?;
                     lvl.demangle(ctx, scope)?;
+                    write!(ctx, "::")?;
                 }
                 name.demangle(ctx, scope)
             }
             UnresolvedName::Nested2(ref levels, ref name) => {
                 for lvl in &levels[..] {
-                    write!(ctx, "::")?;
                     lvl.demangle(ctx, scope)?;
+                    write!(ctx, "::")?;
                 }
                 name.demangle(ctx, scope)
             }
@@ -5799,8 +5806,8 @@ where
             UnresolvedName::GlobalNested2(ref levels, ref name) => {
                 write!(ctx, "::")?;
                 for lvl in &levels[..] {
-                    write!(ctx, "::")?;
                     lvl.demangle(ctx, scope)?;
+                    write!(ctx, "::")?;
                 }
                 name.demangle(ctx, scope)
             }

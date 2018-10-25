@@ -373,6 +373,15 @@ demangles!(
     "already_AddRefed<mozilla::detail::RunnableFunction<mozilla::ipc::AsyncMinidumpAnalyzer::Run()::{lambda()#1}> >::already_AddRefed()"
 );
 
+demangles!(
+    _Z6IsNullIiEN1EIXsr1FIT_EE1nEE4typeES1_,
+    "E<F<int>::n>::type IsNull<int>(F)"
+);
+demangles!(
+    _Z6IsNullIiEN1EIXgssr1FIT_EE1nEE4typeEv,
+    "E<::F<int>::n>::type IsNull<int>()"
+);
+
 // Test cases found via differential testing against `c++filt` with `cargo-fuzz`
 // and `libFuzzer`.
 
