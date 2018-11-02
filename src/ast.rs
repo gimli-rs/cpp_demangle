@@ -339,7 +339,7 @@ trait ArgScope<'me, 'ctx>: fmt::Debug {
     fn leaf_name(&'me self) -> Result<LeafName<'ctx>>;
 
     /// Get the current scope's `index`th template argument.
-    fn get_template_arg(&'me self, index: usize) -> Result<&'ctx TemplateArg>;
+    fn get_template_arg(&'me self, index: usize) -> Result<(&'ctx TemplateArg, &'ctx TemplateArgs)>;
 
     /// Get the current scope's `index`th function argument's type.
     fn get_function_arg(&'me self, index: usize) -> Result<&'ctx Type>;
@@ -356,6 +356,7 @@ where
     'subs: 'prev,
 {
     item: &'subs ArgScope<'subs, 'subs>,
+    in_arg: Option<(usize, &'subs TemplateArgs)>,
     prev: Option<&'prev ArgScopeStack<'prev, 'subs>>,
 }
 
@@ -384,6 +385,7 @@ impl<'prev, 'subs> ArgScopeStackExt<'prev, 'subs> for Option<ArgScopeStack<'prev
         log!("ArgScopeStack::push: {:?}", item);
         Some(ArgScopeStack {
             prev: self.as_ref(),
+            in_arg: None,
             item: item,
         })
     }
@@ -402,11 +404,17 @@ impl<'prev, 'subs> ArgScope<'prev, 'subs> for Option<ArgScopeStack<'prev, 'subs>
         Err(error::Error::BadLeafNameReference)
     }
 
-    fn get_template_arg(&'prev self, idx: usize) -> Result<&'subs TemplateArg> {
+    fn get_template_arg(&'prev self, idx: usize) -> Result<(&'subs TemplateArg, &'subs TemplateArgs)> {
         let mut scope = self.as_ref();
         while let Some(s) = scope {
-            if let Ok(arg) = s.item.get_template_arg(idx) {
-                return Ok(arg);
+            if let Ok((arg, args)) = s.item.get_template_arg(idx) {
+                if let Some((in_idx, in_args)) = s.in_arg {
+                    if args as *const TemplateArgs == in_args as *const TemplateArgs &&
+                        in_idx <= idx {
+                        return Err(error::Error::ForwardTemplateArgReference);
+                    }
+                }
+                return Ok((arg, args));
             }
             scope = s.prev;
         }
@@ -2357,7 +2365,7 @@ impl<'subs> ArgScope<'subs, 'subs> for SourceName {
         Ok(LeafName::SourceName(self))
     }
 
-    fn get_template_arg(&'subs self, _: usize) -> Result<&'subs TemplateArg> {
+    fn get_template_arg(&'subs self, _: usize) -> Result<(&'subs TemplateArg, &'subs TemplateArgs)> {
         Err(error::Error::BadTemplateArgReference)
     }
 
@@ -4440,6 +4448,7 @@ impl TemplateParam {
                 log!("Error obtaining template argument: {}", e);
                 fmt::Error
             })
+            .map(|v| v.0)
     }
 }
 
@@ -4614,7 +4623,7 @@ where
     fn demangle<'prev, 'ctx>(
         &'subs self,
         ctx: &'ctx mut DemangleContext<'subs, W>,
-        scope: Option<ArgScopeStack<'prev, 'subs>>,
+        mut scope: Option<ArgScopeStack<'prev, 'subs>>,
     ) -> fmt::Result {
         log_demangle!(self, ctx, scope);
         inner_barrier!(ctx);
@@ -4624,11 +4633,12 @@ where
         }
         write!(ctx, "<")?;
         let mut need_comma = false;
-        for arg in &self.0[..] {
+        for arg_index in 0..self.0.len() {
             if need_comma {
                 write!(ctx, ", ")?;
             }
-            arg.demangle(ctx, scope)?;
+            scope.as_mut().map(|scope| scope.in_arg = Some((arg_index, self)));
+            self.0[arg_index].demangle(ctx, scope)?;
             need_comma = true;
         }
 
@@ -4648,8 +4658,8 @@ impl<'subs> ArgScope<'subs, 'subs> for TemplateArgs {
         Err(error::Error::BadLeafNameReference)
     }
 
-    fn get_template_arg(&'subs self, idx: usize) -> Result<&'subs TemplateArg> {
-        self.0.get(idx).ok_or(error::Error::BadTemplateArgReference)
+    fn get_template_arg(&'subs self, idx: usize) -> Result<(&'subs TemplateArg, &'subs TemplateArgs)> {
+        self.0.get(idx).ok_or(error::Error::BadTemplateArgReference).map(|v| (v, self))
     }
 
     fn get_function_arg(&'subs self, _: usize) -> Result<&'subs Type> {
@@ -6527,7 +6537,7 @@ impl<'subs> ArgScope<'subs, 'subs> for ClosureTypeName {
         Ok(LeafName::Closure(self))
     }
 
-    fn get_template_arg(&'subs self, _: usize) -> Result<&'subs TemplateArg> {
+    fn get_template_arg(&'subs self, _: usize) -> Result<(&'subs TemplateArg, &'subs TemplateArgs)> {
         Err(error::Error::BadTemplateArgReference)
     }
 
@@ -6751,7 +6761,7 @@ impl<'a> ArgScope<'a, 'a> for WellKnownComponent {
         Ok(LeafName::WellKnownComponent(self))
     }
 
-    fn get_template_arg(&'a self, _: usize) -> Result<&'a TemplateArg> {
+    fn get_template_arg(&'a self, _: usize) -> Result<(&'a TemplateArg, &'a TemplateArgs)> {
         Err(error::Error::BadTemplateArgReference)
     }
 

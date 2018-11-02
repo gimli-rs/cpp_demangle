@@ -49,9 +49,22 @@ fn assert_demangles_as(mangled: &str, expected: &str, options: Option<DemangleOp
     assert_eq!(expected, actual);
 }
 
-fn assert_does_not_demangle(s: &str) {
+fn assert_does_not_parse(s: &str) {
     if let Ok(sym) = cpp_demangle::BorrowedSymbol::new(s.as_bytes()) {
-        panic!("Unexpectedly demangled '{}' as '{}'", s, sym);
+        panic!("Unexpectedly parsed '{}' as '{}'", s, sym);
+    }
+}
+
+fn assert_does_not_demangle(s: &str) {
+    match cpp_demangle::BorrowedSymbol::new(s.as_bytes()) {
+        Ok(sym) => {
+            if let Ok(d) = sym.demangle(&DemangleOptions::default()) {
+                panic!("Unexpectedly demangled '{}' as '{}'", s, d);
+            }
+        }
+        Err(e) => {
+            panic!("Failed to parse '{}': {}", s, e);
+        }
     }
 }
 
@@ -80,18 +93,31 @@ macro_rules! demangles_no_param {
     };
 }
 
-macro_rules! does_not_demangle {
-    ( $name:ident , $s:expr ) => {
+macro_rules! does_not_parse {
+    ( $name:ident ) => {
         #[test]
         fn $name() {
-            assert_does_not_demangle($s);
+            assert_does_not_parse(stringify!($name));
+        }
+    }
+}
+
+macro_rules! does_not_demangle {
+    ( $name:ident ) => {
+        #[test]
+        fn $name() {
+            assert_does_not_demangle(stringify!($name));
         }
     }
 }
 
 // This should definitely not parse and demangle as
 // `operator()(unsigned __int128, short, long double)`.
-does_not_demangle!(close_should_not_demangle, "close");
+does_not_parse!(close);
+
+// Test some potential stack-overflows due to cyclic template parameter references
+does_not_demangle!(_Z1fIT_EvT_);
+does_not_demangle!(_ZN7mozilla6detail12ListenerImplINS_14AbstractThreadEZNS_20MediaEventSourceImplILNS_14ListenerPolicyE0EJNS_13TimedMetadataEEE15ConnectInternalIS2_NS_12MediaDecoderEMS8_FvOS5_EEENS_8EnableIfIXsr8TakeArgsIT1_EE5valueENS_18MediaEventListenerEE4TypeEPT_PT0_SD_EUlS9_E_JS5_EE17ApplyWithArgsImplISL_EENSC_IXsr8TakeArgsISH_EE5valueEvE4TypeERKSH_S9_);
 
 demangles!(
     _Z20instantiate_with_intI3FooET_IiEv,
