@@ -21,6 +21,10 @@ pub enum Error {
     /// a context without template args.
     BadTemplateArgReference,
 
+    /// Found a reference to a template arg from within the arg itself (or from
+    /// within an earlier arg).
+    ForwardTemplateArgReference,
+
     /// Found a reference to a function arg that is either out-of-bounds, or in
     /// a context without function args.
     BadFunctionArgReference,
@@ -61,6 +65,10 @@ impl fmt::Display for Error {
                 "reference to a template arg that is either out-of-bounds, or in a context \
                  without template args"
             ),
+            Error::ForwardTemplateArgReference => write!(
+                f,
+                "reference to a template arg from itself or a later template arg"
+            ),
             Error::BadFunctionArgReference => write!(
                 f,
                 "reference to a function arg that is either out-of-bounds, or in a context \
@@ -94,6 +102,9 @@ impl error::Error for Error {
             Error::BadTemplateArgReference => {
                 "reference to a template arg that is either out-of-bounds, or in a context \
                  without template args"
+            }
+            Error::ForwardTemplateArgReference => {
+                "reference to a template arg from itself or a later template arg"
             }
             Error::BadFunctionArgReference => {
                 "reference to a function arg that is either out-of-bounds, or in a context \
