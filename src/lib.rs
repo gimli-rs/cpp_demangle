@@ -212,7 +212,9 @@ substitutions = {:#?}",
     }
 }
 
-impl<T> Symbol<T> {
+impl<'a, T> Symbol<&'a T>
+    where T: AsRef<[u8]> + ?Sized,
+{
     /// Parse a mangled symbol from input and return it and the trailing tail of
     /// bytes that come after the symbol.
     ///
@@ -234,16 +236,16 @@ impl<T> Symbol<T> {
     /// let demangled = sym.to_string();
     /// assert_eq!(demangled, "space::foo(int, bool, char)");
     /// ```
-    pub fn with_tail(input: &[u8]) -> Result<(BorrowedSymbol, &[u8])> {
+    pub fn with_tail(input: &'a T) -> Result<(BorrowedSymbol<'a>, &'a [u8])> {
         let mut substitutions = subs::SubstitutionTable::new();
 
         let ctx = ParseContext::default();
-        let idx_str = IndexStr::new(input);
+        let idx_str = IndexStr::new(input.as_ref());
         let (parsed, tail) = ast::MangledName::parse(&ctx, &mut substitutions, idx_str)?;
         debug_assert!(ctx.recursion_level() == 0);
 
         let symbol = Symbol {
-            raw: input,
+            raw: input.as_ref(),
             substitutions: substitutions,
             parsed: parsed,
         };
