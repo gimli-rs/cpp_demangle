@@ -469,7 +469,7 @@ where
 
     // `Identifier`s will be placed here, so `UnnamedTypeName` can utilize and print
     // out Constructor/Destructor used.
-    source_name: Option<String>,
+    source_name: Option<&'a str>,
 
     // What the demangled name is being written to.
     out: W,
@@ -615,6 +615,11 @@ where
             inner.demangle_as_inner(self, scope)?;
         }
         Ok(())
+    }
+
+    fn set_source_name(&mut self, start: usize, end: usize) {
+        let ident = &self.input[start..end];
+        self.source_name = std::str::from_utf8(ident).ok();
     }
 }
 
@@ -2538,7 +2543,7 @@ where
         }
 
         let source_name = String::from_utf8_lossy(ident);
-        ctx.source_name = Some(source_name.to_string());
+        ctx.set_source_name(self.start, self.end);
         write!(ctx, "{}", source_name)?;
         Ok(())
     }
@@ -4105,8 +4110,7 @@ where
         ctx: &'ctx mut DemangleContext<'subs, W>,
     ) -> fmt::Result {
         log_demangle!(self, ctx, None);
-        if ctx.source_name.is_some() {
-            let source_name = ctx.source_name.clone().unwrap();
+        if let Some(source_name) = ctx.source_name {
             write!(ctx, "{}", source_name)?;
         } else {
             write!(ctx, "{{unnamed type#{}}}", self.0.map_or(1, |n| n + 1))?;
