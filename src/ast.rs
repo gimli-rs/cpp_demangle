@@ -2288,7 +2288,7 @@ impl<'a> GetLeafName<'a> for UnqualifiedName {
     fn get_leaf_name(&'a self, subs: &'a SubstitutionTable) -> Option<LeafName<'a>> {
         match *self {
             UnqualifiedName::ABITag(_)
-            | UnqualifiedName::Operator(_) => None,
+            | UnqualifiedName::Operator(_)
             | UnqualifiedName::CtorDtor(_) => None,
             UnqualifiedName::UnnamedType(ref name) => {
                 Some(LeafName::UnnamedType(name))
