@@ -289,7 +289,7 @@ pub(crate) enum LeafName<'a> {
     SourceName(&'a SourceName),
     WellKnownComponent(&'a WellKnownComponent),
     Closure(&'a ClosureTypeName),
-    // TODO: unnamed types as well?
+    UnnamedType(&'a UnnamedTypeName),
 }
 
 impl<'subs, W> DemangleAsLeaf<'subs, W> for LeafName<'subs>
@@ -304,6 +304,7 @@ where
             LeafName::SourceName(sn) => sn.demangle(ctx, None),
             LeafName::Closure(c) => c.demangle(ctx, None),
             LeafName::WellKnownComponent(wkc) => wkc.demangle_as_leaf(ctx),
+            LeafName::UnnamedType(utn) => utn.demangle_as_leaf(ctx),
         }
     }
 }
@@ -466,6 +467,10 @@ where
     // The original input string.
     input: &'a [u8],
 
+    // `Identifier`s will be placed here, so `UnnamedTypeName` can utilize and print
+    // out Constructor/Destructor used.
+    source_name: Option<&'a str>,
+
     // What the demangled name is being written to.
     out: W,
 
@@ -520,6 +525,7 @@ where
             subs: subs,
             inner: vec![],
             input: input,
+            source_name: None,
             out: out,
             bytes_written: 0,
             last_char_written: None,
@@ -609,6 +615,11 @@ where
             inner.demangle_as_inner(self, scope)?;
         }
         Ok(())
+    }
+
+    fn set_source_name(&mut self, start: usize, end: usize) {
+        let ident = &self.input[start..end];
+        self.source_name = std::str::from_utf8(ident).ok();
     }
 }
 
@@ -1305,6 +1316,7 @@ where
                         LeafName::SourceName(leaf) => scope.push(leaf),
                         LeafName::WellKnownComponent(leaf) => scope.push(leaf),
                         LeafName::Closure(leaf) => scope.push(leaf),
+                        LeafName::UnnamedType(leaf) => scope.push(leaf),
                     }
                 } else {
                     scope
@@ -2276,9 +2288,11 @@ impl<'a> GetLeafName<'a> for UnqualifiedName {
     fn get_leaf_name(&'a self, subs: &'a SubstitutionTable) -> Option<LeafName<'a>> {
         match *self {
             UnqualifiedName::ABITag(_)
-            | UnqualifiedName::UnnamedType(_)
             | UnqualifiedName::Operator(_)
             | UnqualifiedName::CtorDtor(_) => None,
+            UnqualifiedName::UnnamedType(ref name) => {
+                Some(LeafName::UnnamedType(name))
+            },
             UnqualifiedName::ClosureType(ref closure) => closure.get_leaf_name(subs),
             UnqualifiedName::Source(ref name) | UnqualifiedName::LocalSourceName(ref name, _) => {
                 Some(LeafName::SourceName(name))
@@ -2528,7 +2542,9 @@ where
             }
         }
 
-        write!(ctx, "{}", String::from_utf8_lossy(ident))?;
+        let source_name = String::from_utf8_lossy(ident);
+        ctx.set_source_name(self.start, self.end);
+        write!(ctx, "{}", source_name)?;
         Ok(())
     }
 }
@@ -4080,8 +4096,40 @@ where
     ) -> fmt::Result {
         log_demangle!(self, ctx, scope);
 
-        write!(ctx, "{{unnamed type {}}}", self.0.map_or(0, |n| n + 1))?;
+        write!(ctx, "{{unnamed type#{}}}", self.0.map_or(1, |n| n + 1))?;
         Ok(())
+    }
+}
+
+impl<'subs, W> DemangleAsLeaf<'subs, W> for UnnamedTypeName
+where
+    W: 'subs + fmt::Write,
+{
+    fn demangle_as_leaf<'me, 'ctx>(
+        &'me self,
+        ctx: &'ctx mut DemangleContext<'subs, W>,
+    ) -> fmt::Result {
+        log_demangle!(self, ctx, None);
+        if let Some(source_name) = ctx.source_name {
+            write!(ctx, "{}", source_name)?;
+        } else {
+            write!(ctx, "{{unnamed type#{}}}", self.0.map_or(1, |n| n + 1))?;
+        }
+        Ok(())
+    }
+}
+
+impl<'subs> ArgScope<'subs, 'subs> for UnnamedTypeName {
+    fn leaf_name(&'subs self) -> Result<LeafName<'subs>> {
+        Ok(LeafName::UnnamedType(self))
+    }
+
+    fn get_template_arg(&'subs self, _: usize) -> Result<(&'subs TemplateArg, &'subs TemplateArgs)> {
+        Err(error::Error::BadTemplateArgReference)
+    }
+
+    fn get_function_arg(&'subs self, _: usize) -> Result<&'subs Type> {
+        Err(error::Error::BadFunctionArgReference)
     }
 }
 

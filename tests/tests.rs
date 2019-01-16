@@ -459,3 +459,7 @@ demangles_no_param!(
     _ZNK5Hello6methodEv,
     "Hello::method"
 );
+demangles!(
+    _ZZN17TestLargestRegion18TestNonRectangularEvENUt_D2Ev,
+    "TestLargestRegion::TestNonRectangular()::{unnamed type#1}::~TestNonRectangular()"
+);
