@@ -463,3 +463,8 @@ demangles!(
     _ZZN17TestLargestRegion18TestNonRectangularEvENUt_D2Ev,
     "TestLargestRegion::TestNonRectangular()::{unnamed type#1}::~TestNonRectangular()"
 );
+demangles!(
+    clone_suffix,
+    "_ZNSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEE12_M_constructIPcEEvT_S7_St20forward_iterator_tag.isra.90",
+    "void std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::_M_construct<char*>(char*, char*, std::forward_iterator_tag) [clone .isra.90]"
+);

@@ -1192,12 +1192,12 @@ macro_rules! define_vocabulary {
 /// The root AST node, and starting production.
 ///
 /// ```text
-/// <mangled-name> ::= _Z <encoding>
+/// <mangled-name> ::= _Z <encoding> [<clone-suffix>]*
 /// ```
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum MangledName {
     /// The encoding of the mangled symbol name.
-    Encoding(Encoding),
+    Encoding(Encoding, Option<CloneSuffix>),
 
     /// A top-level type. Technically not allowed by the standard, however in
     /// practice this can happen, and is tested for by libiberty.
@@ -1219,7 +1219,12 @@ impl Parse for MangledName {
 
         if let Ok(tail) = consume(b"_Z", input).or_else(|_| consume(b"__Z", input)) {
             let (encoding, tail) = Encoding::parse(ctx, subs, tail)?;
-            return Ok((MangledName::Encoding(encoding), tail));
+            if let Ok((clone_suffix, tail)) = CloneSuffix::parse(ctx, subs, tail) {
+                return Ok((MangledName::Encoding(encoding, Some(clone_suffix)), tail));
+            }
+            else {
+                return Ok((MangledName::Encoding(encoding, None), tail));
+            }
         }
 
         if let Ok(tail) = consume(b"_GLOBAL_", input) {
@@ -1246,7 +1251,13 @@ where
         log_demangle!(self, ctx, scope);
 
         match *self {
-            MangledName::Encoding(ref enc) => enc.demangle(ctx, scope),
+            MangledName::Encoding(ref enc, ref cs) => {
+                enc.demangle(ctx, scope)?;
+                if let Some(clone_suffix) = cs {
+                    clone_suffix.demangle(ctx, scope)?;
+                }
+                Ok(())
+            },
             MangledName::Type(ref ty) => ty.demangle(ctx, scope),
             MangledName::GlobalCtorDtor(ref gcd) => gcd.demangle(ctx, scope),
         }
@@ -1391,6 +1402,50 @@ where
         } else {
             unreachable!("we only push Encoding::Function onto the inner stack");
         }
+    }
+}
+
+/// <clone-suffix> ::= [ . <clone-type-identifier> ] [ . <nonnegative number> ]*
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct CloneSuffix(CloneTypeIdentifier, isize);
+
+impl Parse for CloneSuffix {
+    fn parse<'a, 'b>(
+        ctx: &'a ParseContext,
+        subs: &'a mut SubstitutionTable,
+        input: IndexStr<'b>,
+    ) -> Result<(CloneSuffix, IndexStr<'b>)> {
+        try_begin_parse!("CloneSuffix", ctx, input);
+
+        let tail = consume(b".", input)?;
+        let (identifier, tail) = CloneTypeIdentifier::parse(ctx, subs, tail)?;
+        if tail.is_empty() {
+            return Err(error::Error::UnexpectedText);
+        }
+
+        let tail = consume(b".", tail)?;
+
+        let (nonnegative, tail) = parse_number(10, false, tail)?;
+
+        let clone_suffix = CloneSuffix(identifier, nonnegative);
+        Ok((clone_suffix, tail))
+    }
+}
+
+impl<'subs, W> Demangle<'subs, W> for CloneSuffix
+where
+    W: 'subs + fmt::Write,
+{
+    fn demangle<'prev, 'ctx>(
+        &'subs self,
+        ctx: &'ctx mut DemangleContext<'subs, W>,
+        scope: Option<ArgScopeStack<'prev, 'subs>>,
+    ) -> fmt::Result {
+        log_demangle!(self, ctx, scope);
+        self.0.demangle(ctx, scope)?;
+        write!(ctx, ".{}]", self.1)?;
+        Ok(())
     }
 }
 
@@ -2545,6 +2600,72 @@ where
         let source_name = String::from_utf8_lossy(ident);
         ctx.set_source_name(self.start, self.end);
         write!(ctx, "{}", source_name)?;
+        Ok(())
+    }
+}
+
+/// The `<clone-type-identifier>` pseudo-terminal.
+///
+/// ```text
+/// <clone-type-identifier> ::= <unqualified source code identifier>
+/// ```
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct CloneTypeIdentifier {
+    start: usize,
+    end: usize,
+}
+
+impl Parse for CloneTypeIdentifier {
+    fn parse<'a, 'b>(
+        ctx: &'a ParseContext,
+        _subs: &'a mut SubstitutionTable,
+        input: IndexStr<'b>,
+    ) -> Result<(CloneTypeIdentifier, IndexStr<'b>)> {
+        try_begin_parse!("CloneTypeIdentifier", ctx, input);
+
+        if input.is_empty() {
+            return Err(error::Error::UnexpectedEnd);
+        }
+
+        let end = input
+            .as_ref()
+            .iter()
+            .map(|&c| c as char)
+            .take_while(|&c| c == '$' || c == '_' || c.is_digit(36))
+            .count();
+
+        if end == 0 {
+            return Err(error::Error::UnexpectedText);
+        }
+
+        let tail = input.range_from(end..);
+
+        let identifier = CloneTypeIdentifier {
+            start: input.index(),
+            end: tail.index(),
+        };
+
+        Ok((identifier, tail))
+    }
+}
+
+impl<'subs, W> Demangle<'subs, W> for CloneTypeIdentifier
+where
+    W: 'subs + fmt::Write,
+{
+    #[inline]
+    fn demangle<'prev, 'ctx>(
+        &'subs self,
+        ctx: &'ctx mut DemangleContext<'subs, W>,
+        scope: Option<ArgScopeStack<'prev, 'subs>>,
+    ) -> fmt::Result {
+        log_demangle!(self, ctx, scope);
+
+        let ident = &ctx.input[self.start..self.end];
+
+        let source_name = String::from_utf8_lossy(ident);
+        ctx.set_source_name(self.start, self.end);
+        write!(ctx, " [clone .{}", source_name)?;
         Ok(())
     }
 }
@@ -7453,7 +7574,7 @@ mod tests {
                                         SourceName(Identifier {
                                             start: 3,
                                             end: 6,
-                                        })))))),
+                                        }))))), None),
                     b"..."
                 }
                 b"_GLOBAL__I__Z3foo..." => {
@@ -7469,7 +7590,7 @@ mod tests {
                                                         Identifier {
                                                             start: 14,
                                                             end: 17,
-                                                        }))))))))),
+                                                        }))))), None)))),
                     b"..."
                 }
             }
@@ -7553,7 +7674,7 @@ mod tests {
                                                     Identifier {
                                                         start: 6,
                                                         end: 9,
-                                                    })))))))),
+                                                    }))))), None))),
                     b"..."
                 }
                 b".I__Z3foo..." => {
@@ -7568,7 +7689,7 @@ mod tests {
                                                     Identifier {
                                                         start: 6,
                                                         end: 9,
-                                                    })))))))),
+                                                    }))))), None))),
                     b"..."
                 }
                 b"$I__Z3foo..." => {
@@ -7583,7 +7704,7 @@ mod tests {
                                                     Identifier {
                                                         start: 6,
                                                         end: 9,
-                                                    })))))))),
+                                                    }))))), None))),
                     b"..."
                 }
                 b"_D__Z3foo..." => {
@@ -7598,7 +7719,7 @@ mod tests {
                                                     Identifier {
                                                         start: 6,
                                                         end: 9,
-                                                    })))))))),
+                                                    }))))), None))),
                     b"..."
                 }
                 b".D__Z3foo..." => {
@@ -7613,7 +7734,7 @@ mod tests {
                                                     Identifier {
                                                         start: 6,
                                                         end: 9,
-                                                    })))))))),
+                                                    }))))), None))),
                     b"..."
                 }
                 b"$D__Z3foo..." => {
@@ -7628,7 +7749,7 @@ mod tests {
                                                     Identifier {
                                                         start: 6,
                                                         end: 9,
-                                                    })))))))),
+                                                    }))))), None))),
                     b"..."
                 }
             }
@@ -9234,7 +9355,7 @@ mod tests {
                                                     SourceName(Identifier {
                                                         start: 4,
                                                         end: 7,
-                                                    })))))))),
+                                                    }))))), None))),
                         b"...",
                         []
                     }
@@ -9609,7 +9730,7 @@ mod tests {
                                                 SourceName(Identifier {
                                                     start: 4,
                                                     end: 7,
-                                                }))))))),
+                                                }))))), None)),
                         b"...",
                         []
                     }
