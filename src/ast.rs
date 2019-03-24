@@ -3106,10 +3106,50 @@ pub enum CtorDtorName {
 impl Parse for CtorDtorName {
     fn parse<'a, 'b>(
         ctx: &'a ParseContext,
-        _subs: &'a mut SubstitutionTable,
+        subs: &'a mut SubstitutionTable,
         input: IndexStr<'b>,
     ) -> Result<(CtorDtorName, IndexStr<'b>)> {
         try_begin_parse!(stringify!(CtorDtorName), ctx, input);
+
+        if input.peek() == Some(b'C') {
+            let mut inhereting = false;
+            let mut tail = if input.peek_second() == Some(b'I') {
+                inhereting = true;
+                consume(b"CI", input)?
+            } else {
+                consume(b"C", input)?
+            };
+
+            let ctor_type: CtorDtorName = match tail.try_split_at(1) {
+                None => Err(error::Error::UnexpectedEnd),
+                Some((head, _)) => match head.as_ref()[0] {
+                    b'1' => {
+                        tail = consume(b"1", tail)?;
+                        Ok(CtorDtorName::CompleteConstructor)
+                    },
+                    b'2' => {
+                        tail = consume(b"2", tail)?;
+                        Ok(CtorDtorName::BaseConstructor)
+                    },
+                    b'3' => {
+                        tail = consume(b"3", tail)?;
+                        Ok(CtorDtorName::CompleteAllocatingConstructor)
+                    },
+                    b'4' => {
+                        tail = consume(b"4", tail)?;
+                        Ok(CtorDtorName::MaybeInChargeConstructor)
+                    },
+                    _ => Err(error::Error::UnexpectedText),
+                }
+            }?;
+
+            if inhereting {
+                let (_ , tail_tail) = TypeHandle::parse(ctx, subs, tail)?;
+                tail = tail_tail
+            }
+
+            return Ok((ctor_type, tail));
+        }
 
         match input
             .try_split_at(2)
@@ -3117,10 +3157,6 @@ impl Parse for CtorDtorName {
             .map(|&(ref h, t)| (h.as_ref(), t))
         {
             None => Err(error::Error::UnexpectedEnd),
-            Some((b"C1", tail)) => Ok((CtorDtorName::CompleteConstructor, tail)),
-            Some((b"C2", tail)) => Ok((CtorDtorName::BaseConstructor, tail)),
-            Some((b"C3", tail)) => Ok((CtorDtorName::CompleteAllocatingConstructor, tail)),
-            Some((b"C4", tail)) => Ok((CtorDtorName::MaybeInChargeConstructor, tail)),
             Some((b"D0", tail)) => Ok((CtorDtorName::DeletingDestructor, tail)),
             Some((b"D1", tail)) => Ok((CtorDtorName::CompleteDestructor, tail)),
             Some((b"D2", tail)) => Ok((CtorDtorName::BaseDestructor, tail)),
