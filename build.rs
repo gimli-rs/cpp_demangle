@@ -134,7 +134,7 @@ use std::fmt::Write;
     let libiberty_passing_tests = {
         let mut s: HashSet<_> = (0..86).collect();
         s.extend(87..89);
-        s.extend(92..93);
+        s.extend(91..93);
         s.extend(94..105);
         s.extend(106..110);
         s.extend(112..113);

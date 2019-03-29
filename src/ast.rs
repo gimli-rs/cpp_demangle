@@ -761,6 +761,10 @@ where
     fn downcast_to_pointer_to_member(&self) -> Option<&PointerToMemberType> {
         None
     }
+
+    fn is_qualified(&self) -> bool {
+        false
+    }
 }
 
 /// Demangle this thing in the leaf name position.
@@ -3558,6 +3562,13 @@ where
             None
         }
     }
+
+    fn is_qualified(&self) -> bool {
+        match *self {
+            Type::Qualified(..) => true,
+            _ => false,
+        }
+    }
 }
 
 impl GetTemplateArgs for Type {
@@ -4364,8 +4375,17 @@ where
                 inner.demangle_as_inner(ctx, scope)?;
             } else {
                 ctx.ensure_space()?;
-                write!(ctx, "(")?;
-                inner.demangle_as_inner(ctx, scope)?;
+
+                // CvQualifiers should have the parentheses printed after, not before
+                if inner.is_qualified() {
+                    inner.demangle_as_inner(ctx, scope)?;
+                    ctx.ensure_space()?;
+                    write!(ctx, "(")?;
+                } else {
+                    write!(ctx, "(")?;
+                    inner.demangle_as_inner(ctx, scope)?;
+                }
+
                 ctx.demangle_inners(scope)?;
                 write!(ctx, ")")?;
             }
