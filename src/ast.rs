@@ -5023,8 +5023,6 @@ where
 ///               ::= sZ <function-param>                          # sizeof...(parameter), size of a function parameter pack
 ///               ::= sP <template-arg>* E                         # sizeof...(T), size of a captured template parameter pack from an alias template
 ///               ::= sp <expression>                              # expression..., pack expansion
-///               ::= sr <type> <unqualified-name>
-///               ::= sr <type> <unqualified-name> <template-args>
 ///               ::= tw <expression>                              # throw expression
 ///               ::= tr                                           # throw with no operand (rethrow)
 ///               ::= <unresolved-name>                            # f(p), N::f(p), ::f(p),
@@ -5153,12 +5151,6 @@ pub enum Expression {
 
     /// `expression...`, pack expansion.
     PackExpansion(Box<Expression>),
-
-    /// `type` `unqualified_name` expression.
-    TypeUnqualifiedName(TypeHandle, UnqualifiedName),
-
-    /// `type` `unqualified_name` `template-args` expression.
-    TypeUnqualifiedNameTemplateArgs(TypeHandle, UnqualifiedName, TemplateArgs),
 
     /// `throw expression`
     Throw(Box<Expression>),
@@ -5340,24 +5332,6 @@ impl Parse for Expression {
                 b"gs" => {
                     if let Ok((expr, tail)) = can_be_global(true, ctx, subs, tail) {
                         return Ok((expr, tail));
-                    }
-                }
-                b"sr" => {
-                    // If we can't parse <type> <unqualified-name> here,
-                    // keep going because we might need to parse as <unresolved-name>
-                    if let Ok((ty, tail)) = TypeHandle::parse(ctx, subs, tail) {
-                        if let Ok((name, tail)) = UnqualifiedName::parse(ctx, subs, tail) {
-                            let (expr, tail) = if tail.peek() == Some(b'I') {
-                                let (template_args, tail) = TemplateArgs::parse(ctx, subs, tail)?;
-                                (
-                                    Expression::TypeUnqualifiedNameTemplateArgs(ty, name, template_args),
-                                    tail,
-                                )
-                            } else {
-                                (Expression::TypeUnqualifiedName(ty, name), tail)
-                            };
-                            return Ok((expr, tail));
-                        }
                     }
                 }
                 _ => {}
@@ -5813,17 +5787,6 @@ where
                 pack.demangle(ctx, scope)?;
                 write!(ctx, "...")?;
                 Ok(())
-            }
-            Expression::TypeUnqualifiedName(ref ty, ref name) => {
-                ty.demangle(ctx, scope)?;
-                write!(ctx, "::")?;
-                name.demangle(ctx, scope)
-            }
-            Expression::TypeUnqualifiedNameTemplateArgs(ref ty, ref name, ref template_args) => {
-                ty.demangle(ctx, scope)?;
-                write!(ctx, "::")?;
-                name.demangle(ctx, scope)?;
-                template_args.demangle(ctx, scope)
             }
             Expression::Throw(ref expr) => {
                 write!(ctx, "throw ")?;
@@ -8768,30 +8731,55 @@ mod tests {
                     }
                     b"XsrS_1QE..." => {
                         TemplateArg::Expression(
-                            Expression::TypeUnqualifiedName(
-                                TypeHandle::BackReference(0),
-                                UnqualifiedName::Source(
-                                    SourceName(Identifier {
-                                        start: 6,
-                                        end: 7,
-                                    })))),
+                            Expression::UnresolvedName(
+                                UnresolvedName::Nested1(
+                                    UnresolvedTypeHandle::BackReference(0),
+                                    vec![],
+                                    BaseUnresolvedName::Name(
+                                        SimpleId(
+                                            SourceName(Identifier {
+                                                start: 6,
+                                                end: 7
+                                            }),
+                                            None
+                                        )
+                                    )
+                                )
+                            )
+                        ),
                         b"...",
                         []
                     }
                     b"XsrS_1QIlEE..." => {
                         TemplateArg::Expression(
-                            Expression::TypeUnqualifiedNameTemplateArgs(
-                                TypeHandle::BackReference(0),
-                                UnqualifiedName::Source(
-                                    SourceName(Identifier {
-                                        start: 6,
-                                        end: 7,
-                                    })),
-                                TemplateArgs(vec![
-                                    TemplateArg::Type(
-                                        TypeHandle::Builtin(
-                                            BuiltinType::Standard(StandardBuiltinType::Long))),
-                                ]))),
+                            Expression::UnresolvedName(
+                                UnresolvedName::Nested1(
+                                    UnresolvedTypeHandle::BackReference(0),
+                                    vec![],
+                                    BaseUnresolvedName::Name(
+                                        SimpleId(
+                                            SourceName(Identifier {
+                                                start: 6,
+                                                end: 7
+                                            }),
+                                            Some(
+                                                TemplateArgs(
+                                                    vec![
+                                                        TemplateArg::Type(
+                                                            TypeHandle::Builtin(
+                                                                BuiltinType::Standard(
+                                                                    StandardBuiltinType::Long
+                                                                )
+                                                            )
+                                                        )
+                                                    ]
+                                                )
+                                            )
+                                        )
+                                    )
+                                )
+                            )
+                        ),
                         b"...",
                         []
                     }
@@ -9382,18 +9370,25 @@ mod tests {
                                 )
                             )),
                             vec![Expression::Unary(OperatorName::Simple(SimpleOperatorName::AddressOf),
-                                                   Box::new(Expression::TypeUnqualifiedName(
-                                                       TypeHandle::BackReference(1),
-                                                       UnqualifiedName::Source(
-                                                           SourceName(Identifier {
-                                                               start: 21,
-                                                               end: 26,
-                                                           })))))]
-
+                                                   Box::new(Expression::UnresolvedName(
+                                                       UnresolvedName::Nested1(
+                                                           UnresolvedTypeHandle::BackReference(1),
+                                                           vec![],
+                                                           BaseUnresolvedName::Name(
+                                                               SimpleId(
+                                                                   SourceName(Identifier {
+                                                                           start: 21,
+                                                                           end: 26
+                                                                   }
+                                                                   ),
+                                                                   None
+                                                               )
+                                                           )
+                                                       ))))]
                         ),
                         b"...",
                         [
-                            Substitutable::Type(Type::TemplateParam(TemplateParam(0)))
+                            Substitutable::UnresolvedType(UnresolvedType::Template(TemplateParam(0), None))
                         ]
                     }
                 }
