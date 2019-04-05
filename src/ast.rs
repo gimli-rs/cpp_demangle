@@ -3956,6 +3956,8 @@ where
         }
 
         if let Some(ref rq) = self.ref_qualifier {
+            // Print out a space before printing "&" or "&&"
+            ctx.ensure_space()?;
             rq.demangle(ctx, scope)?;
         }
 
