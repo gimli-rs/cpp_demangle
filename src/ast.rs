@@ -3757,7 +3757,7 @@ define_vocabulary! {
         DecimalFloat64   (b"Dd", "decimal64"),
         DecimalFloat128  (b"De", "decimal128"),
         DecimalFloat32   (b"Df", "decimal32"),
-        DecimalFloat16   (b"Dh", "decimal16"),
+        DecimalFloat16   (b"Dh", "half"),
         Char32           (b"Di", "char32_t"),
         Char16           (b"Ds", "char16_t"),
         Auto             (b"Da", "auto"),
