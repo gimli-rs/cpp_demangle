@@ -117,7 +117,12 @@ does_not_parse!(close);
 
 // Test some potential stack-overflows due to cyclic template parameter references
 does_not_demangle!(_Z1fIT_EvT_);
-does_not_demangle!(_ZN7mozilla6detail12ListenerImplINS_14AbstractThreadEZNS_20MediaEventSourceImplILNS_14ListenerPolicyE0EJNS_13TimedMetadataEEE15ConnectInternalIS2_NS_12MediaDecoderEMS8_FvOS5_EEENS_8EnableIfIXsr8TakeArgsIT1_EE5valueENS_18MediaEventListenerEE4TypeEPT_PT0_SD_EUlS9_E_JS5_EE17ApplyWithArgsImplISL_EENSC_IXsr8TakeArgsISH_EE5valueEvE4TypeERKSH_S9_);
+
+demangles!(
+    _ZN7mozilla6detail12ListenerImplINS_14AbstractThreadEZNS_20MediaEventSourceImplILNS_14ListenerPolicyE0EJNS_13TimedMetadataEEE15ConnectInternalIS2_NS_12MediaDecoderEMS8_FvOS5_EEENS_8EnableIfIXsr8TakeArgsIT1_EE5valueENS_18MediaEventListenerEE4TypeEPT_PT0_SD_EUlS9_E_JS5_EE17ApplyWithArgsImplISL_EENSC_IXsr8TakeArgsISH_EE5valueEvE4TypeERKSH_S9_,
+    // This does not match llvm-cxxfilt
+    "mozilla::EnableIf<TakeArgs<mozilla::EnableIf<TakeArgs<void (mozilla::MediaDecoder::*)(mozilla::TimedMetadata&&)>::value, mozilla::MediaEventListener>::Type mozilla::MediaEventSourceImpl<(mozilla::ListenerPolicy)0, mozilla::TimedMetadata>::ConnectInternal<mozilla::AbstractThread, mozilla::MediaDecoder, void (mozilla::MediaDecoder::*)(mozilla::TimedMetadata&&)>(mozilla::AbstractThread*, mozilla::MediaDecoder*, void (mozilla::MediaDecoder::*)(mozilla::TimedMetadata&&))::{lambda(mozilla::TimedMetadata&&)#1}>::value, void>::Type mozilla::detail::ListenerImpl<mozilla::AbstractThread, mozilla::EnableIf<TakeArgs<void (mozilla::MediaDecoder::*)(mozilla::TimedMetadata&&)>::value, mozilla::MediaEventListener>::Type mozilla::MediaEventSourceImpl<(mozilla::ListenerPolicy)0, mozilla::TimedMetadata>::ConnectInternal<mozilla::AbstractThread, mozilla::MediaDecoder, void (mozilla::MediaDecoder::*)(mozilla::TimedMetadata&&)>(mozilla::AbstractThread*, mozilla::MediaDecoder*, void (mozilla::MediaDecoder::*)(mozilla::TimedMetadata&&))::{lambda(mozilla::TimedMetadata&&)#1}, mozilla::TimedMetadata>::ApplyWithArgsImpl<mozilla::EnableIf<TakeArgs<void (mozilla::MediaDecoder::*)(mozilla::TimedMetadata&&)>::value, mozilla::MediaEventListener>::Type mozilla::MediaEventSourceImpl<(mozilla::ListenerPolicy)0, mozilla::TimedMetadata>::ConnectInternal<mozilla::AbstractThread, mozilla::MediaDecoder, void (mozilla::MediaDecoder::*)(mozilla::TimedMetadata&&)>(mozilla::AbstractThread*, mozilla::MediaDecoder*, void (mozilla::MediaDecoder::*)(mozilla::TimedMetadata&&))::{lambda(mozilla::TimedMetadata&&)#1}>(mozilla::EnableIf<TakeArgs<void (mozilla::MediaDecoder::*)(mozilla::TimedMetadata&&)>::value, mozilla::MediaEventListener>::Type mozilla::MediaEventSourceImpl<(mozilla::ListenerPolicy)0, mozilla::TimedMetadata>::ConnectInternal<mozilla::AbstractThread, mozilla::MediaDecoder, void (mozilla::MediaDecoder::*)(mozilla::TimedMetadata&&)>(mozilla::AbstractThread*, mozilla::MediaDecoder*, void (mozilla::MediaDecoder::*)(mozilla::TimedMetadata&&))::{lambda(mozilla::TimedMetadata&&)#1} const&, mozilla::TimedMetadata&&)"
+);
 
 demangles!(
     _Z20instantiate_with_intI3FooET_IiEv,
@@ -171,7 +176,7 @@ demangles!(
 demangles!(_ZNK1fB5cxx11Ev, "f[abi:cxx11]() const");
 
 demangles!(
-    _ZN4base8internal14CheckedSubImplIlEENSt9enable_ifIXsrSt14numeric_limitsIT_E10is_integerEbE4typeES4_S4_PS4_,
+    _ZN4base8internal14CheckedSubImplIlEENSt9enable_ifIXsr3std14numeric_limitsIT_EE10is_integerEbE4typeES3_S3_PS3_,
     "std::enable_if<std::numeric_limits<long>::is_integer, bool>::type base::internal::CheckedSubImpl<long>(long, long, long*)"
 );
 
@@ -401,7 +406,7 @@ demangles!(
 
 demangles!(
     _Z6IsNullIiEN1EIXsr1FIT_EE1nEE4typeES1_,
-    "E<F<int>::n>::type IsNull<int>(F)"
+    "E<F<int>::n>::type IsNull<int>(int)"
 );
 demangles!(
     _Z6IsNullIiEN1EIXgssr1FIT_EE1nEE4typeEv,
