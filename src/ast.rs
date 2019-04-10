@@ -2177,7 +2177,9 @@ where
             Prefix::Unqualified(ref unqualified) => unqualified.demangle(ctx, scope),
             Prefix::Nested(ref prefix, ref unqualified) => {
                 prefix.demangle(ctx, scope)?;
-                write!(ctx, "::")?;
+                if unqualified.accepts_double_colon() {
+                    write!(ctx, "::")?;
+                }
                 unqualified.demangle(ctx, scope)
             }
             Prefix::Template(ref prefix, ref args) => {
@@ -2188,6 +2190,7 @@ where
             Prefix::Decltype(ref dt) => dt.demangle(ctx, scope),
             Prefix::DataMember(ref prefix, ref member) => {
                 prefix.demangle(ctx, scope)?;
+                write!(ctx, "::")?;
                 member.demangle(ctx, scope)
             }
         }
@@ -3757,7 +3760,7 @@ define_vocabulary! {
         DecimalFloat64   (b"Dd", "decimal64"),
         DecimalFloat128  (b"De", "decimal128"),
         DecimalFloat32   (b"Df", "decimal32"),
-        DecimalFloat16   (b"Dh", "decimal16"),
+        DecimalFloat16   (b"Dh", "half"),
         Char32           (b"Di", "char32_t"),
         Char16           (b"Ds", "char16_t"),
         Auto             (b"Da", "auto"),
