@@ -153,6 +153,7 @@ use std::fmt::Write;
         s.extend(181..183);
         s.extend(184..186);
         s.extend(187..190);
+        s.extend(199..200);
         s.extend(201..202);
         s.extend(203..204);
         s

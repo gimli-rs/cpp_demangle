@@ -2177,7 +2177,9 @@ where
             Prefix::Unqualified(ref unqualified) => unqualified.demangle(ctx, scope),
             Prefix::Nested(ref prefix, ref unqualified) => {
                 prefix.demangle(ctx, scope)?;
-                write!(ctx, "::")?;
+                if unqualified.accepts_double_colon() {
+                    write!(ctx, "::")?;
+                }
                 unqualified.demangle(ctx, scope)
             }
             Prefix::Template(ref prefix, ref args) => {
