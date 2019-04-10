@@ -2188,6 +2188,7 @@ where
             Prefix::Decltype(ref dt) => dt.demangle(ctx, scope),
             Prefix::DataMember(ref prefix, ref member) => {
                 prefix.demangle(ctx, scope)?;
+                write!(ctx, "::")?;
                 member.demangle(ctx, scope)
             }
         }
