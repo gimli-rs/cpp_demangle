@@ -378,7 +378,7 @@ demangles!(
 
 demangles!(
     _ZNSt3__116forward_as_tupleIJRKZN11tconcurrent6detail6sharedIFvvEEC1IZNS1_7yielder13await_suspendINS1_12task_promiseIvEEEEvNSt12experimental13coroutines_v116coroutine_handleIT_EEEUlvE_EEbNS_10shared_ptrINS1_17cancelation_tokenEEEOSE_PvEUlRSI_DpOT_E_EEENS_5tupleIJSP_EEESP_,
-    "std::__1::tuple<tconcurrent::detail::shared<void ()>::shared<void tconcurrent::yielder::await_suspend<tconcurrent::task_promise<void> >(std::experimental::coroutines_v1::coroutine_handle<tconcurrent::task_promise<void> >)::{lambda()#1}>(std::__1::shared_ptr<tconcurrent::cancelation_token>, void tconcurrent::yielder::await_suspend<tconcurrent::task_promise<void> >(std::experimental::coroutines_v1::coroutine_handle<tconcurrent::task_promise<void> >)::{lambda()#1}&&, void*)::{lambda(tconcurrent::cancelation_token&, auto:1&&...)#1} const&&&...> std::__1::forward_as_tuple<tconcurrent::detail::shared<void ()>::shared<void tconcurrent::yielder::await_suspend<tconcurrent::task_promise<void> >(std::experimental::coroutines_v1::coroutine_handle<tconcurrent::task_promise<void> >)::{lambda()#1}>(std::__1::shared_ptr<tconcurrent::cancelation_token>, void tconcurrent::yielder::await_suspend<tconcurrent::task_promise<void> >(std::experimental::coroutines_v1::coroutine_handle<tconcurrent::task_promise<void> >)::{lambda()#1}&&, void*)::{lambda(tconcurrent::cancelation_token&, auto:1&&...)#1} const&>(tconcurrent::detail::shared<void ()>::shared<void tconcurrent::yielder::await_suspend<tconcurrent::task_promise<void> >(std::experimental::coroutines_v1::coroutine_handle<tconcurrent::task_promise<void> >)::{lambda()#1}>(std::__1::shared_ptr<tconcurrent::cancelation_token>, void tconcurrent::yielder::await_suspend<tconcurrent::task_promise<void> >(std::experimental::coroutines_v1::coroutine_handle<tconcurrent::task_promise<void> >)::{lambda()#1}&&, void*)::{lambda(tconcurrent::cancelation_token&, auto:1&&...)#1} const&&&...)"
+    "std::__1::tuple<tconcurrent::detail::shared<void ()>::shared<void tconcurrent::yielder::await_suspend<tconcurrent::task_promise<void> >(std::experimental::coroutines_v1::coroutine_handle<tconcurrent::task_promise<void> >)::{lambda()#1}>(std::__1::shared_ptr<tconcurrent::cancelation_token>, void tconcurrent::yielder::await_suspend<tconcurrent::task_promise<void> >(std::experimental::coroutines_v1::coroutine_handle<tconcurrent::task_promise<void> >)::{lambda()#1}&&, void*)::{lambda(tconcurrent::cancelation_token&, auto:1&&)#1} const&&&> std::__1::forward_as_tuple<tconcurrent::detail::shared<void ()>::shared<void tconcurrent::yielder::await_suspend<tconcurrent::task_promise<void> >(std::experimental::coroutines_v1::coroutine_handle<tconcurrent::task_promise<void> >)::{lambda()#1}>(std::__1::shared_ptr<tconcurrent::cancelation_token>, void tconcurrent::yielder::await_suspend<tconcurrent::task_promise<void> >(std::experimental::coroutines_v1::coroutine_handle<tconcurrent::task_promise<void> >)::{lambda()#1}&&, void*)::{lambda(tconcurrent::cancelation_token&, auto:1&&)#1} const&>(tconcurrent::detail::shared<void ()>::shared<void tconcurrent::yielder::await_suspend<tconcurrent::task_promise<void> >(std::experimental::coroutines_v1::coroutine_handle<tconcurrent::task_promise<void> >)::{lambda()#1}>(std::__1::shared_ptr<tconcurrent::cancelation_token>, void tconcurrent::yielder::await_suspend<tconcurrent::task_promise<void> >(std::experimental::coroutines_v1::coroutine_handle<tconcurrent::task_promise<void> >)::{lambda()#1}&&, void*)::{lambda(tconcurrent::cancelation_token&, auto:1&&)#1} const&&&)"
 );
 
 demangles!(
@@ -441,11 +441,11 @@ demangles!(
 );
 demangles!(
     _ZN5boost9unordered18unordered_multimapItN3xxx6xxxxxx6xxxxxx14xxxxxxxxxxxxxxENS_4hashItEESt8equal_toItESaISt4pairIKtS5_EEE7emplaceIISC_EEENS0_15iterator_detail8iteratorINS0_6detail16grouped_ptr_nodeISC_EEEEDpOT_,
-    "boost::unordered::iterator_detail::iterator<boost::unordered::detail::grouped_ptr_node<std::pair<unsigned short const, xxx::xxxxxx::xxxxxx::xxxxxxxxxxxxxx> > > boost::unordered::unordered_multimap<unsigned short, xxx::xxxxxx::xxxxxx::xxxxxxxxxxxxxx, boost::hash<unsigned short>, std::equal_to<unsigned short>, std::allocator<std::pair<unsigned short const, xxx::xxxxxx::xxxxxx::xxxxxxxxxxxxxx> > >::emplace<std::pair<unsigned short const, xxx::xxxxxx::xxxxxx::xxxxxxxxxxxxxx> >(std::pair<unsigned short const, xxx::xxxxxx::xxxxxx::xxxxxxxxxxxxxx>&&...)"
+    "boost::unordered::iterator_detail::iterator<boost::unordered::detail::grouped_ptr_node<std::pair<unsigned short const, xxx::xxxxxx::xxxxxx::xxxxxxxxxxxxxx> > > boost::unordered::unordered_multimap<unsigned short, xxx::xxxxxx::xxxxxx::xxxxxxxxxxxxxx, boost::hash<unsigned short>, std::equal_to<unsigned short>, std::allocator<std::pair<unsigned short const, xxx::xxxxxx::xxxxxx::xxxxxxxxxxxxxx> > >::emplace<std::pair<unsigned short const, xxx::xxxxxx::xxxxxx::xxxxxxxxxxxxxx> >(std::pair<unsigned short const, xxx::xxxxxx::xxxxxx::xxxxxxxxxxxxxx>&&)"
 );
 demangles!(
     _ZNSt6vectorIN3xxx6xxxxxx15xxxxxxxxxxxxxxxESaIS2_EE12emplace_backIIS2_EEEvDpOT_,
-    "void std::vector<xxx::xxxxxx::xxxxxxxxxxxxxxx, std::allocator<xxx::xxxxxx::xxxxxxxxxxxxxxx> >::emplace_back<xxx::xxxxxx::xxxxxxxxxxxxxxx>(xxx::xxxxxx::xxxxxxxxxxxxxxx&&...)"
+    "void std::vector<xxx::xxxxxx::xxxxxxxxxxxxxxx, std::allocator<xxx::xxxxxx::xxxxxxxxxxxxxxx> >::emplace_back<xxx::xxxxxx::xxxxxxxxxxxxxxx>(xxx::xxxxxx::xxxxxxxxxxxxxxx&&)"
 );
 demangles_no_param!(
     _ZN2js9LifoAlloc21newArrayUninitializedI17OffsetAndDefIndexEEPT_m,
@@ -467,4 +467,8 @@ demangles!(
     clone_suffix,
     "_ZNSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEE12_M_constructIPcEEvT_S7_St20forward_iterator_tag.isra.90",
     "void std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::_M_construct<char*>(char*, char*, std::forward_iterator_tag) [clone .isra.90]"
+);
+demangles!(
+    _Z1fDpDv1_c,
+    "f(char __vector(1)...)"
 );
