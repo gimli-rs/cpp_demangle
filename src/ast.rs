@@ -5843,7 +5843,7 @@ where
                 Ok(())
             }
             Expression::PackExpansion(ref pack) => {
-                pack.demangle(ctx, scope)?;
+                pack.demangle_as_subexpr(ctx, scope)?;
                 write!(ctx, "...")?;
                 Ok(())
             }
