@@ -356,7 +356,7 @@ pub struct ArgScopeStack<'prev, 'subs>
 where
     'subs: 'prev,
 {
-    item: &'subs ArgScope<'subs, 'subs>,
+    item: &'subs dyn ArgScope<'subs, 'subs>,
     in_arg: Option<(usize, &'subs TemplateArgs)>,
     prev: Option<&'prev ArgScopeStack<'prev, 'subs>>,
 }
@@ -374,14 +374,14 @@ trait ArgScopeStackExt<'prev, 'subs>: Copy {
     /// `ArgScopeStack` with the pushed resolver on top.
     fn push(
         &'prev self,
-        item: &'subs ArgScope<'subs, 'subs>,
+        item: &'subs dyn ArgScope<'subs, 'subs>,
     ) -> Option<ArgScopeStack<'prev, 'subs>>;
 }
 
 impl<'prev, 'subs> ArgScopeStackExt<'prev, 'subs> for Option<ArgScopeStack<'prev, 'subs>> {
     fn push(
         &'prev self,
-        item: &'subs ArgScope<'subs, 'subs>,
+        item: &'subs dyn ArgScope<'subs, 'subs>,
     ) -> Option<ArgScopeStack<'prev, 'subs>> {
         log!("ArgScopeStack::push: {:?}", item);
         Some(ArgScopeStack {
@@ -462,7 +462,7 @@ where
     //
     // The `inner` stack enables such behavior by allowing us to pass AST
     // parents down to their children as inner items.
-    inner: Vec<&'a DemangleAsInner<'a, W>>,
+    inner: Vec<&'a dyn DemangleAsInner<'a, W>>,
 
     // The original input string.
     input: &'a [u8],
@@ -550,20 +550,20 @@ where
     }
 
     #[inline]
-    fn push_inner(&mut self, item: &'a DemangleAsInner<'a, W>) {
+    fn push_inner(&mut self, item: &'a dyn DemangleAsInner<'a, W>) {
         log!("DemangleContext::push_inner: {:?}", item);
         self.inner.push(item);
     }
 
     #[inline]
-    fn pop_inner(&mut self) -> Option<&'a DemangleAsInner<'a, W>> {
+    fn pop_inner(&mut self) -> Option<&'a dyn DemangleAsInner<'a, W>> {
         let popped = self.inner.pop();
         log!("DemangleContext::pop_inner: {:?}", popped);
         popped
     }
 
     #[inline]
-    fn pop_inner_if(&mut self, inner: &'a DemangleAsInner<'a, W>) -> bool {
+    fn pop_inner_if(&mut self, inner: &'a dyn DemangleAsInner<'a, W>) -> bool {
         if {
             let last = match self.inner.last() {
                 None => return false,
@@ -631,7 +631,7 @@ where
     'a: 'ctx,
 {
     ctx: &'ctx mut DemangleContext<'a, W>,
-    saved_inner: Vec<&'a DemangleAsInner<'a, W>>,
+    saved_inner: Vec<&'a dyn DemangleAsInner<'a, W>>,
 }
 
 impl<'ctx, 'a, W> AutoDemangleContextInnerBarrier<'ctx, 'a, W>
@@ -1397,10 +1397,10 @@ where
                 if let Some(template_args) = name.get_template_args(ctx.subs) {
                     let scope = scope.push(template_args);
                     let function_args = FunctionArgListAndReturnType::new(&fun_ty.0);
-                    (scope, function_args as &DemangleAsInner<W>)
+                    (scope, function_args as &dyn DemangleAsInner<W>)
                 } else {
                     let function_args = FunctionArgList::new(&fun_ty.0);
-                    (scope, function_args as &DemangleAsInner<W>)
+                    (scope, function_args as &dyn DemangleAsInner<W>)
                 };
             function_args.demangle_as_inner(ctx, scope)
         } else {
