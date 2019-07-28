@@ -472,3 +472,7 @@ demangles!(
     _Z1fDpDv1_c,
     "f(char __vector(1)...)"
 );
+demangles!(
+    _Z1gIJidEEDTclL_Z1fEspplfp_Li1EEEDpT_,
+    "decltype (f(({parm#1}+(1))...)) g<int, double>(int, double)"
+);
