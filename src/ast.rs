@@ -468,7 +468,7 @@ where
     input: &'a [u8],
 
     // `Identifier`s will be placed here, so `UnnamedTypeName` can utilize and print
-    // out Constructor/Destructor used.
+    // out the Constructor/Destructor used.
     source_name: Option<&'a str>,
 
     // What the demangled name is being written to.
@@ -484,6 +484,10 @@ where
     // We are currently demangling a lambda argument, so template substitution
     // should be suppressed to match libiberty.
     is_lambda_arg: bool,
+
+    //  `PackExpansion`'s should only print '...', only when there is no template
+    //  argument pack.
+    is_template_argument_pack: bool,
 
     // Whether to show function parameters and (if applicable) return types.
     // This must be set to true before calling `demangle` on `Encoding`
@@ -530,6 +534,7 @@ where
             bytes_written: 0,
             last_char_written: None,
             is_lambda_arg: false,
+            is_template_argument_pack: false,
             show_params: !options.no_params,
         }
     }
@@ -3506,7 +3511,9 @@ where
             }
             Type::PackExpansion(ref ty) => {
                 ty.demangle(ctx, scope)?;
-                write!(ctx, "...")?;
+                if !ctx.is_template_argument_pack {
+                    write!(ctx, "...")?;
+                }
                 Ok(())
             }
         }
@@ -4938,6 +4945,7 @@ where
             TemplateArg::Expression(ref expr) => expr.demangle(ctx, scope),
             TemplateArg::SimpleExpression(ref expr) => expr.demangle(ctx, scope),
             TemplateArg::ArgPack(ref args) => {
+                ctx.is_template_argument_pack = true;
                 let mut need_comma = false;
                 for arg in &args[..] {
                     if need_comma {
@@ -5809,7 +5817,7 @@ where
                 Ok(())
             }
             Expression::PackExpansion(ref pack) => {
-                pack.demangle(ctx, scope)?;
+                pack.demangle_as_subexpr(ctx, scope)?;
                 write!(ctx, "...")?;
                 Ok(())
             }
