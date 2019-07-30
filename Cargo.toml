@@ -31,15 +31,15 @@ required-features = ["afl"]
 glob = "0.3.0"
 
 [dependencies]
-cfg-if = "0.1.4"
+cfg-if = "0.1.9"
 
 [dependencies.afl]
 optional = true
-version = "0.4"
+version = "0.4.4"
 
 [dev-dependencies]
-clap = "2.27.1"
-diff = "0.1.10"
+clap = "2.33.0"
+diff = "0.1.11"
 
 [features]
 # Default features.
