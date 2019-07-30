@@ -28,6 +28,22 @@ Released YYYY/MM/DD
 
 --------------------------------------------------------------------------------
 
+# 0.2.13
+
+Released 2019/07/30
+
+## Fixed
+
+* Fix parsing of outdated `sr` forms that prevented parsing other symbols. See
+  #173 for details.
+
+* Ensures a space is printed before a `&` or `&&` reference qualifier. #176
+
+* Fixed placement of parentheses in symbols with function pointer arguments that
+  have `const` qualifiers. #175
+
+--------------------------------------------------------------------------------
+
 # 0.2.12
 
 Released 2018/08/09
