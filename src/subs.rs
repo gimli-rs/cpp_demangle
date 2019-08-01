@@ -1,5 +1,6 @@
 //! Types dealing with the substitutions table.
 
+use super::DemangleWrite;
 use ast;
 use std::fmt;
 use std::iter::FromIterator;
@@ -29,7 +30,7 @@ pub enum Substitutable {
 
 impl<'subs, W> ast::Demangle<'subs, W> for Substitutable
 where
-    W: 'subs + fmt::Write,
+    W: 'subs + DemangleWrite,
 {
     fn demangle<'prev, 'ctx>(
         &'subs self,

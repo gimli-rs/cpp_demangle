@@ -210,6 +210,47 @@ substitutions = {:#?}",
 
         Ok(out)
     }
+
+    /// Demangle the symbol to a DemangleWrite, which lets the consumer be informed about
+    /// syntactic structure.
+    pub fn structured_demangle<W: DemangleWrite>(&self, out: &mut W, options: &DemangleOptions) -> fmt::Result {
+        let mut ctx = ast::DemangleContext::new(
+            &self.substitutions,
+            self.raw.as_ref(),
+            options,
+            out,
+        );
+        self.parsed.demangle(&mut ctx, None)
+    }
+}
+
+/// The type of a demangled AST node.
+/// This is only partial, not all nodes are represented.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd, Hash)]
+pub enum DemangleNodeType {
+    /// Entering a <prefix> production
+    Prefix,
+    /// Entering a <template-prefix> production
+    TemplatePrefix,
+    /// Entering a <template-args> production
+    TemplateArgs,
+}
+
+/// Sink for demangled text that reports syntactic structure.
+pub trait DemangleWrite {
+    /// Called when we are entering the scope of some AST node.
+    fn push_demangle_node(&mut self, _: DemangleNodeType) {}
+    /// Same as `fmt::Write::write_str`.
+    fn write_string(&mut self, s: &str) -> fmt::Result;
+    /// Called when we are exiting the scope of some AST node for
+    /// which `push_demangle_node` was called.
+    fn pop_demangle_node(&mut self) {}
+}
+
+impl<W: fmt::Write> DemangleWrite for W {
+    fn write_string(&mut self, s: &str) -> fmt::Result {
+        fmt::Write::write_str(self, s)
+    }
 }
 
 impl<'a, T> Symbol<&'a T>
