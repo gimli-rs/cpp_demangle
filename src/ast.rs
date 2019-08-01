@@ -1,6 +1,6 @@
 //! Abstract syntax tree types for mangled symbols.
 
-use super::DemangleOptions;
+use super::{DemangleWrite, DemangleNodeType, DemangleOptions};
 use error::{self, Result};
 use index_str::IndexStr;
 use std::cell::Cell;
@@ -89,7 +89,7 @@ impl AutoLogDemangle {
     ) -> AutoLogDemangle
     where
         P: ?Sized + fmt::Debug,
-        W: fmt::Write,
+        W: DemangleWrite,
     {
         LOG_DEPTH.with(|depth| {
             if *depth.borrow() == 0 {
@@ -122,7 +122,7 @@ impl AutoLogDemangle {
     ) -> AutoLogDemangle
     where
         P: ?Sized + fmt::Debug,
-        W: fmt::Write,
+        W: DemangleWrite,
     {
         AutoLogDemangle
     }
@@ -294,7 +294,7 @@ pub(crate) enum LeafName<'a> {
 
 impl<'subs, W> DemangleAsLeaf<'subs, W> for LeafName<'subs>
 where
-    W: 'subs + fmt::Write,
+    W: 'subs + DemangleWrite,
 {
     fn demangle_as_leaf<'me, 'ctx>(
         &'me self,
@@ -441,7 +441,7 @@ impl<'prev, 'subs> ArgScope<'prev, 'subs> for Option<ArgScopeStack<'prev, 'subs>
 #[derive(Debug)]
 pub struct DemangleContext<'a, W>
 where
-    W: 'a + fmt::Write,
+    W: 'a + DemangleWrite,
 {
     // The substitution table built up when parsing the mangled symbol into an
     // AST.
@@ -472,7 +472,7 @@ where
     source_name: Option<&'a str>,
 
     // What the demangled name is being written to.
-    out: W,
+    out: &'a mut W,
 
     // The total number of bytes written to `out`. This is maintained by the
     // `Write` implementation for `DemangleContext`.
@@ -484,6 +484,9 @@ where
     // We are currently demangling a lambda argument, so template substitution
     // should be suppressed to match libiberty.
     is_lambda_arg: bool,
+
+    // We are currently demangling a template-prefix.
+    is_template_prefix: bool,
 
     //  `PackExpansion`'s should only print '...', only when there is no template
     //  argument pack.
@@ -497,7 +500,7 @@ where
 
 impl<'a, W> fmt::Write for DemangleContext<'a, W>
 where
-    W: 'a + fmt::Write,
+    W: 'a + DemangleWrite,
 {
     fn write_str(&mut self, s: &str) -> fmt::Result {
         if s.is_empty() {
@@ -506,24 +509,23 @@ where
 
         log!("DemangleContext::write: '{}'", s);
 
-        self.out.write_str(s).map(|_| {
+        self.out.write_string(s).map(|_| {
             self.last_char_written = s.chars().last();
             self.bytes_written += s.len();
         })
     }
-
 }
 
 impl<'a, W> DemangleContext<'a, W>
 where
-    W: 'a + fmt::Write,
+    W: 'a + DemangleWrite,
 {
     /// Construct a new `DemangleContext`.
     pub fn new(
         subs: &'a SubstitutionTable,
         input: &'a [u8],
         options: &DemangleOptions,
-        out: W,
+        out: &'a mut W,
     ) -> DemangleContext<'a, W> {
         DemangleContext {
             subs: subs,
@@ -534,6 +536,7 @@ where
             bytes_written: 0,
             last_char_written: None,
             is_lambda_arg: false,
+            is_template_prefix: false,
             is_template_argument_pack: false,
             show_params: !options.no_params,
         }
@@ -626,13 +629,23 @@ where
         let ident = &self.input[start..end];
         self.source_name = std::str::from_utf8(ident).ok();
     }
+
+    fn push_demangle_node(&mut self, t: DemangleNodeType) {
+        self.out.push_demangle_node(t);
+    }
+
+    /// This should not be called on error paths.
+    /// pop_inner_if already doesn't balance if there are errors.
+    fn pop_demangle_node(&mut self) {
+        self.out.pop_demangle_node();
+    }
 }
 
 #[doc(hidden)]
 #[derive(Debug)]
 pub struct AutoDemangleContextInnerBarrier<'ctx, 'a, W>
 where
-    W: 'a + fmt::Write,
+    W: 'a + DemangleWrite,
     'a: 'ctx,
 {
     ctx: &'ctx mut DemangleContext<'a, W>,
@@ -641,7 +654,7 @@ where
 
 impl<'ctx, 'a, W> AutoDemangleContextInnerBarrier<'ctx, 'a, W>
 where
-    W: 'a + fmt::Write,
+    W: 'a + DemangleWrite,
     'a: 'ctx,
 {
     /// Set aside the current inner stack on the demangle context.
@@ -657,7 +670,7 @@ where
 
 impl<'ctx, 'a, W> ops::Deref for AutoDemangleContextInnerBarrier<'ctx, 'a, W>
 where
-    W: 'a + fmt::Write,
+    W: 'a + DemangleWrite,
     'a: 'ctx,
 {
     type Target = DemangleContext<'a, W>;
@@ -669,7 +682,7 @@ where
 
 impl<'ctx, 'a, W> ops::DerefMut for AutoDemangleContextInnerBarrier<'ctx, 'a, W>
 where
-    W: 'a + fmt::Write,
+    W: 'a + DemangleWrite,
     'a: 'ctx,
 {
     fn deref_mut(&mut self) -> &mut Self::Target {
@@ -679,7 +692,7 @@ where
 
 impl<'ctx, 'a, W> Drop for AutoDemangleContextInnerBarrier<'ctx, 'a, W>
 where
-    W: 'a + fmt::Write,
+    W: 'a + DemangleWrite,
     'a: 'ctx,
 {
     fn drop(&mut self) {
@@ -720,7 +733,7 @@ macro_rules! inner_barrier {
 #[doc(hidden)]
 pub trait Demangle<'subs, W>: fmt::Debug
 where
-    W: 'subs + fmt::Write,
+    W: 'subs + DemangleWrite,
 {
     /// Write the demangled form of this AST node to the given context.
     fn demangle<'prev, 'ctx>(
@@ -736,7 +749,7 @@ where
 #[doc(hidden)]
 pub trait DemangleAsInner<'subs, W>: Demangle<'subs, W>
 where
-    W: 'subs + fmt::Write,
+    W: 'subs + DemangleWrite,
 {
     /// Write the inner demangling form of this AST node to the given context.
     fn demangle_as_inner<'prev, 'ctx>(
@@ -779,7 +792,7 @@ where
 /// `std::` namespace prefix.
 pub(crate) trait DemangleAsLeaf<'subs, W>
 where
-    W: 'subs + fmt::Write,
+    W: 'subs + DemangleWrite,
 {
     fn demangle_as_leaf<'me, 'ctx>(
         &'me self,
@@ -843,7 +856,7 @@ reference_newtype!(FunctionArgSlice, [TypeHandle]);
 // Demangle a slice of TypeHandle as a function argument list.
 impl<'subs, W> Demangle<'subs, W> for FunctionArgSlice
 where
-    W: 'subs + fmt::Write,
+    W: 'subs + DemangleWrite,
 {
     fn demangle<'prev, 'ctx>(
         &'subs self,
@@ -929,7 +942,7 @@ where
 
 impl<'subs, W> Demangle<'subs, W> for FunctionArgList
 where
-    W: 'subs + fmt::Write,
+    W: 'subs + DemangleWrite,
 {
     fn demangle<'prev, 'ctx>(
         &'subs self,
@@ -942,13 +955,13 @@ where
 
 impl<'subs, W> DemangleAsInner<'subs, W> for FunctionArgList
 where
-    W: 'subs + fmt::Write,
+    W: 'subs + DemangleWrite,
 {
 }
 
 impl<'subs, W> Demangle<'subs, W> for FunctionArgListAndReturnType
 where
-    W: 'subs + fmt::Write,
+    W: 'subs + DemangleWrite,
 {
     fn demangle<'prev, 'ctx>(
         &'subs self,
@@ -961,7 +974,7 @@ where
 
 impl<'subs, W> DemangleAsInner<'subs, W> for FunctionArgListAndReturnType
 where
-    W: 'subs + fmt::Write,
+    W: 'subs + DemangleWrite,
 {
 }
 
@@ -1023,7 +1036,7 @@ macro_rules! define_handle {
 
         impl<'subs, W> Demangle<'subs, W> for $typename
         where
-            W: 'subs + fmt::Write
+            W: 'subs + DemangleWrite
         {
             #[inline]
             fn demangle<'prev, 'ctx>(&'subs self,
@@ -1064,7 +1077,7 @@ pub struct NonSubstitution(usize);
 
 impl<'subs, W> Demangle<'subs, W> for NonSubstitution
 where
-    W: 'subs + fmt::Write,
+    W: 'subs + DemangleWrite,
 {
     fn demangle<'prev, 'ctx>(
         &'subs self,
@@ -1139,7 +1152,7 @@ macro_rules! define_vocabulary {
 
         impl<'subs, W> Demangle<'subs, W> for $typename
         where
-            W: 'subs + fmt::Write,
+            W: 'subs + DemangleWrite,
         {
             fn demangle<'prev, 'ctx>(
                 &'subs self,
@@ -1250,7 +1263,7 @@ impl Parse for MangledName {
 
 impl<'subs, W> Demangle<'subs, W> for MangledName
 where
-    W: 'subs + fmt::Write,
+    W: 'subs + DemangleWrite,
 {
     fn demangle<'prev, 'ctx>(
         &'subs self,
@@ -1315,7 +1328,7 @@ impl Parse for Encoding {
 
 impl<'subs, W> Demangle<'subs, W> for Encoding
 where
-    W: 'subs + fmt::Write,
+    W: 'subs + DemangleWrite,
 {
     fn demangle<'prev, 'ctx>(
         &'subs self,
@@ -1390,7 +1403,7 @@ where
 
 impl<'subs, W> DemangleAsInner<'subs, W> for Encoding
 where
-    W: 'subs + fmt::Write,
+    W: 'subs + DemangleWrite,
 {
     fn demangle_as_inner<'prev, 'ctx>(
         &'subs self,
@@ -1444,7 +1457,7 @@ impl Parse for CloneSuffix {
 
 impl<'subs, W> Demangle<'subs, W> for CloneSuffix
 where
-    W: 'subs + fmt::Write,
+    W: 'subs + DemangleWrite,
 {
     fn demangle<'prev, 'ctx>(
         &'subs self,
@@ -1498,7 +1511,7 @@ impl Parse for GlobalCtorDtor {
 
 impl<'subs, W> Demangle<'subs, W> for GlobalCtorDtor
 where
-    W: 'subs + fmt::Write,
+    W: 'subs + DemangleWrite,
 {
     fn demangle<'prev, 'ctx>(
         &'subs self,
@@ -1585,7 +1598,7 @@ impl Parse for Name {
 
 impl<'subs, W> Demangle<'subs, W> for Name
 where
-    W: 'subs + fmt::Write,
+    W: 'subs + DemangleWrite,
 {
     fn demangle<'prev, 'ctx>(
         &'subs self,
@@ -1674,7 +1687,7 @@ impl Parse for UnscopedName {
 
 impl<'subs, W> Demangle<'subs, W> for UnscopedName
 where
-    W: 'subs + fmt::Write,
+    W: 'subs + DemangleWrite,
 {
     fn demangle<'prev, 'ctx>(
         &'subs self,
@@ -1761,7 +1774,7 @@ impl Parse for UnscopedTemplateNameHandle {
 
 impl<'subs, W> Demangle<'subs, W> for UnscopedTemplateName
 where
-    W: 'subs + fmt::Write,
+    W: 'subs + DemangleWrite,
 {
     fn demangle<'prev, 'ctx>(
         &'subs self,
@@ -1874,7 +1887,7 @@ impl NestedName {
 
 impl<'subs, W> Demangle<'subs, W> for NestedName
 where
-    W: 'subs + fmt::Write,
+    W: 'subs + DemangleWrite,
 {
     fn demangle<'prev, 'ctx>(
         &'subs self,
@@ -1883,12 +1896,19 @@ where
     ) -> fmt::Result {
         log_demangle!(self, ctx, scope);
 
-        self.prefix().demangle(ctx, scope)?;
-        if let NestedName::Unqualified(_, _, _, ref name) = *self {
-            if name.accepts_double_colon() {
-                ctx.write_str("::")?;
+        match *self {
+            NestedName::Unqualified(_, _, ref p, ref name) => {
+                p.demangle(ctx, scope)?;
+                if name.accepts_double_colon() {
+                    ctx.write_str("::")?;
+                }
+                name.demangle(ctx, scope)?;
             }
-            name.demangle(ctx, scope)?;
+            NestedName::Template(_, _, ref p) => {
+                ctx.is_template_prefix = true;
+                p.demangle(ctx, scope)?;
+                ctx.is_template_prefix = false;
+            }
         }
 
         if let Some(inner) = ctx.pop_inner() {
@@ -2169,7 +2189,7 @@ impl GetTemplateArgs for PrefixHandle {
 
 impl<'subs, W> Demangle<'subs, W> for Prefix
 where
-    W: 'subs + fmt::Write,
+    W: 'subs + DemangleWrite,
 {
     fn demangle<'prev, 'ctx>(
         &'subs self,
@@ -2177,8 +2197,14 @@ where
         scope: Option<ArgScopeStack<'prev, 'subs>>,
     ) -> fmt::Result {
         log_demangle!(self, ctx, scope);
+        if ctx.is_template_prefix {
+            ctx.push_demangle_node(DemangleNodeType::TemplatePrefix);
+            ctx.is_template_prefix = false;
+        } else {
+            ctx.push_demangle_node(DemangleNodeType::Prefix);
+        }
 
-        match *self {
+        let ret = match *self {
             Prefix::Unqualified(ref unqualified) => unqualified.demangle(ctx, scope),
             Prefix::Nested(ref prefix, ref unqualified) => {
                 prefix.demangle(ctx, scope)?;
@@ -2188,7 +2214,9 @@ where
                 unqualified.demangle(ctx, scope)
             }
             Prefix::Template(ref prefix, ref args) => {
+                ctx.is_template_prefix = true;
                 prefix.demangle(ctx, scope)?;
+                ctx.is_template_prefix = false;
                 args.demangle(ctx, scope)
             }
             Prefix::TemplateParam(ref param) => param.demangle(ctx, scope),
@@ -2198,7 +2226,9 @@ where
                 write!(ctx, "::")?;
                 member.demangle(ctx, scope)
             }
-        }
+        };
+        ctx.pop_demangle_node();
+        ret
     }
 }
 
@@ -2326,7 +2356,7 @@ impl Parse for UnqualifiedName {
 
 impl<'subs, W> Demangle<'subs, W> for UnqualifiedName
 where
-    W: 'subs + fmt::Write,
+    W: 'subs + DemangleWrite,
 {
     fn demangle<'prev, 'ctx>(
         &'subs self,
@@ -2464,7 +2494,7 @@ impl SourceName {
 
 impl<'subs, W> Demangle<'subs, W> for SourceName
 where
-    W: 'subs + fmt::Write,
+    W: 'subs + DemangleWrite,
 {
     #[inline]
     fn demangle<'prev, 'ctx>(
@@ -2502,7 +2532,7 @@ impl Parse for TaggedName {
 
 impl<'subs, W> Demangle<'subs, W> for TaggedName
 where
-    W: 'subs + fmt::Write,
+    W: 'subs + DemangleWrite,
 {
     fn demangle<'prev, 'ctx>(
         &'subs self,
@@ -2578,7 +2608,7 @@ impl Parse for Identifier {
 
 impl<'subs, W> Demangle<'subs, W> for Identifier
 where
-    W: 'subs + fmt::Write,
+    W: 'subs + DemangleWrite,
 {
     #[inline]
     fn demangle<'prev, 'ctx>(
@@ -2663,7 +2693,7 @@ impl Parse for CloneTypeIdentifier {
 
 impl<'subs, W> Demangle<'subs, W> for CloneTypeIdentifier
 where
-    W: 'subs + fmt::Write,
+    W: 'subs + DemangleWrite,
 {
     #[inline]
     fn demangle<'prev, 'ctx>(
@@ -2844,7 +2874,7 @@ impl Parse for OperatorName {
 
 impl<'subs, W> Demangle<'subs, W> for OperatorName
 where
-    W: 'subs + fmt::Write,
+    W: 'subs + DemangleWrite,
 {
     fn demangle<'prev, 'ctx>(
         &'subs self,
@@ -2997,7 +3027,7 @@ impl Parse for CallOffset {
 
 impl<'subs, W> Demangle<'subs, W> for CallOffset
 where
-    W: 'subs + fmt::Write,
+    W: 'subs + DemangleWrite,
 {
     fn demangle<'prev, 'ctx>(
         &'subs self,
@@ -3132,7 +3162,7 @@ impl Parse for CtorDtorName {
 
 impl<'subs, W> Demangle<'subs, W> for CtorDtorName
 where
-    W: 'subs + fmt::Write,
+    W: 'subs + DemangleWrite,
 {
     fn demangle<'prev, 'ctx>(
         &'subs self,
@@ -3453,7 +3483,7 @@ impl GetTemplateArgs for TypeHandle {
 
 impl<'subs, W> Demangle<'subs, W> for Type
 where
-    W: 'subs + fmt::Write,
+    W: 'subs + DemangleWrite,
 {
     fn demangle<'prev, 'ctx>(
         &'subs self,
@@ -3522,7 +3552,7 @@ where
 
 impl<'subs, W> DemangleAsInner<'subs, W> for Type
 where
-    W: 'subs + fmt::Write,
+    W: 'subs + DemangleWrite,
 {
     fn demangle_as_inner<'prev, 'ctx>(
         &'subs self,
@@ -3658,7 +3688,7 @@ impl Parse for CvQualifiers {
 
 impl<'subs, W> Demangle<'subs, W> for CvQualifiers
 where
-    W: 'subs + fmt::Write,
+    W: 'subs + DemangleWrite,
 {
     fn demangle<'prev, 'ctx>(
         &'subs self,
@@ -3688,7 +3718,7 @@ where
 
 impl<'subs, W> DemangleAsInner<'subs, W> for CvQualifiers
 where
-    W: 'subs + fmt::Write,
+    W: 'subs + DemangleWrite,
 {
 }
 
@@ -3810,7 +3840,7 @@ impl Parse for BuiltinType {
 
 impl<'subs, W> Demangle<'subs, W> for BuiltinType
 where
-    W: 'subs + fmt::Write,
+    W: 'subs + DemangleWrite,
 {
     fn demangle<'prev, 'ctx>(
         &'subs self,
@@ -3841,7 +3871,7 @@ pub struct QualifiedBuiltin(CvQualifiers, BuiltinType);
 
 impl<'subs, W> Demangle<'subs, W> for QualifiedBuiltin
 where
-    W: 'subs + fmt::Write,
+    W: 'subs + DemangleWrite,
 {
     fn demangle<'prev, 'ctx>(
         &'subs self,
@@ -3932,7 +3962,7 @@ impl Parse for FunctionType {
 
 impl<'subs, W> Demangle<'subs, W> for FunctionType
 where
-    W: 'subs + fmt::Write,
+    W: 'subs + DemangleWrite,
 {
     fn demangle<'prev, 'ctx>(
         &'subs self,
@@ -3952,7 +3982,7 @@ where
 
 impl<'subs, W> DemangleAsInner<'subs, W> for FunctionType
 where
-    W: 'subs + fmt::Write,
+    W: 'subs + DemangleWrite,
 {
     fn demangle_as_inner<'prev, 'ctx>(
         &'subs self,
@@ -4013,7 +4043,7 @@ impl Parse for BareFunctionType {
 
 impl<'subs, W> Demangle<'subs, W> for BareFunctionType
 where
-    W: 'subs + fmt::Write,
+    W: 'subs + DemangleWrite,
 {
     fn demangle<'prev, 'ctx>(
         &'subs self,
@@ -4037,7 +4067,7 @@ where
 
 impl<'subs, W> DemangleAsInner<'subs, W> for BareFunctionType
 where
-    W: 'subs + fmt::Write,
+    W: 'subs + DemangleWrite,
 {
     fn demangle_as_inner<'prev, 'ctx>(
         &'subs self,
@@ -4090,7 +4120,7 @@ impl Parse for Decltype {
 
 impl<'subs, W> Demangle<'subs, W> for Decltype
 where
-    W: 'subs + fmt::Write,
+    W: 'subs + DemangleWrite,
 {
     fn demangle<'prev, 'ctx>(
         &'subs self,
@@ -4166,7 +4196,7 @@ impl Parse for ClassEnumType {
 
 impl<'subs, W> Demangle<'subs, W> for ClassEnumType
 where
-    W: 'subs + fmt::Write,
+    W: 'subs + DemangleWrite,
 {
     fn demangle<'prev, 'ctx>(
         &'subs self,
@@ -4231,7 +4261,7 @@ impl UnnamedTypeName {
 
 impl<'subs, W> Demangle<'subs, W> for UnnamedTypeName
 where
-    W: 'subs + fmt::Write,
+    W: 'subs + DemangleWrite,
 {
     fn demangle<'prev, 'ctx>(
         &'subs self,
@@ -4247,7 +4277,7 @@ where
 
 impl<'subs, W> DemangleAsLeaf<'subs, W> for UnnamedTypeName
 where
-    W: 'subs + fmt::Write,
+    W: 'subs + DemangleWrite,
 {
     fn demangle_as_leaf<'me, 'ctx>(
         &'me self,
@@ -4326,7 +4356,7 @@ impl Parse for ArrayType {
 
 impl<'subs, W> Demangle<'subs, W> for ArrayType
 where
-    W: 'subs + fmt::Write,
+    W: 'subs + DemangleWrite,
 {
     fn demangle<'prev, 'ctx>(
         &'subs self,
@@ -4355,7 +4385,7 @@ where
 
 impl<'subs, W> DemangleAsInner<'subs, W> for ArrayType
 where
-    W: 'subs + fmt::Write,
+    W: 'subs + DemangleWrite,
 {
     fn demangle_as_inner<'prev, 'ctx>(
         &'subs self,
@@ -4471,7 +4501,7 @@ impl Parse for VectorType {
 
 impl<'subs, W> Demangle<'subs, W> for VectorType
 where
-    W: 'subs + fmt::Write,
+    W: 'subs + DemangleWrite,
 {
     fn demangle<'prev, 'ctx>(
         &'subs self,
@@ -4498,7 +4528,7 @@ where
 
 impl<'subs, W> DemangleAsInner<'subs, W> for VectorType
 where
-    W: 'subs + fmt::Write,
+    W: 'subs + DemangleWrite,
 {
     fn demangle_as_inner<'prev, 'ctx>(
         &'subs self,
@@ -4547,7 +4577,7 @@ impl Parse for PointerToMemberType {
 
 impl<'subs, W> Demangle<'subs, W> for PointerToMemberType
 where
-    W: 'subs + fmt::Write,
+    W: 'subs + DemangleWrite,
 {
     fn demangle<'prev, 'ctx>(
         &'subs self,
@@ -4567,7 +4597,7 @@ where
 
 impl<'subs, W> DemangleAsInner<'subs, W> for PointerToMemberType
 where
-    W: 'subs + fmt::Write,
+    W: 'subs + DemangleWrite,
 {
     fn demangle_as_inner<'prev, 'ctx>(
         &'subs self,
@@ -4619,7 +4649,7 @@ impl Parse for TemplateParam {
 
 impl<'subs, W> Demangle<'subs, W> for TemplateParam
 where
-    W: 'subs + fmt::Write,
+    W: 'subs + DemangleWrite,
 {
     fn demangle<'prev, 'ctx>(
         &'subs self,
@@ -4711,7 +4741,7 @@ impl Parse for TemplateTemplateParamHandle {
 
 impl<'subs, W> Demangle<'subs, W> for TemplateTemplateParam
 where
-    W: 'subs + fmt::Write,
+    W: 'subs + DemangleWrite,
 {
     #[inline]
     fn demangle<'prev, 'ctx>(
@@ -4777,7 +4807,7 @@ impl Parse for FunctionParam {
 
 impl<'subs, W> Demangle<'subs, W> for FunctionParam
 where
-    W: 'subs + fmt::Write,
+    W: 'subs + DemangleWrite,
 {
     fn demangle<'prev, 'ctx>(
         &'subs self,
@@ -4819,7 +4849,7 @@ impl Parse for TemplateArgs {
 
 impl<'subs, W> Demangle<'subs, W> for TemplateArgs
 where
-    W: 'subs + fmt::Write,
+    W: 'subs + DemangleWrite,
 {
     fn demangle<'prev, 'ctx>(
         &'subs self,
@@ -4833,6 +4863,7 @@ where
             write!(ctx, " ")?;
         }
         write!(ctx, "<")?;
+        ctx.push_demangle_node(DemangleNodeType::TemplateArgs);
         let mut need_comma = false;
         for arg_index in 0..self.0.len() {
             if need_comma {
@@ -4848,7 +4879,7 @@ where
         if ctx.last_char_written == Some('>') {
             write!(ctx, " ")?;
         }
-
+        ctx.pop_demangle_node();
         write!(ctx, ">")?;
         Ok(())
     }
@@ -4931,7 +4962,7 @@ impl Parse for TemplateArg {
 
 impl<'subs, W> Demangle<'subs, W> for TemplateArg
 where
-    W: 'subs + fmt::Write,
+    W: 'subs + DemangleWrite,
 {
     fn demangle<'prev, 'ctx>(
         &'subs self,
@@ -4993,7 +5024,7 @@ impl Parse for MemberName {
 
 impl<'subs, W> Demangle<'subs, W> for MemberName
 where
-    W: 'subs + fmt::Write,
+    W: 'subs + DemangleWrite,
 {
     fn demangle<'prev, 'ctx>(
         &'subs self,
@@ -5484,7 +5515,7 @@ impl Parse for Expression {
 
 impl<'subs, W> Demangle<'subs, W> for Expression
 where
-    W: 'subs + fmt::Write,
+    W: 'subs + DemangleWrite,
 {
     fn demangle<'prev, 'ctx>(
         &'subs self,
@@ -5841,7 +5872,7 @@ impl Expression {
         ctx: &'ctx mut DemangleContext<'subs, W>,
         scope: Option<ArgScopeStack<'prev, 'subs>>,
     ) -> fmt::Result
-        where W: 'subs + fmt::Write
+        where W: 'subs + DemangleWrite
     {
         let needs_parens = match *self {
             Expression::FunctionParam(_) |
@@ -5946,7 +5977,7 @@ impl Parse for UnresolvedName {
 
 impl<'subs, W> Demangle<'subs, W> for UnresolvedName
 where
-    W: 'subs + fmt::Write,
+    W: 'subs + DemangleWrite,
 {
     fn demangle<'prev, 'ctx>(
         &'subs self,
@@ -6056,7 +6087,7 @@ impl Parse for UnresolvedTypeHandle {
 
 impl<'subs, W> Demangle<'subs, W> for UnresolvedType
 where
-    W: 'subs + fmt::Write,
+    W: 'subs + DemangleWrite,
 {
     fn demangle<'prev, 'ctx>(
         &'subs self,
@@ -6104,7 +6135,7 @@ impl Parse for UnresolvedQualifierLevel {
 
 impl<'subs, W> Demangle<'subs, W> for UnresolvedQualifierLevel
 where
-    W: 'subs + fmt::Write,
+    W: 'subs + DemangleWrite,
 {
     #[inline]
     fn demangle<'prev, 'ctx>(
@@ -6146,7 +6177,7 @@ impl Parse for SimpleId {
 
 impl<'subs, W> Demangle<'subs, W> for SimpleId
 where
-    W: 'subs + fmt::Write,
+    W: 'subs + DemangleWrite,
 {
     fn demangle<'prev, 'ctx>(
         &'subs self,
@@ -6214,7 +6245,7 @@ impl Parse for BaseUnresolvedName {
 
 impl<'subs, W> Demangle<'subs, W> for BaseUnresolvedName
 where
-    W: 'subs + fmt::Write,
+    W: 'subs + DemangleWrite,
 {
     fn demangle<'prev, 'ctx>(
         &'subs self,
@@ -6271,7 +6302,7 @@ impl Parse for DestructorName {
 
 impl<'subs, W> Demangle<'subs, W> for DestructorName
 where
-    W: 'subs + fmt::Write,
+    W: 'subs + DemangleWrite,
 {
     fn demangle<'prev, 'ctx>(
         &'subs self,
@@ -6337,7 +6368,7 @@ impl Parse for ExprPrimary {
 
 impl<'subs, W> Demangle<'subs, W> for ExprPrimary
 where
-    W: 'subs + fmt::Write,
+    W: 'subs + DemangleWrite,
 {
     fn demangle<'prev, 'ctx>(
         &'subs self,
@@ -6352,7 +6383,7 @@ where
             end: usize,
         ) -> fmt::Result
         where
-            W: fmt::Write,
+            W: DemangleWrite,
         {
             debug_assert!(start <= end);
             let start = if start < end && ctx.input[start] == b'n' {
@@ -6459,7 +6490,7 @@ impl Parse for Initializer {
 
 impl<'subs, W> Demangle<'subs, W> for Initializer
 where
-    W: 'subs + fmt::Write,
+    W: 'subs + DemangleWrite,
 {
     fn demangle<'prev, 'ctx>(
         &'subs self,
@@ -6550,7 +6581,7 @@ impl Parse for LocalName {
 
 impl<'subs, W> Demangle<'subs, W> for LocalName
 where
-    W: 'subs + fmt::Write,
+    W: 'subs + DemangleWrite,
 {
     fn demangle<'prev, 'ctx>(
         &'subs self,
@@ -6681,7 +6712,7 @@ impl Parse for ClosureTypeName {
 
 impl<'subs, W> Demangle<'subs, W> for ClosureTypeName
 where
-    W: 'subs + fmt::Write,
+    W: 'subs + DemangleWrite,
 {
     fn demangle<'prev, 'ctx>(
         &'subs self,
@@ -6739,7 +6770,7 @@ impl LambdaSig {
         ctx: &'ctx mut DemangleContext<'subs, W>,
         scope: Option<ArgScopeStack<'prev, 'subs>>,
     ) -> fmt::Result
-        where W: 'subs + fmt::Write
+        where W: 'subs + DemangleWrite
     {
         let mut need_comma = false;
         for ty in &self.0 {
@@ -6772,7 +6803,7 @@ impl Parse for LambdaSig {
 
 impl<'subs, W> Demangle<'subs, W> for LambdaSig
 where
-    W: 'subs + fmt::Write,
+    W: 'subs + DemangleWrite,
 {
     fn demangle<'prev, 'ctx>(
         &'subs self,
@@ -6825,7 +6856,7 @@ impl DataMemberPrefix {
 
 impl<'subs, W> Demangle<'subs, W> for DataMemberPrefix
 where
-    W: 'subs + fmt::Write,
+    W: 'subs + DemangleWrite,
 {
     #[inline]
     fn demangle<'prev, 'ctx>(
@@ -6937,7 +6968,7 @@ impl<'a> ArgScope<'a, 'a> for WellKnownComponent {
 
 impl<'subs, W> DemangleAsLeaf<'subs, W> for WellKnownComponent
 where
-    W: 'subs + fmt::Write,
+    W: 'subs + DemangleWrite,
 {
     fn demangle_as_leaf<'me, 'ctx>(
         &'me self,
@@ -7141,7 +7172,7 @@ impl Parse for SpecialName {
 
 impl<'subs, W> Demangle<'subs, W> for SpecialName
 where
-    W: 'subs + fmt::Write,
+    W: 'subs + DemangleWrite,
 {
     fn demangle<'prev, 'ctx>(
         &'subs self,
