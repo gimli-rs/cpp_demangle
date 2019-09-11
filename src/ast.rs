@@ -3086,13 +3086,13 @@ impl Parse for VOffset {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum CtorDtorName {
     /// "C1", the "complete object constructor"
-    CompleteConstructor,
+    CompleteConstructor(Option<TypeHandle>),
     /// "C2", the "base object constructor"
-    BaseConstructor,
+    BaseConstructor(Option<TypeHandle>),
     /// "C3", the "complete object allocating constructor"
-    CompleteAllocatingConstructor,
+    CompleteAllocatingConstructor(Option<TypeHandle>),
     /// "C4", the "maybe in-charge constructor"
-    MaybeInChargeConstructor,
+    MaybeInChargeConstructor(Option<TypeHandle>),
     /// "D0", the "deleting destructor"
     DeletingDestructor,
     /// "D1", the "complete object destructor"
@@ -3103,6 +3103,21 @@ pub enum CtorDtorName {
     MaybeInChargeDestructor,
 }
 
+impl CtorDtorName {
+    fn inheriting_mut(&mut self) -> &mut Option<TypeHandle> {
+        match self {
+            CtorDtorName::CompleteConstructor(ref mut inheriting)
+            | CtorDtorName::BaseConstructor(ref mut inheriting)
+            | CtorDtorName::CompleteAllocatingConstructor(ref mut inheriting)
+            | CtorDtorName::MaybeInChargeConstructor(ref mut inheriting) => inheriting,
+            CtorDtorName::DeletingDestructor
+            | CtorDtorName::CompleteDestructor
+            | CtorDtorName::BaseDestructor
+            | CtorDtorName::MaybeInChargeDestructor => unreachable!(),
+        }
+    }
+}
+
 impl Parse for CtorDtorName {
     fn parse<'a, 'b>(
         ctx: &'a ParseContext,
@@ -3111,56 +3126,64 @@ impl Parse for CtorDtorName {
     ) -> Result<(CtorDtorName, IndexStr<'b>)> {
         try_begin_parse!(stringify!(CtorDtorName), ctx, input);
 
-        if input.peek() == Some(b'C') {
-            let mut inhereting = false;
-            let mut tail = if input.peek_second() == Some(b'I') {
-                inhereting = true;
-                consume(b"CI", input)?
-            } else {
-                consume(b"C", input)?
-            };
+        match input.peek() {
+            Some(b'C') => {
+                let mut tail = consume(b"C", input)?;
+                let inheriting = match tail.peek() {
+                    Some(b'I') => {
+                        tail = consume(b"I", tail)?;
+                        true
+                    }
+                    _ => false,
+                };
 
-            let ctor_type: CtorDtorName = match tail.try_split_at(1) {
-                None => Err(error::Error::UnexpectedEnd),
-                Some((head, _)) => match head.as_ref()[0] {
-                    b'1' => {
-                        tail = consume(b"1", tail)?;
-                        Ok(CtorDtorName::CompleteConstructor)
+                let mut ctor_type: CtorDtorName = match tail
+                    .try_split_at(1)
+                    .as_ref()
+                    .map(|&(ref h, t)| (h.as_ref(), t))
+                {
+                    None => Err(error::Error::UnexpectedEnd),
+                    Some((b"1", t)) => {
+                        tail = t;
+                        Ok(CtorDtorName::CompleteConstructor(None))
                     },
-                    b'2' => {
-                        tail = consume(b"2", tail)?;
-                        Ok(CtorDtorName::BaseConstructor)
+                    Some((b"2", t)) => {
+                        tail = t;
+                        Ok(CtorDtorName::BaseConstructor(None))
                     },
-                    b'3' => {
-                        tail = consume(b"3", tail)?;
-                        Ok(CtorDtorName::CompleteAllocatingConstructor)
+                    Some((b"3", t)) => {
+                        tail = t;
+                        Ok(CtorDtorName::CompleteAllocatingConstructor(None))
                     },
-                    b'4' => {
-                        tail = consume(b"4", tail)?;
-                        Ok(CtorDtorName::MaybeInChargeConstructor)
+                    Some((b"4", t)) => {
+                        tail = t;
+                        Ok(CtorDtorName::MaybeInChargeConstructor(None))
                     },
                     _ => Err(error::Error::UnexpectedText),
+                }?;
+
+                if inheriting {
+                    let (ty, tail) = TypeHandle::parse(ctx, subs, tail)?;
+                    *ctor_type.inheriting_mut() = Some(ty);
+                    Ok((ctor_type, tail))
+                } else {
+                    Ok((ctor_type, tail))
                 }
-            }?;
-
-            if inhereting {
-                let (_ , tail_tail) = TypeHandle::parse(ctx, subs, tail)?;
-                tail = tail_tail
             }
-
-            return Ok((ctor_type, tail));
-        }
-
-        match input
-            .try_split_at(2)
-            .as_ref()
-            .map(|&(ref h, t)| (h.as_ref(), t))
-        {
+            Some(b'D') => {
+                match input
+                    .try_split_at(2)
+                    .as_ref()
+                    .map(|&(ref h, t)| (h.as_ref(), t))
+                {
+                    Some((b"D0", tail)) => Ok((CtorDtorName::DeletingDestructor, tail)),
+                    Some((b"D1", tail)) => Ok((CtorDtorName::CompleteDestructor, tail)),
+                    Some((b"D2", tail)) => Ok((CtorDtorName::BaseDestructor, tail)),
+                    Some((b"D4", tail)) => Ok((CtorDtorName::MaybeInChargeDestructor, tail)),
+                    _ => Err(error::Error::UnexpectedText),
+                }
+            }
             None => Err(error::Error::UnexpectedEnd),
-            Some((b"D0", tail)) => Ok((CtorDtorName::DeletingDestructor, tail)),
-            Some((b"D1", tail)) => Ok((CtorDtorName::CompleteDestructor, tail)),
-            Some((b"D2", tail)) => Ok((CtorDtorName::BaseDestructor, tail)),
-            Some((b"D4", tail)) => Ok((CtorDtorName::MaybeInChargeDestructor, tail)),
             _ => Err(error::Error::UnexpectedText),
         }
     }
@@ -3185,10 +3208,18 @@ where
             })?;
 
         match *self {
-            CtorDtorName::CompleteConstructor
-            | CtorDtorName::BaseConstructor
-            | CtorDtorName::CompleteAllocatingConstructor
-            | CtorDtorName::MaybeInChargeConstructor => leaf.demangle_as_leaf(ctx),
+            CtorDtorName::CompleteConstructor(ref inheriting)
+            | CtorDtorName::BaseConstructor(ref inheriting)
+            | CtorDtorName::CompleteAllocatingConstructor(ref inheriting)
+            | CtorDtorName::MaybeInChargeConstructor(ref inheriting) => {
+                match inheriting {
+                    Some(ty) => ty.get_leaf_name(ctx.subs).ok_or_else(|| {
+                        log!("Error getting leaf name: {:?}", ty);
+                        fmt::Error
+                    })?.demangle_as_leaf(ctx),
+                    None => leaf.demangle_as_leaf(ctx),
+                }
+            },
             CtorDtorName::DeletingDestructor
             | CtorDtorName::CompleteDestructor
             | CtorDtorName::BaseDestructor
@@ -3629,6 +3660,15 @@ impl GetTemplateArgs for Type {
             Type::PointerTo(ref ty) | Type::LvalueRef(ref ty) | Type::RvalueRef(ref ty) => {
                 ty.get_template_args(subs)
             }
+            _ => None,
+        }
+    }
+}
+
+impl<'a> GetLeafName<'a> for Type {
+    fn get_leaf_name(&'a self, subs: &'a SubstitutionTable) -> Option<LeafName<'a>> {
+        match *self {
+            Type::ClassEnum(ref cls_enum_ty) => cls_enum_ty.get_leaf_name(subs),
             _ => None,
         }
     }
@@ -4224,6 +4264,19 @@ where
             ClassEnumType::ElaboratedEnum(ref name) => {
                 write!(ctx, "enum ")?;
                 name.demangle(ctx, scope)
+            }
+        }
+    }
+}
+
+impl<'a> GetLeafName<'a> for ClassEnumType {
+    fn get_leaf_name(&'a self, subs: &'a SubstitutionTable) -> Option<LeafName<'a>> {
+        match *self {
+            ClassEnumType::Named(ref name)
+            | ClassEnumType::ElaboratedStruct(ref name)
+            | ClassEnumType::ElaboratedUnion(ref name)
+            | ClassEnumType::ElaboratedEnum(ref name) => {
+                name.get_leaf_name(subs)
             }
         }
     }
@@ -10475,7 +10528,7 @@ mod tests {
                     b".."
                 }
                 b"C1.." => {
-                    UnqualifiedName::CtorDtor(CtorDtorName::CompleteConstructor),
+                    UnqualifiedName::CtorDtor(CtorDtorName::CompleteConstructor(None)),
                     b".."
                 }
                 b"10abcdefghij..." => {
@@ -10762,7 +10815,7 @@ mod tests {
                     b""
                 }
                 b"C101" => {
-                    CtorDtorName::CompleteConstructor,
+                    CtorDtorName::CompleteConstructor(None),
                     b"01"
                 }
             }

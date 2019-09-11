@@ -51,6 +51,7 @@ impl<'a> ast::GetLeafName<'a> for Substitutable {
         match *self {
             Substitutable::UnscopedTemplateName(ref name) => name.get_leaf_name(subs),
             Substitutable::Prefix(ref prefix) => prefix.get_leaf_name(subs),
+            Substitutable::Type(ref ty) => ty.get_leaf_name(subs),
             _ => None,
         }
     }

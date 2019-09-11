@@ -481,3 +481,7 @@ demangles!(
     _Z1gIJidEEDTclL_Z1fEspplfp_Li1EEEDpT_,
     "decltype (f(({parm#1}+(1))...)) g<int, double>(int, double)"
 );
+demangles!(
+    _ZN7mozilla5xpcom16GetServiceHelperCI2NS0_18StaticModuleHelperEENS0_8ModuleIDEP8nsresult,
+    "mozilla::xpcom::GetServiceHelper::StaticModuleHelper(mozilla::xpcom::ModuleID, nsresult*)"
+);
