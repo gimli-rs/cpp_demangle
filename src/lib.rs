@@ -234,6 +234,8 @@ pub enum DemangleNodeType {
     TemplatePrefix,
     /// Entering a <template-args> production
     TemplateArgs,
+    /// Entering a <unqualified-name> production
+    UnqualifiedName,
 }
 
 /// Sink for demangled text that reports syntactic structure.

@@ -2445,7 +2445,8 @@ where
     ) -> fmt::Result {
         let ctx = try_begin_demangle!(self, ctx, scope);
 
-        match *self {
+        ctx.push_demangle_node(DemangleNodeType::UnqualifiedName);
+        let ret = match *self {
             UnqualifiedName::Operator(ref op_name) => {
                 write!(ctx, "operator")?;
                 op_name.demangle(ctx, scope)
@@ -2457,7 +2458,9 @@ where
             UnqualifiedName::UnnamedType(ref unnamed) => unnamed.demangle(ctx, scope),
             UnqualifiedName::ABITag(ref tagged) => tagged.demangle(ctx, scope),
             UnqualifiedName::ClosureType(ref closure) => closure.demangle(ctx, scope),
-        }
+        };
+        ctx.pop_demangle_node();
+        ret
     }
 }
 
