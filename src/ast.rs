@@ -4288,14 +4288,17 @@ where
     ) -> fmt::Result {
         let ctx = try_begin_demangle!(self, ctx, scope);
 
-        match *self {
+        ctx.push_demangle_node(DemangleNodeType::TemplateParam);
+        let ret = match *self {
             Decltype::Expression(ref expr) | Decltype::IdExpression(ref expr) => {
                 write!(ctx, "decltype (")?;
                 expr.demangle(ctx, scope)?;
                 write!(ctx, ")")?;
                 Ok(())
             }
-        }
+        };
+        ctx.pop_demangle_node();
+        ret
     }
 }
 
@@ -4830,13 +4833,16 @@ where
     ) -> fmt::Result {
         let ctx = try_begin_demangle!(self, ctx, scope);
 
-        if ctx.is_lambda_arg {
+        ctx.push_demangle_node(DemangleNodeType::TemplateParam);
+        let ret = if ctx.is_lambda_arg {
             // To match libiberty, template references are converted to `auto`.
             write!(ctx, "auto:{}", self.0 + 1)
         } else {
             let arg = self.resolve(scope)?;
             arg.demangle(ctx, scope)
-        }
+        };
+        ctx.pop_demangle_node();
+        ret
     }
 }
 
@@ -7038,7 +7044,10 @@ where
     ) -> fmt::Result {
         let ctx = try_begin_demangle!(self, ctx, scope);
 
-        self.0.demangle(ctx, scope)
+        ctx.push_demangle_node(DemangleNodeType::DataMemberPrefix);
+        let ret = self.0.demangle(ctx, scope);
+        ctx.pop_demangle_node();
+        ret
     }
 }
 
