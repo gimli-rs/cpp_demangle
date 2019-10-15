@@ -242,6 +242,8 @@ pub enum DemangleNodeType {
     Decltype,
     /// Entering a <data-member-prefix> production
     DataMemberPrefix,
+    /// Entering a <nested-name> production
+    NestedName,
 }
 
 /// Sink for demangled text that reports syntactic structure.

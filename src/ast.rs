@@ -533,6 +533,9 @@ where
     // We are currently demangling a template-prefix.
     is_template_prefix: bool,
 
+    // We are currently demangling a template-prefix in a nested-name.
+    is_template_prefix_in_nested_name: bool,
+
     //  `PackExpansion`'s should only print '...', only when there is no template
     //  argument pack.
     is_template_argument_pack: bool,
@@ -586,6 +589,7 @@ where
             last_char_written: None,
             is_lambda_arg: false,
             is_template_prefix: false,
+            is_template_prefix_in_nested_name: false,
             is_template_argument_pack: false,
             show_params: !options.no_params,
             state: Cell::new(DemangleState {
@@ -1978,16 +1982,18 @@ where
 
         match *self {
             NestedName::Unqualified(_, _, ref p, ref name) => {
+                ctx.push_demangle_node(DemangleNodeType::NestedName);
                 p.demangle(ctx, scope)?;
                 if name.accepts_double_colon() {
                     ctx.write_str("::")?;
                 }
                 name.demangle(ctx, scope)?;
+                ctx.pop_demangle_node();
             }
             NestedName::Template(_, _, ref p) => {
-                ctx.is_template_prefix = true;
+                ctx.is_template_prefix_in_nested_name = true;
                 p.demangle(ctx, scope)?;
-                ctx.is_template_prefix = false;
+                ctx.is_template_prefix_in_nested_name = false;
             }
         }
 
@@ -2280,6 +2286,9 @@ where
         if ctx.is_template_prefix {
             ctx.push_demangle_node(DemangleNodeType::TemplatePrefix);
             ctx.is_template_prefix = false;
+        } else if ctx.is_template_prefix_in_nested_name {
+            ctx.push_demangle_node(DemangleNodeType::NestedName);
+            ctx.is_template_prefix_in_nested_name = false;
         } else {
             ctx.push_demangle_node(DemangleNodeType::Prefix);
         }
