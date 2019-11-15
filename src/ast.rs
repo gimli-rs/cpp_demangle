@@ -567,7 +567,7 @@ where
     ) -> DemangleContext<'a, W> {
         DemangleContext {
             subs: subs,
-            max_recursion: 64,
+            max_recursion: 128,
             inner: vec![],
             input: input,
             source_name: None,
