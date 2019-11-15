@@ -28,6 +28,21 @@ Released YYYY/MM/DD
 
 --------------------------------------------------------------------------------
 
+# 0.2.14
+
+Released 2019/11/15
+
+## Fixed
+
+* Certain symbols can have cyclic back references, or at least very deep stacks
+  of back references. Many of those symbols are valid! But as a practical
+  implementation to avoid stack overflows and infinite loops, we now place a
+  limit on the depth of back references we will follow. This is similar to the
+  parse limit that we already had, but for a different phase of the
+  demangling. [#186](https://github.com/gimli-rs/cpp_demangle/pull/186)
+
+--------------------------------------------------------------------------------
+
 # 0.2.13
 
 Released 2019/07/30
