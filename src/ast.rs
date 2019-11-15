@@ -496,6 +496,9 @@ where
     // This must be set to true before calling `demangle` on `Encoding`
     // unless that call is via the toplevel call to `MangledName::demangle`.
     show_params: bool,
+
+    // Recursion protection
+    backref_stack: Vec<usize>,
 }
 
 impl<'a, W> fmt::Write for DemangleContext<'a, W>
@@ -539,6 +542,7 @@ where
             is_template_prefix: false,
             is_template_argument_pack: false,
             show_params: !options.no_params,
+            backref_stack: Vec::new(),
         }
     }
 
@@ -632,6 +636,22 @@ where
 
     fn push_demangle_node(&mut self, t: DemangleNodeType) {
         self.out.push_demangle_node(t);
+    }
+
+    /// Pushes a backref for cycle detection.
+    ///
+    /// If a cycle is detected the function returns false instead
+    /// of pushing.
+    fn push_backref(&mut self, backref_id: usize) -> bool {
+        if self.backref_stack.contains(&backref_id) {
+            return false;
+        }
+        self.backref_stack.push(backref_id);
+        true
+    }
+
+    fn pop_backref(&mut self) {
+        self.backref_stack.pop();
     }
 
     /// This should not be called on error paths.
@@ -1045,7 +1065,17 @@ macro_rules! define_handle {
                                      -> fmt::Result {
                 match *self {
                     $typename::WellKnown(ref comp) => comp.demangle(ctx, scope),
-                    $typename::BackReference(idx) => ctx.subs[idx].demangle(ctx, scope),
+                    $typename::BackReference(idx) => {
+                        // simple cycle detection if back backreferences make their
+                        // way into the demangle process.
+                        if !ctx.push_backref(idx) {
+                            ctx.write_str("<#BACKREF-CYCLE>")?;
+                            return Ok(());
+                        }
+                        let rv = ctx.subs[idx].demangle(ctx, scope);
+                        ctx.pop_backref();
+                        rv
+                    }
                     $(
                         $typename::$extra_variant(ref extra) => extra.demangle(ctx, scope),
                     )*
