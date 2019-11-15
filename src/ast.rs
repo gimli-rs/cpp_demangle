@@ -74,7 +74,7 @@ impl Drop for AutoLogParse {
 macro_rules! try_begin_parse {
     ( $production:expr , $ctx:expr , $input:expr ) => {
         let _log = AutoLogParse::new($production, $input);
-        let _auto_check_recursion = try!(AutoParseRecursion::new($ctx));
+        let _auto_check_recursion = AutoParseRecursion::new($ctx)?;
     }
 }
 
@@ -142,10 +142,10 @@ impl Drop for AutoLogDemangle {
 
 /// Automatically log start and end demangling in an s-expression format, when
 /// the `logging` feature is enabled.
-macro_rules! begin_demangle {
+macro_rules! try_begin_demangle {
     ( $production:expr , $ctx:expr , $scope:expr ) => {
         let _log = AutoLogDemangle::new($production, $ctx, $scope, false);
-        let _auto_check_recursion = try!(AutoParseDemangle::new($ctx));
+        let _auto_check_recursion = AutoParseDemangle::new($ctx)?;
     }
 }
 
@@ -154,7 +154,7 @@ macro_rules! begin_demangle {
 macro_rules! begin_demangle_as_inner {
     ( $production:expr , $ctx:expr , $scope:expr ) => {
         let _log = AutoLogDemangle::new($production, $ctx, $scope, true);
-        let _auto_check_recursion = try!(AutoParseDemangle::new($ctx));
+        let _auto_check_recursion = AutoParseDemangle::new($ctx)?;
     }
 }
 
@@ -925,7 +925,7 @@ where
         ctx: &'ctx mut DemangleContext<'subs, W>,
         scope: Option<ArgScopeStack<'prev, 'subs>>,
     ) -> fmt::Result {
-        begin_demangle!(self, ctx, scope);
+        try_begin_demangle!(self, ctx, scope);
 
         let mut saw_needs_paren = false;
         let (needs_space, needs_paren) = ctx.inner
@@ -1221,7 +1221,7 @@ macro_rules! define_vocabulary {
                 ctx: &'ctx mut DemangleContext<'subs, W>,
                 scope: Option<ArgScopeStack<'prev, 'subs>>
             ) -> fmt::Result {
-                begin_demangle!(self, ctx, scope);
+                try_begin_demangle!(self, ctx, scope);
 
                 write!(ctx, "{}", match *self {
                     $(
@@ -1332,7 +1332,7 @@ where
         ctx: &'ctx mut DemangleContext<'subs, W>,
         scope: Option<ArgScopeStack<'prev, 'subs>>,
     ) -> fmt::Result {
-        begin_demangle!(self, ctx, scope);
+        try_begin_demangle!(self, ctx, scope);
 
         match *self {
             MangledName::Encoding(ref enc, ref cs) => {
@@ -1397,7 +1397,7 @@ where
         ctx: &'ctx mut DemangleContext<'subs, W>,
         scope: Option<ArgScopeStack<'prev, 'subs>>,
     ) -> fmt::Result {
-        begin_demangle!(self, ctx, scope);
+        try_begin_demangle!(self, ctx, scope);
         inner_barrier!(ctx);
 
         match *self {
@@ -1526,7 +1526,7 @@ where
         ctx: &'ctx mut DemangleContext<'subs, W>,
         scope: Option<ArgScopeStack<'prev, 'subs>>,
     ) -> fmt::Result {
-        begin_demangle!(self, ctx, scope);
+        try_begin_demangle!(self, ctx, scope);
         self.0.demangle(ctx, scope)?;
         write!(ctx, ".{}]", self.1)?;
         Ok(())
@@ -1580,7 +1580,7 @@ where
         ctx: &'ctx mut DemangleContext<'subs, W>,
         scope: Option<ArgScopeStack<'prev, 'subs>>,
     ) -> fmt::Result {
-        begin_demangle!(self, ctx, scope);
+        try_begin_demangle!(self, ctx, scope);
         inner_barrier!(ctx);
 
         let saved_show_params = ctx.show_params;
@@ -1667,7 +1667,7 @@ where
         ctx: &'ctx mut DemangleContext<'subs, W>,
         scope: Option<ArgScopeStack<'prev, 'subs>>,
     ) -> fmt::Result {
-        begin_demangle!(self, ctx, scope);
+        try_begin_demangle!(self, ctx, scope);
 
         match *self {
             Name::Nested(ref nested) => nested.demangle(ctx, scope),
@@ -1756,7 +1756,7 @@ where
         ctx: &'ctx mut DemangleContext<'subs, W>,
         scope: Option<ArgScopeStack<'prev, 'subs>>,
     ) -> fmt::Result {
-        begin_demangle!(self, ctx, scope);
+        try_begin_demangle!(self, ctx, scope);
 
         match *self {
             UnscopedName::Unqualified(ref unqualified) => unqualified.demangle(ctx, scope),
@@ -1843,7 +1843,7 @@ where
         ctx: &'ctx mut DemangleContext<'subs, W>,
         scope: Option<ArgScopeStack<'prev, 'subs>>,
     ) -> fmt::Result {
-        begin_demangle!(self, ctx, scope);
+        try_begin_demangle!(self, ctx, scope);
 
         self.0.demangle(ctx, scope)
     }
@@ -1956,7 +1956,7 @@ where
         ctx: &'ctx mut DemangleContext<'subs, W>,
         scope: Option<ArgScopeStack<'prev, 'subs>>,
     ) -> fmt::Result {
-        begin_demangle!(self, ctx, scope);
+        try_begin_demangle!(self, ctx, scope);
 
         match *self {
             NestedName::Unqualified(_, _, ref p, ref name) => {
@@ -2258,7 +2258,7 @@ where
         ctx: &'ctx mut DemangleContext<'subs, W>,
         scope: Option<ArgScopeStack<'prev, 'subs>>,
     ) -> fmt::Result {
-        begin_demangle!(self, ctx, scope);
+        try_begin_demangle!(self, ctx, scope);
         if ctx.is_template_prefix {
             ctx.push_demangle_node(DemangleNodeType::TemplatePrefix);
             ctx.is_template_prefix = false;
@@ -2425,7 +2425,7 @@ where
         ctx: &'ctx mut DemangleContext<'subs, W>,
         scope: Option<ArgScopeStack<'prev, 'subs>>,
     ) -> fmt::Result {
-        begin_demangle!(self, ctx, scope);
+        try_begin_demangle!(self, ctx, scope);
 
         match *self {
             UnqualifiedName::Operator(ref op_name) => {
@@ -2564,7 +2564,7 @@ where
         ctx: &'ctx mut DemangleContext<'subs, W>,
         scope: Option<ArgScopeStack<'prev, 'subs>>,
     ) -> fmt::Result {
-        begin_demangle!(self, ctx, scope);
+        try_begin_demangle!(self, ctx, scope);
 
         self.0.demangle(ctx, scope)
     }
@@ -2601,7 +2601,7 @@ where
         ctx: &'ctx mut DemangleContext<'subs, W>,
         scope: Option<ArgScopeStack<'prev, 'subs>>,
     ) -> fmt::Result {
-        begin_demangle!(self, ctx, scope);
+        try_begin_demangle!(self, ctx, scope);
 
         write!(ctx, "[abi:")?;
         self.0.demangle(ctx, scope)?;
@@ -2678,7 +2678,7 @@ where
         ctx: &'ctx mut DemangleContext<'subs, W>,
         scope: Option<ArgScopeStack<'prev, 'subs>>,
     ) -> fmt::Result {
-        begin_demangle!(self, ctx, scope);
+        try_begin_demangle!(self, ctx, scope);
 
         let ident = &ctx.input[self.start..self.end];
 
@@ -2763,7 +2763,7 @@ where
         ctx: &'ctx mut DemangleContext<'subs, W>,
         scope: Option<ArgScopeStack<'prev, 'subs>>,
     ) -> fmt::Result {
-        begin_demangle!(self, ctx, scope);
+        try_begin_demangle!(self, ctx, scope);
 
         let ident = &ctx.input[self.start..self.end];
 
@@ -2943,7 +2943,7 @@ where
         ctx: &'ctx mut DemangleContext<'subs, W>,
         scope: Option<ArgScopeStack<'prev, 'subs>>,
     ) -> fmt::Result {
-        begin_demangle!(self, ctx, scope);
+        try_begin_demangle!(self, ctx, scope);
 
         match *self {
             OperatorName::Simple(ref simple) => {
@@ -3096,7 +3096,7 @@ where
         ctx: &'ctx mut DemangleContext<'subs, W>,
         scope: Option<ArgScopeStack<'prev, 'subs>>,
     ) -> fmt::Result {
-        begin_demangle!(self, ctx, scope);
+        try_begin_demangle!(self, ctx, scope);
 
         match *self {
             CallOffset::NonVirtual(NvOffset(offset)) => {
@@ -3290,7 +3290,7 @@ where
         ctx: &'ctx mut DemangleContext<'subs, W>,
         scope: Option<ArgScopeStack<'prev, 'subs>>,
     ) -> fmt::Result {
-        begin_demangle!(self, ctx, scope);
+        try_begin_demangle!(self, ctx, scope);
 
         let leaf = scope
             .leaf_name()
@@ -3619,7 +3619,7 @@ where
         ctx: &'ctx mut DemangleContext<'subs, W>,
         scope: Option<ArgScopeStack<'prev, 'subs>>,
     ) -> fmt::Result {
-        begin_demangle!(self, ctx, scope);
+        try_begin_demangle!(self, ctx, scope);
 
         match *self {
             Type::Function(ref func_ty) => func_ty.demangle(ctx, scope),
@@ -3833,7 +3833,7 @@ where
         ctx: &'ctx mut DemangleContext<'subs, W>,
         scope: Option<ArgScopeStack<'prev, 'subs>>,
     ) -> fmt::Result {
-        begin_demangle!(self, ctx, scope);
+        try_begin_demangle!(self, ctx, scope);
 
         if self.const_ {
             ctx.ensure_space()?;
@@ -3985,7 +3985,7 @@ where
         ctx: &'ctx mut DemangleContext<'subs, W>,
         scope: Option<ArgScopeStack<'prev, 'subs>>,
     ) -> fmt::Result {
-        begin_demangle!(self, ctx, scope);
+        try_begin_demangle!(self, ctx, scope);
 
         match *self {
             BuiltinType::Standard(ref ty) => ty.demangle(ctx, scope),
@@ -4016,7 +4016,7 @@ where
         ctx: &'ctx mut DemangleContext<'subs, W>,
         scope: Option<ArgScopeStack<'prev, 'subs>>,
     ) -> fmt::Result {
-        begin_demangle!(self, ctx, scope);
+        try_begin_demangle!(self, ctx, scope);
 
         ctx.push_inner(&self.0);
         self.1.demangle(ctx, scope)?;
@@ -4107,7 +4107,7 @@ where
         ctx: &'ctx mut DemangleContext<'subs, W>,
         scope: Option<ArgScopeStack<'prev, 'subs>>,
     ) -> fmt::Result {
-        begin_demangle!(self, ctx, scope);
+        try_begin_demangle!(self, ctx, scope);
 
         ctx.push_inner(self);
         self.bare.demangle(ctx, scope)?;
@@ -4188,7 +4188,7 @@ where
         ctx: &'ctx mut DemangleContext<'subs, W>,
         scope: Option<ArgScopeStack<'prev, 'subs>>,
     ) -> fmt::Result {
-        begin_demangle!(self, ctx, scope);
+        try_begin_demangle!(self, ctx, scope);
 
         ctx.push_inner(self);
 
@@ -4265,7 +4265,7 @@ where
         ctx: &'ctx mut DemangleContext<'subs, W>,
         scope: Option<ArgScopeStack<'prev, 'subs>>,
     ) -> fmt::Result {
-        begin_demangle!(self, ctx, scope);
+        try_begin_demangle!(self, ctx, scope);
 
         match *self {
             Decltype::Expression(ref expr) | Decltype::IdExpression(ref expr) => {
@@ -4341,7 +4341,7 @@ where
         ctx: &'ctx mut DemangleContext<'subs, W>,
         scope: Option<ArgScopeStack<'prev, 'subs>>,
     ) -> fmt::Result {
-        begin_demangle!(self, ctx, scope);
+        try_begin_demangle!(self, ctx, scope);
 
         match *self {
             ClassEnumType::Named(ref name) => name.demangle(ctx, scope),
@@ -4419,7 +4419,7 @@ where
         ctx: &'ctx mut DemangleContext<'subs, W>,
         scope: Option<ArgScopeStack<'prev, 'subs>>,
     ) -> fmt::Result {
-        begin_demangle!(self, ctx, scope);
+        try_begin_demangle!(self, ctx, scope);
 
         write!(ctx, "{{unnamed type#{}}}", self.0.map_or(1, |n| n + 1))?;
         Ok(())
@@ -4434,7 +4434,7 @@ where
         &'me self,
         ctx: &'ctx mut DemangleContext<'subs, W>,
     ) -> fmt::Result {
-        begin_demangle!(self, ctx, None);
+        try_begin_demangle!(self, ctx, None);
         if let Some(source_name) = ctx.source_name {
             write!(ctx, "{}", source_name)?;
         } else {
@@ -4514,7 +4514,7 @@ where
         ctx: &'ctx mut DemangleContext<'subs, W>,
         scope: Option<ArgScopeStack<'prev, 'subs>>,
     ) -> fmt::Result {
-        begin_demangle!(self, ctx, scope);
+        try_begin_demangle!(self, ctx, scope);
 
         ctx.push_inner(self);
 
@@ -4659,7 +4659,7 @@ where
         ctx: &'ctx mut DemangleContext<'subs, W>,
         scope: Option<ArgScopeStack<'prev, 'subs>>,
     ) -> fmt::Result {
-        begin_demangle!(self, ctx, scope);
+        try_begin_demangle!(self, ctx, scope);
 
         ctx.push_inner(self);
 
@@ -4735,7 +4735,7 @@ where
         ctx: &'ctx mut DemangleContext<'subs, W>,
         scope: Option<ArgScopeStack<'prev, 'subs>>,
     ) -> fmt::Result {
-        begin_demangle!(self, ctx, scope);
+        try_begin_demangle!(self, ctx, scope);
 
         ctx.push_inner(self);
         self.1.demangle(ctx, scope)?;
@@ -4807,7 +4807,7 @@ where
         ctx: &'ctx mut DemangleContext<'subs, W>,
         scope: Option<ArgScopeStack<'prev, 'subs>>,
     ) -> fmt::Result {
-        begin_demangle!(self, ctx, scope);
+        try_begin_demangle!(self, ctx, scope);
 
         if ctx.is_lambda_arg {
             // To match libiberty, template references are converted to `auto`.
@@ -4900,7 +4900,7 @@ where
         ctx: &'ctx mut DemangleContext<'subs, W>,
         scope: Option<ArgScopeStack<'prev, 'subs>>,
     ) -> fmt::Result {
-        begin_demangle!(self, ctx, scope);
+        try_begin_demangle!(self, ctx, scope);
 
         self.0.demangle(ctx, scope)
     }
@@ -4965,7 +4965,7 @@ where
         ctx: &'ctx mut DemangleContext<'subs, W>,
         scope: Option<ArgScopeStack<'prev, 'subs>>,
     ) -> fmt::Result {
-        begin_demangle!(self, ctx, scope);
+        try_begin_demangle!(self, ctx, scope);
 
         match self.2 {
             None => write!(ctx, "this"),
@@ -5007,7 +5007,7 @@ where
         ctx: &'ctx mut DemangleContext<'subs, W>,
         mut scope: Option<ArgScopeStack<'prev, 'subs>>,
     ) -> fmt::Result {
-        begin_demangle!(self, ctx, scope);
+        try_begin_demangle!(self, ctx, scope);
         inner_barrier!(ctx);
 
         if ctx.last_char_written == Some('<') {
@@ -5120,7 +5120,7 @@ where
         ctx: &'ctx mut DemangleContext<'subs, W>,
         scope: Option<ArgScopeStack<'prev, 'subs>>,
     ) -> fmt::Result {
-        begin_demangle!(self, ctx, scope);
+        try_begin_demangle!(self, ctx, scope);
 
         match *self {
             TemplateArg::Type(ref ty) => ty.demangle(ctx, scope),
@@ -5182,7 +5182,7 @@ where
         ctx: &'ctx mut DemangleContext<'subs, W>,
         scope: Option<ArgScopeStack<'prev, 'subs>>,
     ) -> fmt::Result {
-        begin_demangle!(self, ctx, scope);
+        try_begin_demangle!(self, ctx, scope);
 
         let needs_parens = self.0.get_template_args(ctx.subs).is_some();
         if needs_parens {
@@ -5673,7 +5673,7 @@ where
         ctx: &'ctx mut DemangleContext<'subs, W>,
         scope: Option<ArgScopeStack<'prev, 'subs>>,
     ) -> fmt::Result {
-        begin_demangle!(self, ctx, scope);
+        try_begin_demangle!(self, ctx, scope);
 
         match *self {
             Expression::Unary(
@@ -6135,7 +6135,7 @@ where
         ctx: &'ctx mut DemangleContext<'subs, W>,
         scope: Option<ArgScopeStack<'prev, 'subs>>,
     ) -> fmt::Result {
-        begin_demangle!(self, ctx, scope);
+        try_begin_demangle!(self, ctx, scope);
 
         match *self {
             UnresolvedName::Name(ref name) => name.demangle(ctx, scope),
@@ -6245,7 +6245,7 @@ where
         ctx: &'ctx mut DemangleContext<'subs, W>,
         scope: Option<ArgScopeStack<'prev, 'subs>>,
     ) -> fmt::Result {
-        begin_demangle!(self, ctx, scope);
+        try_begin_demangle!(self, ctx, scope);
 
         match *self {
             UnresolvedType::Decltype(ref dt) => dt.demangle(ctx, scope),
@@ -6294,7 +6294,7 @@ where
         ctx: &'ctx mut DemangleContext<'subs, W>,
         scope: Option<ArgScopeStack<'prev, 'subs>>,
     ) -> fmt::Result {
-        begin_demangle!(self, ctx, scope);
+        try_begin_demangle!(self, ctx, scope);
 
         self.0.demangle(ctx, scope)
     }
@@ -6335,7 +6335,7 @@ where
         ctx: &'ctx mut DemangleContext<'subs, W>,
         scope: Option<ArgScopeStack<'prev, 'subs>>,
     ) -> fmt::Result {
-        begin_demangle!(self, ctx, scope);
+        try_begin_demangle!(self, ctx, scope);
 
         self.0.demangle(ctx, scope)?;
         if let Some(ref args) = self.1 {
@@ -6403,7 +6403,7 @@ where
         ctx: &'ctx mut DemangleContext<'subs, W>,
         scope: Option<ArgScopeStack<'prev, 'subs>>,
     ) -> fmt::Result {
-        begin_demangle!(self, ctx, scope);
+        try_begin_demangle!(self, ctx, scope);
 
         match *self {
             BaseUnresolvedName::Name(ref name) => name.demangle(ctx, scope),
@@ -6460,7 +6460,7 @@ where
         ctx: &'ctx mut DemangleContext<'subs, W>,
         scope: Option<ArgScopeStack<'prev, 'subs>>,
     ) -> fmt::Result {
-        begin_demangle!(self, ctx, scope);
+        try_begin_demangle!(self, ctx, scope);
 
         write!(ctx, "~")?;
         match *self {
@@ -6526,7 +6526,7 @@ where
         ctx: &'ctx mut DemangleContext<'subs, W>,
         scope: Option<ArgScopeStack<'prev, 'subs>>,
     ) -> fmt::Result {
-        begin_demangle!(self, ctx, scope);
+        try_begin_demangle!(self, ctx, scope);
 
         fn write_literal<W>(
             ctx: &mut DemangleContext<W>,
@@ -6648,7 +6648,7 @@ where
         ctx: &'ctx mut DemangleContext<'subs, W>,
         scope: Option<ArgScopeStack<'prev, 'subs>>,
     ) -> fmt::Result {
-        begin_demangle!(self, ctx, scope);
+        try_begin_demangle!(self, ctx, scope);
 
         write!(ctx, "(")?;
         let mut need_comma = false;
@@ -6739,7 +6739,7 @@ where
         ctx: &'ctx mut DemangleContext<'subs, W>,
         scope: Option<ArgScopeStack<'prev, 'subs>>,
     ) -> fmt::Result {
-        begin_demangle!(self, ctx, scope);
+        try_begin_demangle!(self, ctx, scope);
 
         let saved_show_params = ctx.show_params;
         ctx.show_params = true;
@@ -6870,7 +6870,7 @@ where
         ctx: &'ctx mut DemangleContext<'subs, W>,
         scope: Option<ArgScopeStack<'prev, 'subs>>,
     ) -> fmt::Result {
-        begin_demangle!(self, ctx, scope);
+        try_begin_demangle!(self, ctx, scope);
 
         write!(ctx, "{{lambda(")?;
         self.0.demangle(ctx, scope)?;
@@ -6961,7 +6961,7 @@ where
         ctx: &'ctx mut DemangleContext<'subs, W>,
         scope: Option<ArgScopeStack<'prev, 'subs>>,
     ) -> fmt::Result {
-        begin_demangle!(self, ctx, scope);
+        try_begin_demangle!(self, ctx, scope);
 
         ctx.is_lambda_arg = true;
         let r = self.demangle_args(ctx, scope);
@@ -7015,7 +7015,7 @@ where
         ctx: &'ctx mut DemangleContext<'subs, W>,
         scope: Option<ArgScopeStack<'prev, 'subs>>,
     ) -> fmt::Result {
-        begin_demangle!(self, ctx, scope);
+        try_begin_demangle!(self, ctx, scope);
 
         self.0.demangle(ctx, scope)
     }
@@ -7330,7 +7330,7 @@ where
         ctx: &'ctx mut DemangleContext<'subs, W>,
         scope: Option<ArgScopeStack<'prev, 'subs>>,
     ) -> fmt::Result {
-        begin_demangle!(self, ctx, scope);
+        try_begin_demangle!(self, ctx, scope);
 
         match *self {
             SpecialName::VirtualTable(ref ty) => {
