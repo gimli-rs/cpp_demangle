@@ -533,6 +533,9 @@ where
     // We are currently demangling a template-prefix.
     is_template_prefix: bool,
 
+    // We are currently demangling a template-prefix in a nested-name.
+    is_template_prefix_in_nested_name: bool,
+
     //  `PackExpansion`'s should only print '...', only when there is no template
     //  argument pack.
     is_template_argument_pack: bool,
@@ -586,6 +589,7 @@ where
             last_char_written: None,
             is_lambda_arg: false,
             is_template_prefix: false,
+            is_template_prefix_in_nested_name: false,
             is_template_argument_pack: false,
             show_params: !options.no_params,
             state: Cell::new(DemangleState {
@@ -1978,16 +1982,18 @@ where
 
         match *self {
             NestedName::Unqualified(_, _, ref p, ref name) => {
+                ctx.push_demangle_node(DemangleNodeType::NestedName);
                 p.demangle(ctx, scope)?;
                 if name.accepts_double_colon() {
                     ctx.write_str("::")?;
                 }
                 name.demangle(ctx, scope)?;
+                ctx.pop_demangle_node();
             }
             NestedName::Template(_, _, ref p) => {
-                ctx.is_template_prefix = true;
+                ctx.is_template_prefix_in_nested_name = true;
                 p.demangle(ctx, scope)?;
-                ctx.is_template_prefix = false;
+                ctx.is_template_prefix_in_nested_name = false;
             }
         }
 
@@ -2280,6 +2286,9 @@ where
         if ctx.is_template_prefix {
             ctx.push_demangle_node(DemangleNodeType::TemplatePrefix);
             ctx.is_template_prefix = false;
+        } else if ctx.is_template_prefix_in_nested_name {
+            ctx.push_demangle_node(DemangleNodeType::NestedName);
+            ctx.is_template_prefix_in_nested_name = false;
         } else {
             ctx.push_demangle_node(DemangleNodeType::Prefix);
         }
@@ -2445,7 +2454,8 @@ where
     ) -> fmt::Result {
         let ctx = try_begin_demangle!(self, ctx, scope);
 
-        match *self {
+        ctx.push_demangle_node(DemangleNodeType::UnqualifiedName);
+        let ret = match *self {
             UnqualifiedName::Operator(ref op_name) => {
                 write!(ctx, "operator")?;
                 op_name.demangle(ctx, scope)
@@ -2457,7 +2467,9 @@ where
             UnqualifiedName::UnnamedType(ref unnamed) => unnamed.demangle(ctx, scope),
             UnqualifiedName::ABITag(ref tagged) => tagged.demangle(ctx, scope),
             UnqualifiedName::ClosureType(ref closure) => closure.demangle(ctx, scope),
-        }
+        };
+        ctx.pop_demangle_node();
+        ret
     }
 }
 
@@ -4285,14 +4297,17 @@ where
     ) -> fmt::Result {
         let ctx = try_begin_demangle!(self, ctx, scope);
 
-        match *self {
+        ctx.push_demangle_node(DemangleNodeType::TemplateParam);
+        let ret = match *self {
             Decltype::Expression(ref expr) | Decltype::IdExpression(ref expr) => {
                 write!(ctx, "decltype (")?;
                 expr.demangle(ctx, scope)?;
                 write!(ctx, ")")?;
                 Ok(())
             }
-        }
+        };
+        ctx.pop_demangle_node();
+        ret
     }
 }
 
@@ -4827,13 +4842,16 @@ where
     ) -> fmt::Result {
         let ctx = try_begin_demangle!(self, ctx, scope);
 
-        if ctx.is_lambda_arg {
+        ctx.push_demangle_node(DemangleNodeType::TemplateParam);
+        let ret = if ctx.is_lambda_arg {
             // To match libiberty, template references are converted to `auto`.
             write!(ctx, "auto:{}", self.0 + 1)
         } else {
             let arg = self.resolve(scope)?;
             arg.demangle(ctx, scope)
-        }
+        };
+        ctx.pop_demangle_node();
+        ret
     }
 }
 
@@ -7035,7 +7053,10 @@ where
     ) -> fmt::Result {
         let ctx = try_begin_demangle!(self, ctx, scope);
 
-        self.0.demangle(ctx, scope)
+        ctx.push_demangle_node(DemangleNodeType::DataMemberPrefix);
+        let ret = self.0.demangle(ctx, scope);
+        ctx.pop_demangle_node();
+        ret
     }
 }
 
