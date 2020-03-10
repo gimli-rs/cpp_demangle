@@ -7,8 +7,6 @@ edition = "2018"
 [lib]
 crate-type = ["cdylib"]
 name = "cpp_demangle_c_api"
-path = "lib.rs"
 
 [dependencies]
 cpp_demangle = { path = ".." }
-libc = "0.2"

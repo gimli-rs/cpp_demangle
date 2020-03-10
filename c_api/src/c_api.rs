@@ -1,14 +1,14 @@
 use cpp_demangle;
-use libc;
 use std::ffi;
+use std::os::raw; 
 
 #[no_mangle]
 pub unsafe extern "C" fn demangle(
-    buffer: *const libc::c_char,
+    buffer: *const raw::c_char,
     options: cpp_demangle::DemangleOptions,
-) -> *mut libc::c_char {
+) -> *mut raw::c_char {
     if buffer.is_null() {
-        return buffer as *mut libc::c_char
+        return buffer as *mut raw::c_char
     }
 
     let buffer = ffi::CStr::from_ptr(buffer);
@@ -21,7 +21,7 @@ pub unsafe extern "C" fn demangle(
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn free_demangled_name(buffer: *mut libc::c_char) {
+pub unsafe extern "C" fn free_demangled_name(buffer: *mut raw::c_char) {
     if buffer.is_null() {
         return;
     }
