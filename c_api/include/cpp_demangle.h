@@ -1,7 +1,8 @@
 #ifdef __cplusplus
-
 extern "C" {
 #endif
+
+#include <stdbool.h>
 
 // Flags currently in `cpp_demangle`, but options that control demangling
 struct DemangleOptions {
