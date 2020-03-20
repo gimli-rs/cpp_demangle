@@ -4,13 +4,13 @@
 
 #include "cpp_demangle.h"
 
-// TODO(MGS): As more options are added to the `cpp_demangle` crate, add them
-// here too
+// As more options are added to the `cpp_demangle` crate, add them here too.
 static const struct option long_options[] = {
     {"help", no_argument, NULL, 'h'},
     {"no-params", no_argument, NULL, 'p'},
     {NULL, no_argument, NULL, 0}};
 
+// Prints the help message of the program.
 static void usage() {
   fprintf(stdout, "\
     Usage: %s [options] [mangled names]\n",
@@ -27,6 +27,7 @@ static void usage() {
   exit(1);
 }
 
+// Where the main demangling takes place.
 void demangle_name(char *mangled_name, bool no_params) {
   struct DemangleOptions d = {no_params};
   unsigned skip = 0;
@@ -34,6 +35,8 @@ void demangle_name(char *mangled_name, bool no_params) {
   if (mangled_name[0] == '.' || mangled_name[0] == '$')
     skip++;
 
+  // Every `demangle` call needs to have a matching `free_demangled_name`, which
+  // is how the memory is free'd when using this api.
   char *result = demangle(mangled_name, d);
   printf("%s\n", result);
   free_demangled_name(result);
@@ -42,6 +45,8 @@ void demangle_name(char *mangled_name, bool no_params) {
 int main(int argc, char **argv) {
   int c = 0;
   bool no_params = false;
+
+  // This is where all the options/flags for this example should be handled.
   while ((c = getopt_long(argc, argv, "_hp", long_options, (int *)0)) != EOF) {
     switch (c) {
       case '?':
