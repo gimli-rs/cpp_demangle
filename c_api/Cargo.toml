@@ -1,0 +1,12 @@
+[package]
+name = "cpp_demangle_c_api"
+version = "0.1.0"
+authors = ["Miguel Saldivar <saldivarcher@gmail.com>"]
+edition = "2018"
+
+[lib]
+crate-type = ["cdylib"]
+name = "cpp_demangle_c_api"
+
+[dependencies]
+cpp_demangle = { path = ".." }
