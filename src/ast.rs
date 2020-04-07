@@ -743,7 +743,7 @@ where
 {
     /// Set aside the current inner stack on the demangle context.
     pub fn new(ctx: &'ctx mut DemangleContext<'a, W>) -> Self {
-        let mut saved_inner = Vec::new();
+        let mut saved_inner = vec![];
         mem::swap(&mut saved_inner, &mut ctx.inner);
         AutoDemangleContextInnerBarrier {
             ctx: ctx,
@@ -1303,7 +1303,7 @@ macro_rules! define_vocabulary {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum MangledName {
     /// The encoding of the mangled symbol name.
-    Encoding(Encoding, Option<CloneSuffix>),
+    Encoding(Encoding, Vec<CloneSuffix>),
 
     /// A top-level type. Technically not allowed by the standard, however in
     /// practice this can happen, and is tested for by libiberty.
@@ -1325,12 +1325,8 @@ impl Parse for MangledName {
 
         if let Ok(tail) = consume(b"_Z", input).or_else(|_| consume(b"__Z", input)) {
             let (encoding, tail) = Encoding::parse(ctx, subs, tail)?;
-            if let Ok((clone_suffix, tail)) = CloneSuffix::parse(ctx, subs, tail) {
-                return Ok((MangledName::Encoding(encoding, Some(clone_suffix)), tail));
-            }
-            else {
-                return Ok((MangledName::Encoding(encoding, None), tail));
-            }
+            let (clone_suffixes, tail) = zero_or_more(ctx, subs, tail)?;
+            return Ok((MangledName::Encoding(encoding, clone_suffixes), tail));
         }
 
         if let Ok(tail) = consume(b"_GLOBAL_", input) {
@@ -1359,8 +1355,10 @@ where
         match *self {
             MangledName::Encoding(ref enc, ref cs) => {
                 enc.demangle(ctx, scope)?;
-                if let Some(clone_suffix) = cs {
-                    clone_suffix.demangle(ctx, scope)?;
+                if !cs.is_empty() && ctx.show_params {
+                    for clone_suffix in cs {
+                        clone_suffix.demangle(ctx, scope)?;
+                    }
                 }
                 Ok(())
             },
@@ -1514,7 +1512,7 @@ where
 /// <clone-suffix> ::= [ . <clone-type-identifier> ] [ . <nonnegative number> ]*
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct CloneSuffix(CloneTypeIdentifier, isize);
+pub struct CloneSuffix(CloneTypeIdentifier, Vec<isize>);
 
 impl Parse for CloneSuffix {
     fn parse<'a, 'b>(
@@ -1525,16 +1523,15 @@ impl Parse for CloneSuffix {
         try_begin_parse!("CloneSuffix", ctx, input);
 
         let tail = consume(b".", input)?;
-        let (identifier, tail) = CloneTypeIdentifier::parse(ctx, subs, tail)?;
-        if tail.is_empty() {
-            return Err(error::Error::UnexpectedText);
+        let (identifier, mut tail) = CloneTypeIdentifier::parse(ctx, subs, tail)?;
+
+        let mut numbers = Vec::with_capacity(1);
+        while let Ok((n, t)) = consume(b".", tail).and_then(|t| parse_number(10, false, t)) {
+            numbers.push(n);
+            tail = t;
         }
 
-        let tail = consume(b".", tail)?;
-
-        let (nonnegative, tail) = parse_number(10, false, tail)?;
-
-        let clone_suffix = CloneSuffix(identifier, nonnegative);
+        let clone_suffix = CloneSuffix(identifier, numbers);
         Ok((clone_suffix, tail))
     }
 }
@@ -1549,8 +1546,12 @@ where
         scope: Option<ArgScopeStack<'prev, 'subs>>,
     ) -> fmt::Result {
         let ctx = try_begin_demangle!(self, ctx, scope);
+        write!(ctx, " [clone")?;
         self.0.demangle(ctx, scope)?;
-        write!(ctx, ".{}]", self.1)?;
+        for nonnegative in &self.1 {
+            write!(ctx, ".{}", nonnegative)?;
+        }
+        write!(ctx, "]")?;
         Ok(())
     }
 }
@@ -2799,7 +2800,7 @@ where
 
         let source_name = String::from_utf8_lossy(ident);
         ctx.set_source_name(self.start, self.end);
-        write!(ctx, " [clone .{}", source_name)?;
+        write!(ctx, " .{}", source_name)?;
         Ok(())
     }
 }
@@ -7791,7 +7792,7 @@ mod tests {
                                         SourceName(Identifier {
                                             start: 3,
                                             end: 6,
-                                        }))))), None),
+                                        }))))), vec![]),
                     b"..."
                 }
                 b"_GLOBAL__I__Z3foo..." => {
@@ -7807,7 +7808,7 @@ mod tests {
                                                         Identifier {
                                                             start: 14,
                                                             end: 17,
-                                                        }))))), None)))),
+                                                        }))))), vec![])))),
                     b"..."
                 }
             }
@@ -7891,7 +7892,7 @@ mod tests {
                                                     Identifier {
                                                         start: 6,
                                                         end: 9,
-                                                    }))))), None))),
+                                                    }))))), vec![]))),
                     b"..."
                 }
                 b".I__Z3foo..." => {
@@ -7906,7 +7907,7 @@ mod tests {
                                                     Identifier {
                                                         start: 6,
                                                         end: 9,
-                                                    }))))), None))),
+                                                    }))))), vec![]))),
                     b"..."
                 }
                 b"$I__Z3foo..." => {
@@ -7921,7 +7922,7 @@ mod tests {
                                                     Identifier {
                                                         start: 6,
                                                         end: 9,
-                                                    }))))), None))),
+                                                    }))))), vec![]))),
                     b"..."
                 }
                 b"_D__Z3foo..." => {
@@ -7936,7 +7937,7 @@ mod tests {
                                                     Identifier {
                                                         start: 6,
                                                         end: 9,
-                                                    }))))), None))),
+                                                    }))))), vec![]))),
                     b"..."
                 }
                 b".D__Z3foo..." => {
@@ -7951,7 +7952,7 @@ mod tests {
                                                     Identifier {
                                                         start: 6,
                                                         end: 9,
-                                                    }))))), None))),
+                                                    }))))), vec![]))),
                     b"..."
                 }
                 b"$D__Z3foo..." => {
@@ -7966,7 +7967,7 @@ mod tests {
                                                     Identifier {
                                                         start: 6,
                                                         end: 9,
-                                                    }))))), None))),
+                                                    }))))), vec![]))),
                     b"..."
                 }
             }
@@ -9597,7 +9598,7 @@ mod tests {
                                                     SourceName(Identifier {
                                                         start: 4,
                                                         end: 7,
-                                                    }))))), None))),
+                                                    }))))), vec![]))),
                         b"...",
                         []
                     }
@@ -9979,7 +9980,7 @@ mod tests {
                                                 SourceName(Identifier {
                                                     start: 4,
                                                     end: 7,
-                                                }))))), None)),
+                                                }))))), vec![])),
                         b"...",
                         []
                     }
