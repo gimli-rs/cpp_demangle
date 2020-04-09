@@ -249,6 +249,8 @@ pub enum DemangleNodeType {
     DataMemberPrefix,
     /// Entering a <nested-name> production
     NestedName,
+    /// Entering a <special-name> production that is a vtable.
+    VirtualTable,
 }
 
 /// Sink for demangled text that reports syntactic structure.

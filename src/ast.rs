@@ -7413,7 +7413,9 @@ where
         match *self {
             SpecialName::VirtualTable(ref ty) => {
                 write!(ctx, "{{vtable(")?;
+                ctx.push_demangle_node(DemangleNodeType::VirtualTable);
                 ty.demangle(ctx, scope)?;
+                ctx.pop_demangle_node();
                 write!(ctx, ")}}")?;
                 Ok(())
             }
