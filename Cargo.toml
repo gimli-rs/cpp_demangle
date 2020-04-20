@@ -35,7 +35,7 @@ cfg-if = "0.1.9"
 
 [dependencies.afl]
 optional = true
-version = "0.6.0"
+version = "0.8.0"
 
 [dev-dependencies]
 clap = "2.33.0"
