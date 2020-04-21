@@ -480,6 +480,17 @@ demangles!(
     "void std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::_M_construct<char*>(char*, char*, std::forward_iterator_tag) [clone .isra.90]"
 );
 demangles!(
+    multiple_clone_suffixes,
+    "_ZN15google_breakpad17ProcCpuInfoReader14GetValueAndLenEPm.isra.20.part.21",
+    "google_breakpad::ProcCpuInfoReader::GetValueAndLen(unsigned long*) [clone .isra.20] [clone .part.21]"
+);
+// Taken from https://gcc.gnu.org/bugzilla/show_bug.cgi?id=40831
+demangles!(
+    multiple_clone_numbers,
+    "_Z3fooi.part.9.165493.constprop.775.31805",
+    "foo(int) [clone .part.9.165493] [clone .constprop.775.31805]"
+);
+demangles!(
     _Z1fDpDv1_c,
     "f(char __vector(1)...)"
 );
