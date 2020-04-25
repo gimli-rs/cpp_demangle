@@ -28,6 +28,22 @@ Released YYYY/MM/DD
 
 --------------------------------------------------------------------------------
 
+# 0.2.15
+
+Released 2020/04/24
+
+## Added
+
+* A C API to cpp_demangle is now available. #191
+
+* Additional AST markers are emitted for semantic consumers. #189
+
+## Fixed
+
+* Multiple clone suffixes are now supported. #194
+
+--------------------------------------------------------------------------------
+
 # 0.2.14
 
 Released 2019/11/15
