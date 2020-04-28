@@ -3067,7 +3067,8 @@ define_vocabulary! {
         DerefMember      (b"pt",  "->",       2),
         Call             (b"cl",  "()",       2),
         Index            (b"ix",  "[]",       2),
-        Question         (b"qu",  "?:",       3)
+        Question         (b"qu",  "?:",       3),
+        Spaceship        (b"ss",  "<=>",      2)
     }
 
     impl SimpleOperatorName {

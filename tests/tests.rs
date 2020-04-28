@@ -502,3 +502,7 @@ demangles!(
     _ZN7mozilla5xpcom16GetServiceHelperCI2NS0_18StaticModuleHelperEENS0_8ModuleIDEP8nsresult,
     "mozilla::xpcom::GetServiceHelper::StaticModuleHelper(mozilla::xpcom::ModuleID, nsresult*)"
 );
+demangles!(
+    _ZNK1QssERKS_,
+    "Q::operator<=>(Q const&) const"
+);
