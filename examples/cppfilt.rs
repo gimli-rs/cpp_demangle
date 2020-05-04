@@ -14,7 +14,6 @@ use std::process;
 
 /// Find the index of the first (potential) occurrence of a mangled C++ symbol
 /// in the given `haystack`.
-#[allow(needless_range_loop)]
 fn find_mangled(haystack: &[u8]) -> Option<usize> {
     if haystack.is_empty() {
         return None;
@@ -34,7 +33,7 @@ fn find_mangled(haystack: &[u8]) -> Option<usize> {
 
 /// Print the given `line` to `out`, with all mangled C++ symbols replaced with
 /// their demangled form.
-fn demangle_line<W>(out: &mut W, line: &[u8], options: &DemangleOptions) -> io::Result<()>
+fn demangle_line<W>(out: &mut W, line: &[u8], options: DemangleOptions) -> io::Result<()>
 where
     W: Write,
 {
@@ -44,7 +43,7 @@ where
         write!(out, "{}", String::from_utf8_lossy(&line[..idx]))?;
 
         if let Ok((sym, tail)) = BorrowedSymbol::with_tail(&line[idx..]) {
-            let demangled = sym.demangle(options).map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
+            let demangled = sym.demangle(&options).map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
             write!(out, "{}", demangled)?;
             line = tail;
         } else {
@@ -58,7 +57,7 @@ where
 
 /// Print all the lines from the given `input` to `out`, with all mangled C++
 /// symbols replaced with their demangled form.
-fn demangle_all<R, W>(input: &mut R, out: &mut W, options: &DemangleOptions) -> io::Result<()>
+fn demangle_all<R, W>(input: &mut R, out: &mut W, options: DemangleOptions) -> io::Result<()>
 where
     R: BufRead,
     W: Write,
@@ -110,9 +109,9 @@ fn main() {
             accumulated.push_str("\n");
             accumulated
         }));
-        demangle_all(&mut input, &mut stdout, &options)
+        demangle_all(&mut input, &mut stdout, options)
     } else {
-        demangle_all(&mut stdin, &mut stdout, &options)
+        demangle_all(&mut stdin, &mut stdout, options)
     };
 
     let code = match demangle_result {

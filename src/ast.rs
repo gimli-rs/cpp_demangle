@@ -7,8 +7,6 @@ use std::cell::Cell;
 #[cfg(feature = "logging")]
 use std::cell::RefCell;
 use std::fmt::{self, Write};
-#[cfg(feature = "logging")]
-use std::error::Error;
 use std::hash::{Hash, Hasher};
 use std::mem;
 use std::ops;
@@ -27,10 +25,10 @@ thread_local! {
 
 impl AutoLogParse {
     #[cfg(feature = "logging")]
-    fn new<'a>(production: &'static str, input: IndexStr<'a>) -> AutoLogParse {
+    fn new(production: &'static str, input: IndexStr<'_>) -> AutoLogParse {
         LOG_DEPTH.with(|depth| {
             if *depth.borrow() == 0 {
-                println!("");
+                println!();
             }
 
             let indent: String = (0..*depth.borrow() * 4).map(|_| ' ').collect();
@@ -93,7 +91,7 @@ impl AutoLogDemangle {
     {
         LOG_DEPTH.with(|depth| {
             if *depth.borrow() == 0 {
-                println!("");
+                println!();
             }
 
             let indent: String = (0..*depth.borrow() * 4).map(|_| ' ').collect();
@@ -575,7 +573,7 @@ where
     pub fn new(
         subs: &'a SubstitutionTable,
         input: &'a [u8],
-        options: &DemangleOptions,
+        options: DemangleOptions,
         out: &'a mut W,
     ) -> DemangleContext<'a, W> {
         DemangleContext {
@@ -656,13 +654,12 @@ where
 
     #[inline]
     fn pop_inner_if(&mut self, inner: &'a dyn DemangleAsInner<'a, W>) -> bool {
-        if {
-            let last = match self.inner.last() {
-                None => return false,
-                Some(last) => *last,
-            };
-            ptr::eq(last, inner)
-        } {
+        let last = match self.inner.last() {
+            None => return false,
+            Some(last) => *last,
+        };
+
+        if ptr::eq(last, inner) {
             self.inner.pop();
             true
         } else {
@@ -890,7 +887,7 @@ macro_rules! reference_newtype {
         struct $newtype_name($oldtype);
 
         impl $newtype_name {
-            #[allow(ptr_arg)]
+            #[allow(clippy::ptr_arg)]
             #[allow(unsafe_code)]
             fn new(types: &$oldtype) -> &$newtype_name {
                 unsafe {
@@ -899,7 +896,7 @@ macro_rules! reference_newtype {
                     // requirements. An immutable reference does not allow
                     // dropping the referent, so no worries about double-free
                     // (additionally, see the assertion inside `Drop` below).
-                    mem::transmute(types)
+                    &*(types as *const $oldtype as *const $newtype_name)
                 }
             }
         }
@@ -997,7 +994,7 @@ where
         ctx.demangle_inner_prefixes(scope)?;
 
         if needs_paren {
-            write!(ctx, "{}", ')')?;
+            write!(ctx, ")")?;
         }
 
         write!(ctx, "(")?;
@@ -1424,7 +1421,7 @@ where
             Encoding::Function(ref name, ref fun_ty) => {
                 // Even if this function takes no args and doesn't have a return
                 // value (see below), it will have the void parameter.
-                debug_assert!(fun_ty.0.len() >= 1);
+                debug_assert!(!fun_ty.0.is_empty());
 
                 let scope = if let Some(leaf) = name.get_leaf_name(ctx.subs) {
                     match leaf {
@@ -1938,7 +1935,7 @@ impl Parse for NestedName {
                 NestedName::Template(cv_qualifiers, ref_qualifier, prefix),
                 tail,
             )),
-            _ => return Err(error::Error::UnexpectedText),
+            _ => Err(error::Error::UnexpectedText),
         }
     }
 }
@@ -2109,10 +2106,10 @@ impl Parse for PrefixHandle {
         try_begin_parse!("PrefixHandle", ctx, input);
 
         #[inline]
-        fn save<'a, 'b>(
-            subs: &'a mut SubstitutionTable,
+        fn save(
+            subs: &mut SubstitutionTable,
             prefix: Prefix,
-            tail_tail: IndexStr<'b>,
+            tail_tail: IndexStr<'_>,
         ) -> PrefixHandle {
             if let Some(b'E') = tail_tail.peek() {
                 // An `E` means that we just finished parsing a `<nested-name>`
@@ -3385,6 +3382,7 @@ impl CtorDtorName {
 ///        ::= <substitution>
 /// ```
 #[derive(Clone, Debug, PartialEq, Eq)]
+#[allow(clippy::large_enum_variant)]
 pub enum Type {
     /// A function type.
     Function(FunctionType),
@@ -5058,7 +5056,9 @@ where
             if need_comma {
                 write!(ctx, ", ")?;
             }
-            scope.as_mut().map(|scope| scope.in_arg = Some((arg_index, self)));
+            if let Some(ref mut scope) = scope {
+                scope.in_arg = Some((arg_index, self));
+            }
             self.0[arg_index].demangle(ctx, scope)?;
             need_comma = true;
         }
@@ -7628,7 +7628,7 @@ mod tests {
                         String::from_utf8_lossy(expected_tail)
                     );
                 }
-                if &subs[..] != &expected_subs[..] {
+                if subs[..] != expected_subs[..] {
                     panic!(
                         "Parsing {:?} as {} produced a substitutions table of\n\n\
                          {:#?}\n\n\

@@ -5,11 +5,11 @@ use std::fs;
 use std::io::{BufRead, BufReader, BufWriter, Write};
 use std::process;
 
-const NUMBER_OF_LIBXUL_SYMBOLS: usize = 274346;
+const NUMBER_OF_LIBXUL_SYMBOLS: usize = 274_346;
 
 // These counts should only go up!
-const NUMBER_OF_LIBXUL_SYMBOLS_THAT_PARSE: usize = 274346;
-const NUMBER_OF_LIBXUL_SYMBOLS_THAT_DEMANGLE: usize = 274346;
+const NUMBER_OF_LIBXUL_SYMBOLS_THAT_PARSE: usize = 274_346;
+const NUMBER_OF_LIBXUL_SYMBOLS_THAT_DEMANGLE: usize = 274_346;
 
 fn get_cppfilt() -> &'static str {
     if cfg!(not(target_os = "macos")) {
@@ -87,7 +87,7 @@ fn libxul_symbols_demangle() {
 
             // Demangle the symbol.
             demangled.clear();
-            if let Ok(_) = write!(&mut demangled, "{}", sym) {
+            if write!(&mut demangled, "{}", sym).is_ok() {
                 num_demangled += 1;
 
                 // Finally, we are going to have `c++filt` demangle the
@@ -96,7 +96,7 @@ fn libxul_symbols_demangle() {
                     .write_all(&line)
                     .expect("should write line contents into c++filt");
                 cppfilt_stdin
-                    .write(b"\n")
+                    .write_all(b"\n")
                     .expect("should write newline into c++filt");
                 cppfilt_stdin.flush().expect("should flush c++filt stdin");
 

@@ -33,7 +33,8 @@
 
 // Clippy stuff.
 #![allow(unknown_lints)]
-#![allow(inline_always)]
+#![allow(clippy::inline_always)]
+#![allow(clippy::redundant_field_names)]
 
 #![cfg_attr(all(not(feature = "std"), feature = "alloc"), no_std)]
 #![cfg_attr(all(not(feature = "std"), feature = "alloc"), feature(alloc))]
@@ -153,7 +154,7 @@ where
             if tail.is_empty() {
                 parsed
             } else {
-                return Err(Error::UnexpectedText.into());
+                return Err(Error::UnexpectedText);
             }
         };
 
@@ -196,13 +197,14 @@ substitutions = {:#?}",
     /// let demangled_again = sym.demangle(&options).unwrap();
     /// assert_eq!(demangled_again, demangled);
     /// ```
+    #[allow(clippy::trivially_copy_pass_by_ref)]
     pub fn demangle(&self, options: &DemangleOptions) -> ::std::result::Result<String, fmt::Error> {
         let mut out = String::new();
         {
             let mut ctx = ast::DemangleContext::new(
                 &self.substitutions,
                 self.raw.as_ref(),
-                options,
+                *options,
                 &mut out,
             );
             self.parsed.demangle(&mut ctx, None)?;
@@ -213,11 +215,12 @@ substitutions = {:#?}",
 
     /// Demangle the symbol to a DemangleWrite, which lets the consumer be informed about
     /// syntactic structure.
+    #[allow(clippy::trivially_copy_pass_by_ref)]
     pub fn structured_demangle<W: DemangleWrite>(&self, out: &mut W, options: &DemangleOptions) -> fmt::Result {
         let mut ctx = ast::DemangleContext::new(
             &self.substitutions,
             self.raw.as_ref(),
-            options,
+            *options,
             out,
         );
         self.parsed.demangle(&mut ctx, None)
@@ -307,7 +310,7 @@ impl<'a, T> Symbol<&'a T>
 AST = {:#?}
 
 substitutions = {:#?}",
-            String::from_utf8_lossy(symbol.raw.as_ref()),
+            String::from_utf8_lossy(symbol.raw),
             symbol.parsed,
             symbol.substitutions
         );
@@ -327,7 +330,7 @@ where
             let mut ctx = ast::DemangleContext::new(
                 &self.substitutions,
                 self.raw.as_ref(),
-                &options,
+                options,
                 &mut out,
             );
             self.parsed.demangle(&mut ctx, None).map_err(|err| {
