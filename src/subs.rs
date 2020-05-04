@@ -11,6 +11,7 @@ use vec::Vec;
 /// table.
 #[doc(hidden)]
 #[derive(Clone, Debug, PartialEq, Eq)]
+#[allow(clippy::large_enum_variant)]
 pub enum Substitutable {
     /// An `<unscoped-template-name>` production.
     UnscopedTemplateName(ast::UnscopedTemplateName),

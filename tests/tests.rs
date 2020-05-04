@@ -20,7 +20,7 @@ fn assert_demangles_as(mangled: &str, expected: &str, options: Option<DemangleOp
     };
 
     if expected != actual {
-        println!("");
+        println!();
         println!("Diff:");
         println!("--- expected");
         print!("+++ actual");
@@ -43,7 +43,7 @@ fn assert_demangles_as(mangled: &str, expected: &str, options: Option<DemangleOp
             }
             last = Some(cmp);
         }
-        println!("");
+        println!();
     }
 
     assert_eq!(expected, actual);

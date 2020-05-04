@@ -73,7 +73,7 @@ use std::io::Read;
         let entry = entry?;
 
         let path = entry.path();
-        let file_name = path.file_name().ok_or(io::Error::new(
+        let file_name = path.file_name().ok_or_else(|| io::Error::new(
             io::ErrorKind::Other,
             "no file name for AFL.rs seed test case",
         ))?;
