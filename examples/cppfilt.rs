@@ -21,9 +21,12 @@ fn find_mangled(haystack: &[u8]) -> Option<usize> {
 
     for i in 0..haystack.len() - 1 {
         if haystack[i] == b'_' {
-            let next = haystack[i + 1];
-            if next == b'Z' || next == b'_' && haystack.get(i + 2) == Some(&b'Z') {
-                return Some(i);
+            match (haystack[i + 1], haystack.get(i + 2), haystack.get(i + 3), haystack.get(i + 4)) {
+                (b'Z', _, _, _)
+                | (b'_', Some(b'Z'), _, _)
+                | (b'_', Some(b'_'), Some(b'Z'), _) => return Some(i),
+                | (b'_', Some(b'_'), Some(b'_'), Some(b'Z')) => return Some(i),
+                _ => (),
             }
         }
     }

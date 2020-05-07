@@ -506,3 +506,8 @@ demangles!(
     _ZNK1QssERKS_,
     "Q::operator<=>(Q const&) const"
 );
+// Taken from https://git.llvm.org/klaus/libcxxabi/commit/5dd173b3792e868a7ebfa699d156f24075eafc01.diff
+demangles!(
+    ___ZN19URLConnectionClient33_clientInterface_cancelConnectionEP16dispatch_queue_sU13block_pointerFvvE_block_invoke14,
+    "invocation function for block in URLConnectionClient::_clientInterface_cancelConnection(dispatch_queue_s*, void () block_pointer)"
+);
