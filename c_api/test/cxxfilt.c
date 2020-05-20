@@ -8,6 +8,7 @@
 static const struct option long_options[] = {
     {"help", no_argument, NULL, 'h'},
     {"no-params", no_argument, NULL, 'p'},
+    {"no-return-type", no_argument, NULL, 'r'},
     {NULL, no_argument, NULL, 0}};
 
 // Prints the help message of the program.
@@ -18,6 +19,9 @@ static void usage() {
 
   fprintf(stdout, "\
     [-p|--no-params]\t Do not display function arguments\n");
+
+  fprintf(stdout, "\
+    [-r|--no-return-type]\t Do not display function return types\n");
 
   fprintf(stdout, "]\n");
 
@@ -45,6 +49,7 @@ void demangle_name(char *mangled_name, bool no_params) {
 int main(int argc, char **argv) {
   int c = 0;
   bool no_params = false;
+  bool no_return_type = false;
 
   // This is where all the options/flags for this example should be handled.
   while ((c = getopt_long(argc, argv, "_hp", long_options, (int *)0)) != EOF) {
@@ -55,6 +60,9 @@ int main(int argc, char **argv) {
         break;
       case 'p':
         no_params = true;
+        break;
+      case 'r':
+        no_return_type = true;
         break;
     }
   }

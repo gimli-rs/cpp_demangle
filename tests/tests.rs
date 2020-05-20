@@ -80,6 +80,32 @@ macro_rules! demangles {
     };
 }
 
+macro_rules! demangles_no_param_and_no_return_type {
+    ( $mangled:ident , $demangled:expr ) => {
+        demangles_no_param_and_no_return_type!($mangled, stringify!($mangled), $demangled);
+    };
+    ( $name:ident , $mangled:expr , $demangled:expr ) => {
+        #[test]
+        fn $name() {
+            let options = DemangleOptions { no_params: true, no_return_type: true };
+            assert_demangles_as($mangled, $demangled, Some(options));
+        }
+    };
+}
+
+macro_rules! demangles_no_return_type {
+    ( $mangled:ident , $demangled:expr ) => {
+        demangles_no_return_type!($mangled, stringify!($mangled), $demangled);
+    };
+    ( $name:ident , $mangled:expr , $demangled:expr ) => {
+        #[test]
+        fn $name() {
+            let options = DemangleOptions { no_params: false, no_return_type: true };
+            assert_demangles_as($mangled, $demangled, Some(options));
+        }
+    };
+}
+
 macro_rules! demangles_no_param {
     ( $mangled:ident , $demangled:expr ) => {
         demangles_no_param!($mangled, stringify!($mangled), $demangled);
@@ -87,7 +113,7 @@ macro_rules! demangles_no_param {
     ( $name:ident , $mangled:expr , $demangled:expr ) => {
         #[test]
         fn $name() {
-            let options = DemangleOptions { no_params: true };
+            let options = DemangleOptions { no_params: true, no_return_type: false };
             assert_demangles_as($mangled, $demangled, Some(options));
         }
     };
@@ -458,18 +484,45 @@ demangles!(
     _ZNSt6vectorIN3xxx6xxxxxx15xxxxxxxxxxxxxxxESaIS2_EE12emplace_backIIS2_EEEvDpOT_,
     "void std::vector<xxx::xxxxxx::xxxxxxxxxxxxxxx, std::allocator<xxx::xxxxxx::xxxxxxxxxxxxxxx> >::emplace_back<xxx::xxxxxx::xxxxxxxxxxxxxxx>(xxx::xxxxxx::xxxxxxxxxxxxxxx&&)"
 );
-demangles_no_param!(
+demangles_no_param_and_no_return_type!(
     _ZN2js9LifoAlloc21newArrayUninitializedI17OffsetAndDefIndexEEPT_m,
     "js::LifoAlloc::newArrayUninitialized<OffsetAndDefIndex>"
 );
-demangles_no_param!(
+demangles_no_param_and_no_return_type!(
     _Z4callIXadL_Z5helloiEEEvi,
     "call<&hello(int)>"
 );
-demangles_no_param!(
+demangles_no_param_and_no_return_type!(
     _ZNK5Hello6methodEv,
     "Hello::method"
 );
+
+demangles_no_return_type!(
+    _ZL15draw_quad_spansIjEviPN4glsl11vec2_scalarEtPDv16_fR7TextureiS6_RK8ClipRect,
+    "draw_quad_spans<unsigned int>(int, glsl::vec2_scalar*, unsigned short, float __vector(16)*, Texture&, int, Texture&, ClipRect const&)"
+);
+
+demangles_no_return_type!(
+    _ZL13draw_elementsItEviiR6BuffermR11VertexArrayR7TextureiS5_,
+    "draw_elements<unsigned short>(int, int, Buffer&, unsigned long, VertexArray&, Texture&, int, Texture&)"
+);
+
+demangles_no_return_type!(
+    _ZL12check_depth8ILi515ELb0EEitPtRDv8_s,
+    "check_depth8<515, false>(unsigned short, unsigned short*, short __vector(8)&)"
+);
+
+demangles_no_return_type!(
+    _ZN7mozilla6detail23RunnableMethodArgumentsIJNS_2wr10WrWindowIdEbEE5applyINS2_12RenderThreadEMS6_FvS3_bEEEDTcl9applyImplfp_fp0_dtdefpT10mArgumentstlNSt3__116integer_sequenceImJLm0ELm1EEEEEEEPT_T0_,
+    "mozilla::detail::RunnableMethodArguments<mozilla::wr::WrWindowId, bool>::apply<mozilla::wr::RenderThread, void (mozilla::wr::RenderThread::*)(mozilla::wr::WrWindowId, bool)>(mozilla::wr::RenderThread*, void (mozilla::wr::RenderThread::*)(mozilla::wr::WrWindowId, bool))"
+);
+
+demangles_no_param!(
+    _ZN7mozilla6detail23RunnableMethodArgumentsIJNS_2wr10WrWindowIdEbEE5applyINS2_12RonderThroudEMS6_FvS3_bEEEDTcl9applyImplfp_fp0_dtdefpT10mArgumentstlNSt3__116integer_sequenceImJLm0ELm1EEEEEEEPT_T0_,
+    "decltype ((applyImpl)({parm#1}, {parm#2}, (*this).mArguments, std::__1::integer_sequence<unsigned long, (unsigned long)0, (unsigned long)1>{})) mozilla::detail::RunnableMethodArguments<mozilla::wr::WrWindowId, bool>::apply<mozilla::wr::RonderThroud, void (mozilla::wr::RonderThroud::*)(mozilla::wr::WrWindowId, bool)>"
+);
+
+
 demangles!(
     _ZZN17TestLargestRegion18TestNonRectangularEvENUt_D2Ev,
     "TestLargestRegion::TestNonRectangular()::{unnamed type#1}::~TestNonRectangular()"

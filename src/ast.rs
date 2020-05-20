@@ -538,10 +538,15 @@ where
     //  argument pack.
     is_template_argument_pack: bool,
 
-    // Whether to show function parameters and (if applicable) return types.
+    // Whether to show function parameters.
     // This must be set to true before calling `demangle` on `Encoding`
     // unless that call is via the toplevel call to `MangledName::demangle`.
     show_params: bool,
+
+    // Whether to show function return types.
+    // This must be set to true before calling `demangle` on `Encoding`
+    // unless that call is via the toplevel call to `MangledName::demangle`.
+    show_return_type: bool,
 
     // recursion protection.
     state: Cell<DemangleState>,
@@ -590,6 +595,7 @@ where
             is_template_prefix_in_nested_name: false,
             is_template_argument_pack: false,
             show_params: !options.no_params,
+            show_return_type: !options.no_return_type,
             state: Cell::new(DemangleState {
                 recursion_level: 0,
             }),
@@ -1483,7 +1489,7 @@ where
                 // http://itanium-cxx-abi.github.io/cxx-abi/abi.html#mangle.function-type
                 let scope = if let Some(template_args) = name.get_template_args(ctx.subs) {
                     let scope = scope.push(template_args);
-                    if ctx.show_params && !name.is_ctor_dtor_conversion(ctx.subs) {
+                    if ctx.show_return_type && !name.is_ctor_dtor_conversion(ctx.subs) {
                         fun_ty.0[0].demangle(ctx, scope)?;
                         write!(ctx, " ")?;
                     }
