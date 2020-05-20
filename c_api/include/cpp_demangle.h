@@ -8,6 +8,8 @@ extern "C" {
 struct DemangleOptions {
   // Do not display function arguments.
   bool no_params;
+  // Do not display the function return type.
+  bool no_return_type;
 };
 
 extern char *demangle(const char *buffer, struct DemangleOptions options);

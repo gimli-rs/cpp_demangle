@@ -104,6 +104,7 @@ fn main() {
 
     let options = DemangleOptions {
         no_params: matches.is_present("noparams"),
+        no_return_type: matches.is_present("noreturntype"),
     };
 
     let demangle_result = if let Some(names) = matches.values_of("mangled_names") {

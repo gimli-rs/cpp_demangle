@@ -88,6 +88,8 @@ use std::fmt;
 pub struct DemangleOptions {
     /// Do not display function arguments.
     pub no_params: bool,
+    /// Do not display the function return type.
+    pub no_return_type: bool,
 }
 
 /// A `Symbol` which owns the underlying storage for the mangled name.
