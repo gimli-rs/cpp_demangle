@@ -28,6 +28,19 @@ Released YYYY/MM/DD
 
 --------------------------------------------------------------------------------
 
+# 0.2.17
+
+Released 2020/06/09
+
+## Added
+
+* Return types can now be elided from demangled symbols via
+  DemangleOptions::no_return_typ. #202
+
+* A vtable marker is now emitted for semantic consumers.
+
+--------------------------------------------------------------------------------
+
 # 0.2.16
 
 Released 2020/05/13
