@@ -5457,7 +5457,6 @@ pub enum Expression {
 }
 
 impl Parse for Expression {
-    #[allow(cyclomatic_complexity)]
     fn parse<'a, 'b>(
         ctx: &'a ParseContext,
         subs: &'a mut SubstitutionTable,
