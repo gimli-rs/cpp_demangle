@@ -28,6 +28,18 @@ Released YYYY/MM/DD
 
 --------------------------------------------------------------------------------
 
+# 0.3.0
+
+Released 2020/06/11
+
+## Changed
+
+* The DemangleOptions API has changed to be more future-proof and the
+  DemangleNodeType enum now has an __NonExhaustive variant to discourage
+  pattern matching without a `_ => ()` arm.
+
+--------------------------------------------------------------------------------
+
 # 0.2.17
 
 Released 2020/06/09
