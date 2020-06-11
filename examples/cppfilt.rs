@@ -102,10 +102,13 @@ fn main() {
     let stderr = io::stderr();
     let mut stderr = stderr.lock();
 
-    let options = DemangleOptions {
-        no_params: matches.is_present("noparams"),
-        no_return_type: matches.is_present("noreturntype"),
-    };
+    let mut options = DemangleOptions::new();
+    if matches.is_present("noparams") {
+        options = options.no_params();
+    }
+    if matches.is_present("noreturntype") {
+        options = options.no_return_type();
+    }
 
     let demangle_result = if let Some(names) = matches.values_of("mangled_names") {
         let mut input = Cursor::new(names.fold(String::new(), |mut accumulated, name| {

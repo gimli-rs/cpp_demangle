@@ -87,7 +87,7 @@ macro_rules! demangles_no_param_and_no_return_type {
     ( $name:ident , $mangled:expr , $demangled:expr ) => {
         #[test]
         fn $name() {
-            let options = DemangleOptions { no_params: true, no_return_type: true };
+            let options = DemangleOptions::new().no_params().no_return_type();
             assert_demangles_as($mangled, $demangled, Some(options));
         }
     };
@@ -100,7 +100,7 @@ macro_rules! demangles_no_return_type {
     ( $name:ident , $mangled:expr , $demangled:expr ) => {
         #[test]
         fn $name() {
-            let options = DemangleOptions { no_params: false, no_return_type: true };
+            let options = DemangleOptions::new().no_return_type();
             assert_demangles_as($mangled, $demangled, Some(options));
         }
     };
@@ -113,7 +113,7 @@ macro_rules! demangles_no_param {
     ( $name:ident , $mangled:expr , $demangled:expr ) => {
         #[test]
         fn $name() {
-            let options = DemangleOptions { no_params: true, no_return_type: false };
+            let options = DemangleOptions::new().no_params();
             assert_demangles_as($mangled, $demangled, Some(options));
         }
     };

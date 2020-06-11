@@ -86,10 +86,27 @@ use std::fmt;
 /// Options to control the demangling process.
 #[derive(Clone, Copy, Debug, Default)]
 pub struct DemangleOptions {
+    no_params: bool,
+    no_return_type: bool,
+}
+
+impl DemangleOptions {
+    /// Construct a new `DemangleOptions` with the default values.
+    pub fn new() -> Self {
+        Default::default()
+    }
+
     /// Do not display function arguments.
-    pub no_params: bool,
+    pub fn no_params(mut self) -> Self {
+        self.no_params = true;
+        self
+    }
+
     /// Do not display the function return type.
-    pub no_return_type: bool,
+    pub fn no_return_type(mut self) -> Self {
+        self.no_return_type = true;
+        self
+    }
 }
 
 /// A `Symbol` which owns the underlying storage for the mangled name.
@@ -251,6 +268,9 @@ pub enum DemangleNodeType {
     NestedName,
     /// Entering a <special-name> production that is a vtable.
     VirtualTable,
+    /// Additional values may be added in the future. Use a
+    /// _ pattern for compatibility.
+    __NonExhaustive,
 }
 
 /// Sink for demangled text that reports syntactic structure.
