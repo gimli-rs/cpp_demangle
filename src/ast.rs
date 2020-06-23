@@ -7229,6 +7229,7 @@ where
 ///                ::= TF <type>                      # typinfo function
 ///                ::= TH <name>                      # TLS initialization function
 ///                ::= TW <name>                      # TLS wrapper function
+///                ::= Gr <resource name>             # Java Resource
 /// ```
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum SpecialName {
@@ -7268,6 +7269,9 @@ pub enum SpecialName {
 
     /// A TLS wrapper function.
     TlsWrapper(Name),
+
+    /// A Java Resource.
+    JavaResource(Vec<ResourceName>),
 }
 
 impl Parse for SpecialName {
@@ -7357,6 +7361,26 @@ impl Parse for SpecialName {
                 };
                 Ok((SpecialName::GuardTemporary(name, idx), tail))
             }
+            b"Gr" => {
+                let (resource_name_len, tail) = parse_number(10, false, tail)?;
+                if resource_name_len == 0 {
+                    return Err(error::Error::UnexpectedText);
+                }
+
+                let (head, tail) = match tail.try_split_at(resource_name_len as _) {
+                    Some((head, tail)) => (head, tail),
+                    None => return Err(error::Error::UnexpectedEnd),
+                };
+
+                let head = consume(b"_", head)?;
+
+                let (resource_names, empty) = zero_or_more::<ResourceName>(ctx, subs, head)?;
+                if !empty.is_empty() {
+                    return Err(error::Error::UnexpectedText);
+                }
+
+                Ok((SpecialName::JavaResource(resource_names), tail))
+            }
             _ => Err(error::Error::UnexpectedText),
         }
     }
@@ -7442,10 +7466,100 @@ where
                 write!(ctx, "TLS wrapper function for ")?;
                 name.demangle(ctx, scope)
             }
+            SpecialName::JavaResource(ref names) => {
+                write!(ctx, "java resource ")?;
+                for name in names {
+                    name.demangle(ctx, scope)?;
+                }
+                Ok(())
+            }
         }
     }
 }
 
+/// The `<resource name>` pseudo-terminal.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ResourceName {
+    start: usize,
+    end: usize,
+}
+
+impl Parse for ResourceName {
+    fn parse<'a, 'b>(
+        ctx: &'a ParseContext,
+        _subs: &'a mut SubstitutionTable,
+        input: IndexStr<'b>,
+    ) -> Result<(ResourceName, IndexStr<'b>)> {
+        try_begin_parse!("ResourceName", ctx, input);
+
+        if input.is_empty() {
+            return Err(error::Error::UnexpectedEnd);
+        }
+
+        let mut end = input
+            .as_ref()
+            .iter()
+            .map(|&c| c as char)
+            .take_while(|&c| c != '$' || c.is_digit(36))
+            .count();
+
+        if end == 0 {
+            return Err(error::Error::UnexpectedText);
+        }
+
+        if input.range_from(end..).peek() == Some(b'$') {
+            match input.range_from(end..).peek_second() {
+                Some(b'S') | Some(b'_') | Some(b'$') => end += 2,
+                _ => return Err(error::Error::UnexpectedText)
+            }
+        }
+
+        let tail = input.range_from(end..);
+
+        let resource_name = ResourceName {
+            start: input.index(),
+            end: tail.index(),
+        };
+
+        Ok((resource_name, tail))
+    }
+}
+
+impl<'subs, W> Demangle<'subs, W> for ResourceName
+where
+    W: 'subs + DemangleWrite,
+{
+    #[inline]
+    fn demangle<'prev, 'ctx>(
+        &'subs self,
+        ctx: &'ctx mut DemangleContext<'subs, W>,
+        scope: Option<ArgScopeStack<'prev, 'subs>>,
+    ) -> fmt::Result {
+        let ctx = try_begin_demangle!(self, ctx, scope);
+
+        let mut i = self.start;
+        while i < self.end {
+            let ch = ctx.input[i];
+            if ch == b'$' {
+                // Skip past the '$'
+                i += 1;
+                match ctx.input[i] {
+                    b'S' => write!(ctx, "{}", '/')?,
+                    b'_' => write!(ctx, "{}", '.')?,
+                    b'$' => write!(ctx, "{}", '$')?,
+                    _ => {
+                        // Fall through
+                    },
+                }
+            } else {
+                write!(ctx, "{}", ch as char)?;
+            }
+            i += 1;
+        }
+
+        Ok(())
+    }
+}
 /// Expect and consume the given byte str, and return the advanced `IndexStr` if
 /// we saw the expectation. Otherwise return an error of kind
 /// `error::Error::UnexpectedText` if the input doesn't match, or
@@ -7560,7 +7674,7 @@ mod tests {
                 FunctionParam, FunctionType, GlobalCtorDtor, Identifier, Initializer, LambdaSig,
                 LocalName, MangledName, MemberName, Name, NestedName, NonSubstitution, Number,
                 NvOffset, OperatorName, Parse, ParseContext, PointerToMemberType, Prefix,
-                PrefixHandle, RefQualifier, SeqId, SimpleId, SimpleOperatorName, SourceName,
+                PrefixHandle, RefQualifier, ResourceName, SeqId, SimpleId, SimpleOperatorName, SourceName,
                 SpecialName, StandardBuiltinType, Substitution, TaggedName, TemplateArg,
                 TemplateArgs, TemplateParam, TemplateTemplateParam, TemplateTemplateParamHandle,
                 Type, TypeHandle, UnnamedTypeName, UnqualifiedName, UnresolvedName,
@@ -10360,6 +10474,13 @@ mod tests {
                         1),
                     b"..."
                 }
+                b"Gr4_abc..." => {
+                    SpecialName::JavaResource(vec![ResourceName {
+                        start: 4,
+                        end: 7,
+                    }]),
+                    b"..."
+                }
                 b"TCc7_i..." => {
                     SpecialName::ConstructionVtable(
                         TypeHandle::Builtin(BuiltinType::Standard(StandardBuiltinType::Char)),
@@ -10402,6 +10523,7 @@ mod tests {
                 b"GR3abc0" => Error::UnexpectedEnd,
                 // This number is not allowed to be negative.
                 b"TCcn7_i..." => Error::UnexpectedText,
+                b"Gr3abc0" => Error::UnexpectedText,
             }
         });
     }
