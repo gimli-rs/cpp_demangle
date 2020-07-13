@@ -564,3 +564,8 @@ demangles!(
     ___ZN19URLConnectionClient33_clientInterface_cancelConnectionEP16dispatch_queue_sU13block_pointerFvvE_block_invoke14,
     "invocation function for block in URLConnectionClient::_clientInterface_cancelConnection(dispatch_queue_s*, void () block_pointer)"
 );
+
+demangles!(
+    _ZNK8xxxxxxxx14xxxxxxxxxxxxxxINS_14xxxxxxxxxxxxxxINS1_INS1_INS1_INS1_INS1_INS_10xxxxxxxxxxE32xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxEES3_EE22xxxxxxxxxxxxxxxxxxxxxxEES6_EE13xxxxxxxxxxxxxEE17xxxxxxxxxxxxxxxxxEE14xxxxxxxxxxxxxxE8xxxxxxxxE7xxxxxxxRKN4xxxx5xxxxxEb,
+    "xxxxxxxx::xxxxxxxxxxxxxx<xxxxxxxx::xxxxxxxxxxxxxx<xxxxxxxx::xxxxxxxxxxxxxx<xxxxxxxx::xxxxxxxxxxxxxx<xxxxxxxx::xxxxxxxxxxxxxx<xxxxxxxx::xxxxxxxxxxxxxx<xxxxxxxx::xxxxxxxxxxxxxx<xxxxxxxx::xxxxxxxxxx, xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx>, xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx>, xxxxxxxxxxxxxxxxxxxxxx>, xxxxxxxxxxxxxxxxxxxxxx>, xxxxxxxxxxxxx>, xxxxxxxxxxxxxxxxx>, xxxxxxxxxxxxxx>::xxxxxxxx(xxxxxxx, xxxx::xxxxx const&, bool) const"
+);

@@ -177,7 +177,7 @@ pub struct ParseContext {
 impl Default for ParseContext {
     fn default() -> ParseContext {
         ParseContext {
-            max_recursion: 64,
+            max_recursion: 96,
             state: Cell::new(ParseContextState::default()),
         }
     }
