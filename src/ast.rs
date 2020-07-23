@@ -177,7 +177,7 @@ pub struct ParseContext {
 impl Default for ParseContext {
     fn default() -> ParseContext {
         ParseContext {
-            max_recursion: 96,
+            max_recursion: 160,
             state: Cell::new(ParseContextState::default()),
         }
     }
@@ -583,7 +583,7 @@ where
     ) -> DemangleContext<'a, W> {
         DemangleContext {
             subs: subs,
-            max_recursion: 128,
+            max_recursion: 160,
             inner: vec![],
             input: input,
             source_name: None,
