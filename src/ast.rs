@@ -16,6 +16,16 @@ use string::String;
 use vec::Vec;
 use boxed::Box;
 
+/// The maximum recursion depth used when parsing.
+///
+/// See [`ParseContext`](struct.ParseContext.html).
+const MAX_RECURSION_PARSE: u32 = 192;
+
+/// The maximum recursion depth used when demangling a parsed AST.
+///
+/// See [`DemangleContext`](struct.DemangleContext.html).
+const MAX_RECURSION_DEMANGLE: u32 = 192;
+
 struct AutoLogParse;
 
 #[cfg(feature = "logging")]
@@ -177,7 +187,7 @@ pub struct ParseContext {
 impl Default for ParseContext {
     fn default() -> ParseContext {
         ParseContext {
-            max_recursion: 160,
+            max_recursion: MAX_RECURSION_PARSE,
             state: Cell::new(ParseContextState::default()),
         }
     }
@@ -583,7 +593,7 @@ where
     ) -> DemangleContext<'a, W> {
         DemangleContext {
             subs: subs,
-            max_recursion: 160,
+            max_recursion: MAX_RECURSION_DEMANGLE,
             inner: vec![],
             input: input,
             source_name: None,
