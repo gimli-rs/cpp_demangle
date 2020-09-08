@@ -4965,6 +4965,63 @@ impl<'a> Hash for &'a TemplateParam {
     }
 }
 
+/// The `<template-param-decl>` production.
+///
+/// ```text
+/// <template-param-decl> ::= Ty                          # type parameter
+///                       ::= Tn <type>                   # non-type parameter
+///                       ::= Tt <template-param-decl>* E # template parameter
+///                       ::= Tp <template-param-decl>    # parameter pack
+/// ```
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum TemplateParamDecl {
+    /// Type Parameter (numbered)
+    Type(u8),
+}
+
+impl Parse for TemplateParamDecl {
+    fn parse<'a, 'b>(
+        ctx: &'a ParseContext,
+        _subs: &'a mut SubstitutionTable,
+        input: IndexStr<'b>,
+    ) -> Result<(TemplateParamDecl, IndexStr<'b>)> {
+        try_begin_parse!("TemplateParamDecl", ctx, input);
+
+        let tail = consume(b"T", input)?;
+
+        if let Ok(tail) = consume(b"y", tail) {
+            // TODO: implement a counter
+            return Ok((TemplateParamDecl::Type(0), tail));
+        }
+
+        // TODO: implement other types as well
+        Err(error::Error::UnexpectedText)
+    }
+}
+
+impl<'subs, W> Demangle<'subs, W> for TemplateParamDecl
+where
+    W: 'subs + DemangleWrite,
+{
+    fn demangle<'prev, 'ctx>(
+        &'subs self,
+        ctx: &'ctx mut DemangleContext<'subs, W>,
+        scope: Option<ArgScopeStack<'prev, 'subs>>,
+    ) -> fmt::Result {
+        let ctx = try_begin_demangle!(self, ctx, scope);
+
+        match self {
+            TemplateParamDecl::Type(n) => {
+                write!(ctx, "typename $T")?;
+                if *n > 0 {
+                    write!(ctx, "{}", n - 1)?;
+                }
+            }
+        }
+        Ok(())
+    }
+}
+
 /// The `<template-template-param>` production.
 ///
 /// ```text
@@ -6964,7 +7021,7 @@ impl Parse for Discriminator {
 /// <closure-type-name> ::= Ul <lambda-sig> E [ <nonnegative number> ] _
 /// ```
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct ClosureTypeName(LambdaSig, Option<usize>);
+pub struct ClosureTypeName(Vec<TemplateParamDecl>, LambdaSig, Option<usize>);
 
 impl Parse for ClosureTypeName {
     fn parse<'a, 'b>(
@@ -6974,7 +7031,13 @@ impl Parse for ClosureTypeName {
     ) -> Result<(ClosureTypeName, IndexStr<'b>)> {
         try_begin_parse!("ClosureTypeName", ctx, input);
 
-        let tail = consume(b"Ul", input)?;
+        let mut tail = consume(b"Ul", input)?;
+        let mut params = vec![];
+        while let Ok(_) = consume(b"T", tail) {
+            let (decl, _tail) = TemplateParamDecl::parse(ctx, subs, tail)?;
+            params.push(decl);
+            tail = _tail;
+        }
         let (sig, tail) = LambdaSig::parse(ctx, subs, tail)?;
         let tail = consume(b"E", tail)?;
         let (num, tail) = if let Ok((num, tail)) = parse_number(10, false, tail) {
@@ -6983,7 +7046,7 @@ impl Parse for ClosureTypeName {
             (None, tail)
         };
         let tail = consume(b"_", tail)?;
-        Ok((ClosureTypeName(sig, num), tail))
+        Ok((ClosureTypeName(params, sig, num), tail))
     }
 }
 
@@ -6998,9 +7061,24 @@ where
     ) -> fmt::Result {
         let ctx = try_begin_demangle!(self, ctx, scope);
 
-        write!(ctx, "{{lambda(")?;
-        self.0.demangle(ctx, scope)?;
-        write!(ctx, ")#{}}}", self.1.map_or(1, |n| n + 2))?;
+        // llvm tools format this as:
+        // `'lambda'<typename $T, typename $T0>`
+        write!(ctx, "{{lambda")?;
+        if !self.0.is_empty() {
+            write!(ctx, "<")?;
+            let mut need_comma = false;
+            for arg in &self.0 {
+                if need_comma {
+                    write!(ctx, ", ")?;
+                }
+                arg.demangle(ctx, scope)?;
+                need_comma = true;
+            }
+            write!(ctx, ">")?;
+        }
+        write!(ctx, "(")?;
+        self.1.demangle(ctx, scope)?;
+        write!(ctx, ")#{}}}", self.2.map_or(1, |n| n + 2))?;
         Ok(())
     }
 }
@@ -10391,11 +10469,11 @@ mod tests {
         assert_parse!(ClosureTypeName {
             Ok => {
                 b"UlvE_..." => {
-                    ClosureTypeName(LambdaSig(vec![]), None),
+                    ClosureTypeName(vec![], LambdaSig(vec![]), None),
                     b"..."
                 }
                 b"UlvE36_..." => {
-                    ClosureTypeName(LambdaSig(vec![]), Some(36)),
+                    ClosureTypeName(vec![], LambdaSig(vec![]), Some(36)),
                     b"..."
                 }
             }
@@ -10919,6 +10997,7 @@ mod tests {
                 b"UllE_..." => {
                     UnqualifiedName::ClosureType(
                         ClosureTypeName(
+                            vec![],
                             LambdaSig(vec![
                                 TypeHandle::Builtin(
                                     BuiltinType::Standard(
