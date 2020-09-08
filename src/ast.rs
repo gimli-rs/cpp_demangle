@@ -31,7 +31,7 @@ impl AutoLogParse {
                 println!();
             }
 
-            let indent: String = (0..*depth.borrow() * 4).map(|_| ' ').collect();
+            let indent: String = (0..*depth.borrow() * 1).map(|_| ' ').collect();
             log!(
                 "{}({} \"{}\"",
                 indent,
@@ -55,7 +55,7 @@ impl Drop for AutoLogParse {
     fn drop(&mut self) {
         LOG_DEPTH.with(|depth| {
             *depth.borrow_mut() -= 1;
-            let indent: String = (0..*depth.borrow() * 4).map(|_| ' ').collect();
+            let indent: String = (0..*depth.borrow() * 1).map(|_| ' ').collect();
             log!("{})", indent);
         });
     }
@@ -94,7 +94,7 @@ impl AutoLogDemangle {
                 println!();
             }
 
-            let indent: String = (0..*depth.borrow() * 4).map(|_| ' ').collect();
+            let indent: String = (0..*depth.borrow() * 1).map(|_| ' ').collect();
             log!("{}(", indent);
             log!(
                 "{}  {}{:?}",
@@ -131,7 +131,7 @@ impl Drop for AutoLogDemangle {
     fn drop(&mut self) {
         LOG_DEPTH.with(|depth| {
             *depth.borrow_mut() -= 1;
-            let indent: String = (0..*depth.borrow() * 4).map(|_| ' ').collect();
+            let indent: String = (0..*depth.borrow() * 1).map(|_| ' ').collect();
             log!("{})", indent);
         });
     }
