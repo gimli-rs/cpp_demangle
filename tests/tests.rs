@@ -602,3 +602,9 @@ demangles!(
     "__ZZN3xxx12xxxxxxxxxxxx9xxxxxxxxxILNS0_16xxxxxxxxxxxxxxxxE0EZNKS_6xxxxxx16xxxxxxxxxxxxxxxxEPjbbE4$_76EEvRKT0_PS3_PNS_7xxxxxxxENS0_13xxxxxxxxxxxxxEbbEN18xxxxxxxxxxxxxxxxxx10xxxxxxxxxxEv$57c34bde3fedbd1a4bf6fbbe5453ff24",
     "void xxx::xxxxxxxxxxxx::xxxxxxxxx<(xxx::xxxxxxxxxxxx::xxxxxxxxxxxxxxxx)0, xxx::xxxxxx::xxxxxxxxxxxxxxxx(unsigned int*, bool, bool) const::$_76>(xxx::xxxxxx::xxxxxxxxxxxxxxxx(unsigned int*, bool, bool) const::$_76 const&, xxx::xxxxxx*, xxx::xxxxxxx*, xxx::xxxxxxxxxxxx::xxxxxxxxxxxxx, bool, bool)::xxxxxxxxxxxxxxxxxx::xxxxxxxxxx()"
 );
+
+demangles!(
+    block_invoke_dot_suffix,
+    "___ZN6WebKit23ApplicationStateTrackerC2EP6UIViewP13objc_selectorS4_S4__block_invoke.19",
+    "invocation function for block in WebKit::ApplicationStateTracker::ApplicationStateTracker(UIView*, objc_selector*, objc_selector*, objc_selector*)"
+);
