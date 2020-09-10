@@ -1298,6 +1298,19 @@ macro_rules! define_vocabulary {
     };
 }
 
+fn strip_hash_suffix<'b>(input: IndexStr<'b>) -> IndexStr<'b> {
+    if input.len() < 33 {
+        return input;
+    }
+    if let Ok(tail) = consume(b"$", input) {
+        let (head, tail) = tail.split_at(32);
+        if head.as_ref().iter().all(|c| (*c as char).is_digit(16)) {
+            return tail;
+        }
+    }
+    input
+}
+
 /// The root AST node, and starting production.
 ///
 /// ```text
@@ -1338,6 +1351,7 @@ impl Parse for MangledName {
         if let Ok(tail) = consume(b"_Z", input).or_else(|_| consume(b"__Z", input)) {
             let (encoding, tail) = Encoding::parse(ctx, subs, tail)?;
             let (clone_suffixes, tail) = zero_or_more(ctx, subs, tail)?;
+            let tail = strip_hash_suffix(tail);
             return Ok((MangledName::Encoding(encoding, clone_suffixes), tail));
         }
 
