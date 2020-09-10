@@ -564,3 +564,9 @@ demangles!(
     ___ZN19URLConnectionClient33_clientInterface_cancelConnectionEP16dispatch_queue_sU13block_pointerFvvE_block_invoke14,
     "invocation function for block in URLConnectionClient::_clientInterface_cancelConnection(dispatch_queue_s*, void () block_pointer)"
 );
+
+demangles!(
+    block_invoke_dot_suffix,
+    "___ZN6WebKit23ApplicationStateTrackerC2EP6UIViewP13objc_selectorS4_S4__block_invoke.19",
+    "invocation function for block in WebKit::ApplicationStateTracker::ApplicationStateTracker(UIView*, objc_selector*, objc_selector*, objc_selector*)"
+);
