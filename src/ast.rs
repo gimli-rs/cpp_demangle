@@ -1345,7 +1345,7 @@ impl Parse for MangledName {
             let (encoding, tail) = Encoding::parse(ctx, subs, tail)?;
             let tail = consume(b"_block_invoke", tail)?;
 
-            let tail_opt = match consume(b"_", tail) {
+            let tail_opt = match consume(b"_", tail).or_else(|_| consume(b".", tail)) {
                 Ok(tail) => Some(parse_number(10, false, tail)?),
                 Err(_) => parse_number(10, false, tail).ok(),
             };

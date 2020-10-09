@@ -568,3 +568,8 @@ demangles!(
     _ZNK8SkRecord6Record5visitIRN9SkRecords4DrawEEEDTclfp_cvNS2_4NoOpE_EEEOT_,
     "decltype ({parm#1}(SkRecords::NoOp())) SkRecord::Record::visit<SkRecords::Draw&>(SkRecords::Draw&) const"
 );
+demangles!(
+    block_invoke_dot_suffix,
+    "___ZN6WebKit23ApplicationStateTrackerC2EP6UIViewP13objc_selectorS4_S4__block_invoke.19",
+    "invocation function for block in WebKit::ApplicationStateTracker::ApplicationStateTracker(UIView*, objc_selector*, objc_selector*, objc_selector*)"
+);
