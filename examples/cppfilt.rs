@@ -68,7 +68,14 @@ where
     let mut buf = vec![];
 
     while input.read_until(b'\n', &mut buf)? > 0 {
+        let nl = buf.ends_with(&[b'\n']);
+        if nl {
+            buf.pop();
+        }
         demangle_line(out, &buf[..], options)?;
+        if nl {
+            write!(out, "\n")?;
+        }
         buf.clear();
     }
 

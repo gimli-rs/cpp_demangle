@@ -3760,8 +3760,41 @@ where
         match *self {
             Type::Qualified(ref quals, _) => quals.demangle_as_inner(ctx, scope),
             Type::PointerTo(_) => write!(ctx, "*"),
-            Type::LvalueRef(_) => write!(ctx, "&"),
-            Type::RvalueRef(_) => write!(ctx, "&&"),
+            Type::RvalueRef(_) => {
+                while let Some(v) = ctx.inner.last().and_then(|ty| ty.downcast_to_type()) {
+                    match v {
+                        // Two r-value references combine into a single r-value reference
+                        // Consume any adjacent r-value references on the inner stack.
+                        Type::RvalueRef(_) => {
+                            ctx.inner.pop().unwrap();
+                        },
+                        // An r-value and an l-value reference combine into an l-value reference.
+                        // Skip printing this, and allow the LvalueRef implementation to
+                        // continue combining references.
+                        Type::LvalueRef(_) => return Ok(()),
+                        _ => break,
+                    }
+                }
+                write!(ctx, "&&")
+            }
+            Type::LvalueRef(_) => {
+                while let Some(v) = ctx.inner.last().and_then(|ty| ty.downcast_to_type()) {
+                    match v {
+                        // An l-value reference combines with an r-value reference to form a
+                        // single l-value reference. Consume any adjacent r-value references
+                        // on the inner stack.
+                        Type::RvalueRef(_) => {
+                            ctx.inner.pop().unwrap();
+                        },
+                        // Two l-value references combine to form a single l-value reference.
+                        // Skip printing this, and allow the LvalueRef implementation for
+                        // the next l-value reference to continue combining references.
+                        Type::LvalueRef(_) => return Ok(()),
+                        _ => break,
+                    }
+                }
+                write!(ctx, "&")
+            },
             ref otherwise => {
                 unreachable!(
                     "We shouldn't ever put any other types on the inner stack: {:?}",
