@@ -569,6 +569,14 @@ demangles!(
     "decltype ({parm#1}(SkRecords::NoOp())) SkRecord::Record::visit<SkRecords::Draw&>(SkRecords::Draw&) const"
 );
 demangles!(
+    _ZGTtNKSt11logic_error4whatEv,
+    "transaction clone for std::logic_error::what() const"
+);
+demangles!(
+    _ZGTnNKSt11logic_error4whatEv,
+    "non-transaction clone for std::logic_error::what() const"
+);
+demangles!(
     block_invoke_dot_suffix,
     "___ZN6WebKit23ApplicationStateTrackerC2EP6UIViewP13objc_selectorS4_S4__block_invoke.19",
     "invocation function for block in WebKit::ApplicationStateTracker::ApplicationStateTracker(UIView*, objc_selector*, objc_selector*, objc_selector*)"

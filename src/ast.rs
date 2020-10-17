@@ -7299,6 +7299,8 @@ where
 ///                ::= TH <name>                      # TLS initialization function
 ///                ::= TW <name>                      # TLS wrapper function
 ///                ::= Gr <resource name>             # Java Resource
+///                ::= GTt <encoding>                 # Transaction-Safe function
+///                ::= GTn <encoding>                 # Non-Transaction-Safe function
 /// ```
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum SpecialName {
@@ -7341,6 +7343,12 @@ pub enum SpecialName {
 
     /// A Java Resource.
     JavaResource(Vec<ResourceName>),
+
+    /// A function declared transaction-safe
+    TransactionClone(Box<Encoding>),
+
+    /// A function declared non-transaction-safe
+    NonTransactionClone(Box<Encoding>),
 }
 
 impl Parse for SpecialName {
@@ -7450,6 +7458,26 @@ impl Parse for SpecialName {
 
                 Ok((SpecialName::JavaResource(resource_names), tail))
             }
+            b"GT" => {
+                match tail.peek() {
+                    None => return Err(error::Error::UnexpectedEnd),
+                    Some(b'n') => {
+                        let tail = consume(b"n", tail)?;
+                        let (base, tail) =  Encoding::parse(ctx, subs, tail)?;
+                        Ok((SpecialName::NonTransactionClone(Box::new(base)),
+                            tail,
+                        ))
+                    }
+                    Some(b't') | _ => {
+                        let (_, tail) = tail.split_at(1);
+                        let (base, tail) = Encoding::parse(ctx, subs, tail)?;
+                        Ok((
+                            SpecialName::TransactionClone(Box::new(base)),
+                            tail
+                        ))
+                    }
+                }
+            }
             _ => Err(error::Error::UnexpectedText),
         }
     }
@@ -7536,6 +7564,18 @@ where
             SpecialName::TlsWrapper(ref name) => {
                 write!(ctx, "TLS wrapper function for ")?;
                 name.demangle(ctx, scope)
+            }
+            SpecialName::TransactionClone(
+                ref encoding,
+            ) => {
+                write!(ctx, "transaction clone for ")?;
+                encoding.demangle(ctx, scope)
+            }
+            SpecialName::NonTransactionClone(
+                ref encoding,
+            ) => {
+                write!(ctx, "non-transaction clone for ")?;
+                encoding.demangle(ctx, scope)
             }
             SpecialName::JavaResource(ref names) => {
                 write!(ctx, "java resource ")?;
