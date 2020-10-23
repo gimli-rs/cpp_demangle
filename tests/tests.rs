@@ -572,6 +572,11 @@ demangles!(
     _ZGTtNKSt11logic_error4whatEv,
     "transaction clone for std::logic_error::what() const"
 );
+// Tests the case where the character after 'GT' can be any char but 'n'.
+demangles!(
+    _ZGTmNKSt11logic_error4whatEv,
+    "transaction clone for std::logic_error::what() const"
+);
 demangles!(
     _ZGTnNKSt11logic_error4whatEv,
     "non-transaction clone for std::logic_error::what() const"
