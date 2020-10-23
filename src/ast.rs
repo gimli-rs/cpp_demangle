@@ -7459,17 +7459,16 @@ impl Parse for SpecialName {
                 Ok((SpecialName::JavaResource(resource_names), tail))
             }
             b"GT" => {
-                match tail.peek() {
-                    None => return Err(error::Error::UnexpectedEnd),
-                    Some(b'n') => {
-                        let tail = consume(b"n", tail)?;
+                match tail.next_or(error::Error::UnexpectedEnd)? {
+                    (b'n', tail) => {
                         let (base, tail) =  Encoding::parse(ctx, subs, tail)?;
                         Ok((SpecialName::NonTransactionClone(Box::new(base)),
                             tail,
                         ))
                     }
-                    Some(b't') | _ => {
-                        let (_, tail) = tail.split_at(1);
+                    // Different letters could stand for different types of
+                    // transactional cloning, but for now, treat them all the same
+                    (b't', tail) | (_, tail) => {
                         let (base, tail) = Encoding::parse(ctx, subs, tail)?;
                         Ok((
                             SpecialName::TransactionClone(Box::new(base)),
