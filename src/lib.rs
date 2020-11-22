@@ -30,12 +30,10 @@
 #![deny(missing_docs)]
 #![deny(missing_debug_implementations)]
 #![deny(unsafe_code)]
-
 // Clippy stuff.
 #![allow(unknown_lints)]
 #![allow(clippy::inline_always)]
 #![allow(clippy::redundant_field_names)]
-
 #![cfg_attr(all(not(feature = "std"), feature = "alloc"), no_std)]
 #![cfg_attr(all(not(feature = "std"), feature = "alloc"), feature(alloc))]
 
@@ -98,11 +96,9 @@ impl ParseOptions {
     /// The default value is 96, which will not overflow the stack even in
     /// a debug build.
     pub fn recursion_limit(mut self, limit: u32) -> Self {
-        self.recursion_limit =
-            Some(NonZeroU32::new(limit).expect("Recursion limit must be > 0"));
+        self.recursion_limit = Some(NonZeroU32::new(limit).expect("Recursion limit must be > 0"));
         self
     }
-
 }
 
 /// Options to control the demangling process.
@@ -137,8 +133,7 @@ impl DemangleOptions {
     /// allow pathological symbols to overflow the stack during demangling.
     /// The default value is 128.
     pub fn recursion_limit(mut self, limit: u32) -> Self {
-        self.recursion_limit =
-            Some(NonZeroU32::new(limit).expect("Recursion limit must be > 0"));
+        self.recursion_limit = Some(NonZeroU32::new(limit).expect("Recursion limit must be > 0"));
         self
     }
 }
@@ -308,13 +303,13 @@ substitutions = {:#?}",
     /// Demangle the symbol to a DemangleWrite, which lets the consumer be informed about
     /// syntactic structure.
     #[allow(clippy::trivially_copy_pass_by_ref)]
-    pub fn structured_demangle<W: DemangleWrite>(&self, out: &mut W, options: &DemangleOptions) -> fmt::Result {
-        let mut ctx = ast::DemangleContext::new(
-            &self.substitutions,
-            self.raw.as_ref(),
-            *options,
-            out,
-        );
+    pub fn structured_demangle<W: DemangleWrite>(
+        &self,
+        out: &mut W,
+        options: &DemangleOptions,
+    ) -> fmt::Result {
+        let mut ctx =
+            ast::DemangleContext::new(&self.substitutions, self.raw.as_ref(), *options, out);
         self.parsed.demangle(&mut ctx, None)
     }
 }
@@ -364,7 +359,8 @@ impl<W: fmt::Write> DemangleWrite for W {
 }
 
 impl<'a, T> Symbol<&'a T>
-    where T: AsRef<[u8]> + ?Sized,
+where
+    T: AsRef<[u8]> + ?Sized,
 {
     /// Parse a mangled symbol from input and return it and the trailing tail of
     /// bytes that come after the symbol, with the default options.
@@ -416,7 +412,10 @@ impl<'a, T> Symbol<&'a T>
     /// let demangled = sym.to_string();
     /// assert_eq!(demangled, "space::foo(int, bool, char)");
     /// ```
-    pub fn with_tail_and_options(input: &'a T, options: &ParseOptions) -> Result<(BorrowedSymbol<'a>, &'a [u8])> {
+    pub fn with_tail_and_options(
+        input: &'a T,
+        options: &ParseOptions,
+    ) -> Result<(BorrowedSymbol<'a>, &'a [u8])> {
         let mut substitutions = subs::SubstitutionTable::new();
 
         let ctx = ParseContext::new(*options);

@@ -21,11 +21,16 @@ fn find_mangled(haystack: &[u8]) -> Option<usize> {
 
     for i in 0..haystack.len() - 1 {
         if haystack[i] == b'_' {
-            match (haystack[i + 1], haystack.get(i + 2), haystack.get(i + 3), haystack.get(i + 4)) {
-                (b'Z', _, _, _)
-                | (b'_', Some(b'Z'), _, _)
-                | (b'_', Some(b'_'), Some(b'Z'), _) => return Some(i),
-                | (b'_', Some(b'_'), Some(b'_'), Some(b'Z')) => return Some(i),
+            match (
+                haystack[i + 1],
+                haystack.get(i + 2),
+                haystack.get(i + 3),
+                haystack.get(i + 4),
+            ) {
+                (b'Z', _, _, _) | (b'_', Some(b'Z'), _, _) | (b'_', Some(b'_'), Some(b'Z'), _) => {
+                    return Some(i)
+                }
+                (b'_', Some(b'_'), Some(b'_'), Some(b'Z')) => return Some(i),
                 _ => (),
             }
         }
@@ -46,7 +51,9 @@ where
         write!(out, "{}", String::from_utf8_lossy(&line[..idx]))?;
 
         if let Ok((sym, tail)) = BorrowedSymbol::with_tail(&line[idx..]) {
-            let demangled = sym.demangle(&options).map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
+            let demangled = sym
+                .demangle(&options)
+                .map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
             write!(out, "{}", demangled)?;
             line = tail;
         } else {

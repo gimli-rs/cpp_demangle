@@ -9,15 +9,15 @@ use std::path;
 
 fn get_crate_dir() -> io::Result<path::PathBuf> {
     Ok(path::PathBuf::from(
-        env::var("CARGO_MANIFEST_DIR").map_err(|_| {
-            io::Error::new(io::ErrorKind::Other, "no CARGO_MANIFEST_DIR")
-        })?,
+        env::var("CARGO_MANIFEST_DIR")
+            .map_err(|_| io::Error::new(io::ErrorKind::Other, "no CARGO_MANIFEST_DIR"))?,
     ))
 }
 
 fn get_out_dir() -> io::Result<path::PathBuf> {
-    Ok(path::PathBuf::from(env::var("OUT_DIR")
-        .map_err(|_| io::Error::new(io::ErrorKind::Other, "no OUT_DIR"))?))
+    Ok(path::PathBuf::from(env::var("OUT_DIR").map_err(|_| {
+        io::Error::new(io::ErrorKind::Other, "no OUT_DIR")
+    })?))
 }
 
 fn get_crate_test_path(file_name: &str) -> io::Result<path::PathBuf> {
@@ -66,17 +66,18 @@ use std::io::Read;
     }
     println!("cargo:rerun-if-changed=tests/afl_seeds.rs");
 
-
     let entries = fs::read_dir(in_dir)?;
 
     for entry in entries {
         let entry = entry?;
 
         let path = entry.path();
-        let file_name = path.file_name().ok_or_else(|| io::Error::new(
-            io::ErrorKind::Other,
-            "no file name for AFL.rs seed test case",
-        ))?;
+        let file_name = path.file_name().ok_or_else(|| {
+            io::Error::new(
+                io::ErrorKind::Other,
+                "no file name for AFL.rs seed test case",
+            )
+        })?;
 
         writeln!(
             &mut test_file,
@@ -161,9 +162,9 @@ use std::fmt::Write;
     let libiberty_tests = fs::File::open(libiberty_tests)?;
     let libiberty_tests = io::BufReader::new(libiberty_tests);
 
-    let mut lines = libiberty_tests.lines().filter(|line| {
-        line.as_ref().map(|l| !l.starts_with('#')).unwrap_or(true)
-    });
+    let mut lines = libiberty_tests
+        .lines()
+        .filter(|line| line.as_ref().map(|l| !l.starts_with('#')).unwrap_or(true));
 
     let mut n = 0;
 
@@ -213,7 +214,8 @@ use std::fmt::Write;
         }
 
         // Skip tests for unsupported languages or options.
-        if options.find("--format=gnu-v3").is_none() || options.find("--is-v3-ctor").is_some()
+        if options.find("--format=gnu-v3").is_none()
+            || options.find("--is-v3-ctor").is_some()
             || options.find("--is-v3-dtor").is_some()
             || options.find("--ret-postfix").is_some()
         {

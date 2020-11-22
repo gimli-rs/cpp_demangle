@@ -125,7 +125,7 @@ macro_rules! does_not_parse {
         fn $name() {
             assert_does_not_parse(stringify!($name));
         }
-    }
+    };
 }
 
 macro_rules! does_not_demangle {
@@ -134,7 +134,7 @@ macro_rules! does_not_demangle {
         fn $name() {
             assert_does_not_demangle(stringify!($name));
         }
-    }
+    };
 }
 
 // This should definitely not parse and demangle as
@@ -488,14 +488,8 @@ demangles_no_param_and_no_return_type!(
     _ZN2js9LifoAlloc21newArrayUninitializedI17OffsetAndDefIndexEEPT_m,
     "js::LifoAlloc::newArrayUninitialized<OffsetAndDefIndex>"
 );
-demangles_no_param_and_no_return_type!(
-    _Z4callIXadL_Z5helloiEEEvi,
-    "call<&hello(int)>"
-);
-demangles_no_param_and_no_return_type!(
-    _ZNK5Hello6methodEv,
-    "Hello::method"
-);
+demangles_no_param_and_no_return_type!(_Z4callIXadL_Z5helloiEEEvi, "call<&hello(int)>");
+demangles_no_param_and_no_return_type!(_ZNK5Hello6methodEv, "Hello::method");
 
 demangles_no_return_type!(
     _ZL15draw_quad_spansIjEviPN4glsl11vec2_scalarEtPDv16_fR7TextureiS6_RK8ClipRect,
@@ -522,7 +516,6 @@ demangles_no_param!(
     "decltype ((applyImpl)({parm#1}, {parm#2}, (*this).mArguments, std::__1::integer_sequence<unsigned long, (unsigned long)0, (unsigned long)1>{})) mozilla::detail::RunnableMethodArguments<mozilla::wr::WrWindowId, bool>::apply<mozilla::wr::RonderThroud, void (mozilla::wr::RonderThroud::*)(mozilla::wr::WrWindowId, bool)>"
 );
 
-
 demangles!(
     _ZZN17TestLargestRegion18TestNonRectangularEvENUt_D2Ev,
     "TestLargestRegion::TestNonRectangular()::{unnamed type#1}::~TestNonRectangular()"
@@ -543,10 +536,7 @@ demangles!(
     "_Z3fooi.part.9.165493.constprop.775.31805",
     "foo(int) [clone .part.9.165493] [clone .constprop.775.31805]"
 );
-demangles!(
-    _Z1fDpDv1_c,
-    "f(char __vector(1)...)"
-);
+demangles!(_Z1fDpDv1_c, "f(char __vector(1)...)");
 demangles!(
     _Z1gIJidEEDTclL_Z1fEspplfp_Li1EEEDpT_,
     "decltype (f(({parm#1}+(1))...)) g<int, double>(int, double)"
@@ -555,10 +545,7 @@ demangles!(
     _ZN7mozilla5xpcom16GetServiceHelperCI2NS0_18StaticModuleHelperEENS0_8ModuleIDEP8nsresult,
     "mozilla::xpcom::GetServiceHelper::StaticModuleHelper(mozilla::xpcom::ModuleID, nsresult*)"
 );
-demangles!(
-    _ZNK1QssERKS_,
-    "Q::operator<=>(Q const&) const"
-);
+demangles!(_ZNK1QssERKS_, "Q::operator<=>(Q const&) const");
 // Taken from https://git.llvm.org/klaus/libcxxabi/commit/5dd173b3792e868a7ebfa699d156f24075eafc01.diff
 demangles!(
     ___ZN19URLConnectionClient33_clientInterface_cancelConnectionEP16dispatch_queue_sU13block_pointerFvvE_block_invoke14,
