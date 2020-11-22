@@ -1,6 +1,6 @@
 //! Abstract syntax tree types for mangled symbols.
 
-use super::{DemangleWrite, DemangleNodeType, DemangleOptions};
+use super::{DemangleWrite, DemangleNodeType, DemangleOptions, ParseOptions};
 use error::{self, Result};
 use index_str::IndexStr;
 use std::cell::Cell;
@@ -33,10 +33,11 @@ impl AutoLogParse {
 
             let indent: String = (0..*depth.borrow() * 4).map(|_| ' ').collect();
             log!(
-                "{}({} \"{}\"",
+                "{}({} \"{}\" {}",
                 indent,
                 production,
-                String::from_utf8_lossy(input.as_ref())
+                String::from_utf8_lossy(input.as_ref()),
+                input.len(),
             );
             *depth.borrow_mut() += 1;
         });
@@ -174,16 +175,17 @@ pub struct ParseContext {
     state: Cell<ParseContextState>,
 }
 
-impl Default for ParseContext {
-    fn default() -> ParseContext {
+impl ParseContext {
+    /// Construct a new `ParseContext`.
+    pub fn new(
+        options: ParseOptions,
+    ) -> ParseContext {
         ParseContext {
-            max_recursion: 96,
+            max_recursion: options.recursion_limit.map(|v| v.get()).unwrap_or(96),
             state: Cell::new(ParseContextState::default()),
         }
     }
-}
 
-impl ParseContext {
     /// Get the current recursion level for this context.
     pub fn recursion_level(&self) -> u32 {
         self.state.get().recursion_level
@@ -583,7 +585,7 @@ where
     ) -> DemangleContext<'a, W> {
         DemangleContext {
             subs: subs,
-            max_recursion: 128,
+            max_recursion: options.recursion_limit.map(|v| v.get()).unwrap_or(128),
             inner: vec![],
             input: input,
             source_name: None,
@@ -7814,7 +7816,7 @@ mod tests {
         I1: AsRef<[u8]>,
         I2: AsRef<[u8]>,
     {
-        let ctx = ParseContext::default();
+        let ctx = ParseContext::new(Default::default());
         let input = input.as_ref();
         let expected_tail = expected_tail.as_ref();
 
@@ -7890,7 +7892,7 @@ mod tests {
         I: AsRef<[u8]>,
     {
         let input = input.as_ref();
-        let ctx = ParseContext::default();
+        let ctx = ParseContext::new(Default::default());
         let mut subs = SubstitutionTable::from_iter(subs.as_ref().iter().cloned());
 
         match P::parse(&ctx, &mut subs, IndexStr::from(input)) {

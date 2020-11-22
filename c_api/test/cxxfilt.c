@@ -33,6 +33,7 @@ static void usage() {
 
 // Where the main demangling takes place.
 void demangle_name(char *mangled_name, bool no_params) {
+  struct ParseOptions p = {};
   struct DemangleOptions d = {no_params};
   unsigned skip = 0;
 
@@ -41,7 +42,7 @@ void demangle_name(char *mangled_name, bool no_params) {
 
   // Every `demangle` call needs to have a matching `free_demangled_name`, which
   // is how the memory is free'd when using this api.
-  char *result = demangle(mangled_name, d);
+  char *result = demangle(mangled_name, p, d);
   printf("%s\n", result);
   free_demangled_name(result);
 }
