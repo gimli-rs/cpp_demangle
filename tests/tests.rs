@@ -125,7 +125,7 @@ macro_rules! does_not_parse {
         fn $name() {
             assert_does_not_parse(stringify!($name));
         }
-    }
+    };
 }
 
 macro_rules! does_not_demangle {
@@ -134,7 +134,7 @@ macro_rules! does_not_demangle {
         fn $name() {
             assert_does_not_demangle(stringify!($name));
         }
-    }
+    };
 }
 
 // This should definitely not parse and demangle as
@@ -415,7 +415,7 @@ demangles!(
 
 demangles!(
     _ZNSt3__116forward_as_tupleIJRKZN11tconcurrent6detail6sharedIFvvEEC1IZNS1_7yielder13await_suspendINS1_12task_promiseIvEEEEvNSt12experimental13coroutines_v116coroutine_handleIT_EEEUlvE_EEbNS_10shared_ptrINS1_17cancelation_tokenEEEOSE_PvEUlRSI_DpOT_E_EEENS_5tupleIJSP_EEESP_,
-    "std::__1::tuple<tconcurrent::detail::shared<void ()>::shared<void tconcurrent::yielder::await_suspend<tconcurrent::task_promise<void> >(std::experimental::coroutines_v1::coroutine_handle<tconcurrent::task_promise<void> >)::{lambda()#1}>(std::__1::shared_ptr<tconcurrent::cancelation_token>, void tconcurrent::yielder::await_suspend<tconcurrent::task_promise<void> >(std::experimental::coroutines_v1::coroutine_handle<tconcurrent::task_promise<void> >)::{lambda()#1}&&, void*)::{lambda(tconcurrent::cancelation_token&, auto:1&&)#1} const&&&> std::__1::forward_as_tuple<tconcurrent::detail::shared<void ()>::shared<void tconcurrent::yielder::await_suspend<tconcurrent::task_promise<void> >(std::experimental::coroutines_v1::coroutine_handle<tconcurrent::task_promise<void> >)::{lambda()#1}>(std::__1::shared_ptr<tconcurrent::cancelation_token>, void tconcurrent::yielder::await_suspend<tconcurrent::task_promise<void> >(std::experimental::coroutines_v1::coroutine_handle<tconcurrent::task_promise<void> >)::{lambda()#1}&&, void*)::{lambda(tconcurrent::cancelation_token&, auto:1&&)#1} const&>(tconcurrent::detail::shared<void ()>::shared<void tconcurrent::yielder::await_suspend<tconcurrent::task_promise<void> >(std::experimental::coroutines_v1::coroutine_handle<tconcurrent::task_promise<void> >)::{lambda()#1}>(std::__1::shared_ptr<tconcurrent::cancelation_token>, void tconcurrent::yielder::await_suspend<tconcurrent::task_promise<void> >(std::experimental::coroutines_v1::coroutine_handle<tconcurrent::task_promise<void> >)::{lambda()#1}&&, void*)::{lambda(tconcurrent::cancelation_token&, auto:1&&)#1} const&&&)"
+    "std::__1::tuple<tconcurrent::detail::shared<void ()>::shared<void tconcurrent::yielder::await_suspend<tconcurrent::task_promise<void> >(std::experimental::coroutines_v1::coroutine_handle<tconcurrent::task_promise<void> >)::{lambda()#1}>(std::__1::shared_ptr<tconcurrent::cancelation_token>, void tconcurrent::yielder::await_suspend<tconcurrent::task_promise<void> >(std::experimental::coroutines_v1::coroutine_handle<tconcurrent::task_promise<void> >)::{lambda()#1}&&, void*)::{lambda(tconcurrent::cancelation_token&, auto:1&&)#1} const&> std::__1::forward_as_tuple<tconcurrent::detail::shared<void ()>::shared<void tconcurrent::yielder::await_suspend<tconcurrent::task_promise<void> >(std::experimental::coroutines_v1::coroutine_handle<tconcurrent::task_promise<void> >)::{lambda()#1}>(std::__1::shared_ptr<tconcurrent::cancelation_token>, void tconcurrent::yielder::await_suspend<tconcurrent::task_promise<void> >(std::experimental::coroutines_v1::coroutine_handle<tconcurrent::task_promise<void> >)::{lambda()#1}&&, void*)::{lambda(tconcurrent::cancelation_token&, auto:1&&)#1} const&>(tconcurrent::detail::shared<void ()>::shared<void tconcurrent::yielder::await_suspend<tconcurrent::task_promise<void> >(std::experimental::coroutines_v1::coroutine_handle<tconcurrent::task_promise<void> >)::{lambda()#1}>(std::__1::shared_ptr<tconcurrent::cancelation_token>, void tconcurrent::yielder::await_suspend<tconcurrent::task_promise<void> >(std::experimental::coroutines_v1::coroutine_handle<tconcurrent::task_promise<void> >)::{lambda()#1}&&, void*)::{lambda(tconcurrent::cancelation_token&, auto:1&&)#1} const&)"
 );
 
 demangles!(
@@ -488,14 +488,8 @@ demangles_no_param_and_no_return_type!(
     _ZN2js9LifoAlloc21newArrayUninitializedI17OffsetAndDefIndexEEPT_m,
     "js::LifoAlloc::newArrayUninitialized<OffsetAndDefIndex>"
 );
-demangles_no_param_and_no_return_type!(
-    _Z4callIXadL_Z5helloiEEEvi,
-    "call<&hello(int)>"
-);
-demangles_no_param_and_no_return_type!(
-    _ZNK5Hello6methodEv,
-    "Hello::method"
-);
+demangles_no_param_and_no_return_type!(_Z4callIXadL_Z5helloiEEEvi, "call<&hello(int)>");
+demangles_no_param_and_no_return_type!(_ZNK5Hello6methodEv, "Hello::method");
 
 demangles_no_return_type!(
     _ZL15draw_quad_spansIjEviPN4glsl11vec2_scalarEtPDv16_fR7TextureiS6_RK8ClipRect,
@@ -522,7 +516,6 @@ demangles_no_param!(
     "decltype ((applyImpl)({parm#1}, {parm#2}, (*this).mArguments, std::__1::integer_sequence<unsigned long, (unsigned long)0, (unsigned long)1>{})) mozilla::detail::RunnableMethodArguments<mozilla::wr::WrWindowId, bool>::apply<mozilla::wr::RonderThroud, void (mozilla::wr::RonderThroud::*)(mozilla::wr::WrWindowId, bool)>"
 );
 
-
 demangles!(
     _ZZN17TestLargestRegion18TestNonRectangularEvENUt_D2Ev,
     "TestLargestRegion::TestNonRectangular()::{unnamed type#1}::~TestNonRectangular()"
@@ -543,10 +536,7 @@ demangles!(
     "_Z3fooi.part.9.165493.constprop.775.31805",
     "foo(int) [clone .part.9.165493] [clone .constprop.775.31805]"
 );
-demangles!(
-    _Z1fDpDv1_c,
-    "f(char __vector(1)...)"
-);
+demangles!(_Z1fDpDv1_c, "f(char __vector(1)...)");
 demangles!(
     _Z1gIJidEEDTclL_Z1fEspplfp_Li1EEEDpT_,
     "decltype (f(({parm#1}+(1))...)) g<int, double>(int, double)"
@@ -555,16 +545,29 @@ demangles!(
     _ZN7mozilla5xpcom16GetServiceHelperCI2NS0_18StaticModuleHelperEENS0_8ModuleIDEP8nsresult,
     "mozilla::xpcom::GetServiceHelper::StaticModuleHelper(mozilla::xpcom::ModuleID, nsresult*)"
 );
-demangles!(
-    _ZNK1QssERKS_,
-    "Q::operator<=>(Q const&) const"
-);
+demangles!(_ZNK1QssERKS_, "Q::operator<=>(Q const&) const");
 // Taken from https://git.llvm.org/klaus/libcxxabi/commit/5dd173b3792e868a7ebfa699d156f24075eafc01.diff
 demangles!(
     ___ZN19URLConnectionClient33_clientInterface_cancelConnectionEP16dispatch_queue_sU13block_pointerFvvE_block_invoke14,
     "invocation function for block in URLConnectionClient::_clientInterface_cancelConnection(dispatch_queue_s*, void () block_pointer)"
 );
-
+demangles!(
+    _ZNK8SkRecord6Record5visitIRN9SkRecords4DrawEEEDTclfp_cvNS2_4NoOpE_EEEOT_,
+    "decltype ({parm#1}(SkRecords::NoOp())) SkRecord::Record::visit<SkRecords::Draw&>(SkRecords::Draw&) const"
+);
+demangles!(
+    _ZGTtNKSt11logic_error4whatEv,
+    "transaction clone for std::logic_error::what() const"
+);
+// Tests the case where the character after 'GT' can be any char but 'n'.
+demangles!(
+    _ZGTmNKSt11logic_error4whatEv,
+    "transaction clone for std::logic_error::what() const"
+);
+demangles!(
+    _ZGTnNKSt11logic_error4whatEv,
+    "non-transaction clone for std::logic_error::what() const"
+);
 demangles!(
     _ZNSt6__ndk110__function6__funcIZN10xxxxxxxxxx20xxxxxxxxxxxxxxxxxxxx11xxxxxxxxxxxIN8xxxxxxxx14xxxxxxxxxxxxxxINS6_INS6_INS5_10xxxxxxxxxxEN14xxxxxxxxxxxxxx23xxxxxxxxxxxxxxxxxxxxxxxEEENS8_21xxxxxxxxxxxxxxxxxxxxxI18xxxxxxxxxxxxxxxxxxEEEE15xxxxxxxxxxxxxxxEESF_EEvRNS5_20xxxxxxxxxxxxxxxxxxxxIT_T0_EENS_8functionIFRS3_PSJ_EEEEUlTyRSI_iE_NS_9allocatorISS_EEFvRNS6_INS6_ISG_SF_EEiEERKiEED0Ev,
     "std::__ndk1::__function::__func<void xxxxxxxxxx::xxxxxxxxxxxxxxxxxxxx::xxxxxxxxxxx<xxxxxxxx::xxxxxxxxxxxxxx<xxxxxxxx::xxxxxxxxxxxxxx<xxxxxxxx::xxxxxxxxxxxxxx<xxxxxxxx::xxxxxxxxxx, xxxxxxxxxxxxxx::xxxxxxxxxxxxxxxxxxxxxxx>, xxxxxxxxxxxxxx::xxxxxxxxxxxxxxxxxxxxx<xxxxxxxxxxxxxxxxxx> >, xxxxxxxxxxxxxxx>, xxxxxxxxxxxxxxx>(xxxxxxxx::xxxxxxxxxxxxxxxxxxxx<xxxxxxxx::xxxxxxxxxxxxxx<xxxxxxxx::xxxxxxxxxxxxxx<xxxxxxxx::xxxxxxxxxxxxxx<xxxxxxxx::xxxxxxxxxx, xxxxxxxxxxxxxx::xxxxxxxxxxxxxxxxxxxxxxx>, xxxxxxxxxxxxxx::xxxxxxxxxxxxxxxxxxxxx<xxxxxxxxxxxxxxxxxx> >, xxxxxxxxxxxxxxx>, xxxxxxxxxxxxxxx>&, std::__ndk1::function<xxxxxxxxxx::xxxxxxxxxxxxxxxxxxxx& (xxxxxxxxxxxxxxx*)>)::{lambda<typename $T>(auto:1&, int)#1}, std::__ndk1::allocator<void xxxxxxxxxx::xxxxxxxxxxxxxxxxxxxx::xxxxxxxxxxx<xxxxxxxx::xxxxxxxxxxxxxx<xxxxxxxx::xxxxxxxxxxxxxx<xxxxxxxx::xxxxxxxxxxxxxx<xxxxxxxx::xxxxxxxxxx, xxxxxxxxxxxxxx::xxxxxxxxxxxxxxxxxxxxxxx>, xxxxxxxxxxxxxx::xxxxxxxxxxxxxxxxxxxxx<xxxxxxxxxxxxxxxxxx> >, xxxxxxxxxxxxxxx>, xxxxxxxxxxxxxxx>(xxxxxxxx::xxxxxxxxxxxxxxxxxxxx<xxxxxxxx::xxxxxxxxxxxxxx<xxxxxxxx::xxxxxxxxxxxxxx<xxxxxxxx::xxxxxxxxxxxxxx<xxxxxxxx::xxxxxxxxxx, xxxxxxxxxxxxxx::xxxxxxxxxxxxxxxxxxxxxxx>, xxxxxxxxxxxxxx::xxxxxxxxxxxxxxxxxxxxx<xxxxxxxxxxxxxxxxxx> >, xxxxxxxxxxxxxxx>, xxxxxxxxxxxxxxx>&, std::__ndk1::function<xxxxxxxxxx::xxxxxxxxxxxxxxxxxxxx& (xxxxxxxxxxxxxxx*)>)::{lambda<typename $T>(auto:1&, int)#1}>, void (xxxxxxxx::xxxxxxxxxxxxxx<xxxxxxxx::xxxxxxxxxxxxxx<xxxxxxxx::xxxxxxxxxxxxxx<xxxxxxxx::xxxxxxxxxxxxxx<xxxxxxxx::xxxxxxxxxxxxxx<xxxxxxxx::xxxxxxxxxx, xxxxxxxxxxxxxx::xxxxxxxxxxxxxxxxxxxxxxx>, xxxxxxxxxxxxxx::xxxxxxxxxxxxxxxxxxxxx<xxxxxxxxxxxxxxxxxx> >, xxxxxxxxxxxxxxx>, xxxxxxxxxxxxxxx>, int>&, int const&)>::~__func()"

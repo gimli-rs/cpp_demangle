@@ -28,6 +28,25 @@ Released YYYY/MM/DD
 
 --------------------------------------------------------------------------------
 
+# 0.3.1
+
+Released 2020/10/09
+
+## Added
+
+* Java Resource symbols are now supported #200
+
+## Fixed
+
+* C++ reference collapsing rules are honored.
+* Misc style fixes.
+
+## Changed
+
+* DemangleOptions is now repr(C)
+
+--------------------------------------------------------------------------------
+
 # 0.3.0
 
 Released 2020/06/11
