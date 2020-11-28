@@ -28,6 +28,27 @@ Released YYYY/MM/DD
 
 --------------------------------------------------------------------------------
 
+# 0.3.2
+
+Released 2020/11/27
+
+## Added
+
+* `ParseOptions` is introduced, with new API variants `Symbol::new_with_options`
+  and `Symbol::with_tail_and_options`. The existing APIs use the default parsing
+  options.
+* Recursion limits are now configurable via `ParseOptions` and `DemangleOptions`.
+* Transaction clone symbols are supported #217
+
+## Changed
+
+* The default parsing recursion limit is now 96 (up from 64). The value was
+  chosen to avoid pathological symbols overflowing the stack of a debug build.
+  Users may be able to safely raise the limits substantially depending on their
+  expected workload and tolerance for crashes.
+
+--------------------------------------------------------------------------------
+
 # 0.3.1
 
 Released 2020/10/09
