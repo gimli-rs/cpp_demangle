@@ -22,9 +22,6 @@ name = "afl_runner"
 path = "src/bin/afl_runner.rs"
 required-features = ["afl"]
 
-[build-dependencies]
-glob = "0.3.0"
-
 [dependencies]
 cfg-if = "1.0.0"
 
