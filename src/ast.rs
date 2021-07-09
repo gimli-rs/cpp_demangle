@@ -4025,6 +4025,7 @@ define_vocabulary! {
     ///                ::= Dh # IEEE 754r half-precision floating point (16 bits)
     ///                ::= Di # char32_t
     ///                ::= Ds # char16_t
+    ///                ::= Du # char8_t
     ///                ::= Da # auto
     ///                ::= Dc # decltype(auto)
     ///                ::= Dn # std::nullptr_t (i.e., decltype(nullptr))
@@ -4058,6 +4059,7 @@ define_vocabulary! {
         DecimalFloat16   (b"Dh", "half"),
         Char32           (b"Di", "char32_t"),
         Char16           (b"Ds", "char16_t"),
+        Char8            (b"Du", "char8_t"),
         Auto             (b"Da", "auto"),
         Decltype         (b"Dc", "decltype(auto)"),
         Nullptr          (b"Dn", "std::nullptr_t")

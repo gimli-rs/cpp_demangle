@@ -596,3 +596,7 @@ demangles!(
     "___ZN6WebKit23ApplicationStateTrackerC2EP6UIViewP13objc_selectorS4_S4__block_invoke.19",
     "invocation function for block in WebKit::ApplicationStateTracker::ApplicationStateTracker(UIView*, objc_selector*, objc_selector*, objc_selector*)"
 );
+demangles!(
+    _ZNKSt6__ndk112basic_stringIDuNS_11char_traitsIDuEENS_9allocatorIDuEEE5c_strEv,
+    "std::__ndk1::basic_string<char8_t, std::__ndk1::char_traits<char8_t>, std::__ndk1::allocator<char8_t> >::c_str() const"
+);

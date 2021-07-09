@@ -1,11 +1,8 @@
-extern crate glob;
-
-use glob::glob;
 use std::collections::HashSet;
 use std::env;
 use std::fs;
 use std::io::{self, BufRead, Write};
-use std::path;
+use std::path::{self, Path};
 
 fn get_crate_dir() -> io::Result<path::PathBuf> {
     Ok(path::PathBuf::from(
@@ -59,11 +56,6 @@ use std::io::Read;
 "
     )?;
 
-    for entry in glob("./in/*").expect("should read glob pattern") {
-        if let Ok(path) = entry {
-            println!("cargo:rerun-if-changed={}", path.display());
-        }
-    }
     println!("cargo:rerun-if-changed=tests/afl_seeds.rs");
 
     let entries = fs::read_dir(in_dir)?;
@@ -78,6 +70,7 @@ use std::io::Read;
                 "no file name for AFL.rs seed test case",
             )
         })?;
+        println!("cargo:rerun-if-changed=in/{}", Path::new(file_name).display());
 
         writeln!(
             &mut test_file,

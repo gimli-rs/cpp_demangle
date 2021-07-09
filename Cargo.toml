@@ -10,7 +10,7 @@ license = "Apache-2.0/MIT"
 name = "cpp_demangle"
 readme = "./README.md"
 repository = "https://github.com/gimli-rs/cpp_demangle"
-version = "0.3.2"
+version = "0.3.3"
 
 [badges]
 
@@ -21,9 +21,6 @@ repository = "gimli-rs/cpp_demangle"
 name = "afl_runner"
 path = "src/bin/afl_runner.rs"
 required-features = ["afl"]
-
-[build-dependencies]
-glob = "0.3.0"
 
 [dependencies]
 cfg-if = "1.0.0"

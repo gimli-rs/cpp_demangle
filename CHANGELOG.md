@@ -30,6 +30,20 @@ Released YYYY/MM/DD
 
 # 0.3.2
 
+Released 2021/7/8
+
+## Added
+
+* The builtin `char8_t` type is now recognized #224
+
+## Changed
+
+* `glob` is no longer a build time dependency #220
+
+--------------------------------------------------------------------------------
+
+# 0.3.2
+
 Released 2020/11/27
 
 ## Added
