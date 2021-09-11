@@ -1,6 +1,6 @@
 # `cpp_demangle`: a C++ linker symbol demangler
 
-[![](https://docs.rs/cpp_demangle/badge.svg)](https://docs.rs/cpp_demangle/) [![](http://meritbadge.herokuapp.com/cpp_demangle) ![](https://img.shields.io/crates/d/cpp_demangle.png)](https://crates.io/crates/cpp_demangle) [![Build Status](https://travis-ci.org/gimli-rs/cpp_demangle.png?branch=master)](https://travis-ci.org/gimli-rs/cpp_demangle)
+[![](https://docs.rs/cpp_demangle/badge.svg)](https://docs.rs/cpp_demangle/) [![](https://img.shields.io/crates/v/cpp_demangle.svg) ![](https://img.shields.io/crates/d/cpp_demangle.png)](https://crates.io/crates/cpp_demangle) [![Build Status](https://travis-ci.org/gimli-rs/cpp_demangle.png?branch=master)](https://travis-ci.org/gimli-rs/cpp_demangle)
 
 This crate can parse a C++ “mangled” linker symbol name into a Rust value
 describing what the name refers to: a variable, a function, a virtual table,
@@ -14,7 +14,7 @@ declarations can pair up definitions in one unit with references in another.
 Almost all platforms other than Microsoft Windows follow the
 [Itanium C++ ABI][itanium]'s rules for this.
 
-[itanium]: http://itanium-cxx-abi.github.io/cxx-abi/abi.html#mangle
+[itanium]: https://itanium-cxx-abi.github.io/cxx-abi/abi.html#mangle
 
 For example, suppose a C++ compilation unit has the definition:
 
@@ -61,7 +61,7 @@ moment, since the `alloc` crate's collections aren't stabilized.
 
 Disable the "std" feature, and enable the "alloc" feature:
 
-```tom
+```toml
 [dependencies]
 cpp_demangle = {
   version = "0.3.3",
@@ -101,8 +101,8 @@ long time now (and never found any crashes -- thanks Rust!).
 
 Licensed under either of
 
-  * Apache License, Version 2.0 ([`LICENSE-APACHE`](./LICENSE-APACHE) or http://www.apache.org/licenses/LICENSE-2.0)
-  * MIT license ([`LICENSE-MIT`](./LICENSE-MIT) or http://opensource.org/licenses/MIT)
+  * Apache License, Version 2.0 ([`LICENSE-APACHE`](./LICENSE-APACHE) or https://www.apache.org/licenses/LICENSE-2.0)
+  * MIT license ([`LICENSE-MIT`](./LICENSE-MIT) or https://opensource.org/licenses/MIT)
 
 at your option.
 
