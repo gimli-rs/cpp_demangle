@@ -1488,7 +1488,7 @@ where
                 // whether this is a template.
                 //
                 // For the details, see
-                // http://itanium-cxx-abi.github.io/cxx-abi/abi.html#mangle.function-type
+                // https://itanium-cxx-abi.github.io/cxx-abi/abi.html#mangle.function-type
                 let scope = if let Some(template_args) = name.get_template_args(ctx.subs) {
                     let scope = scope.push(template_args);
                     if ctx.show_return_type && !name.is_ctor_dtor_conversion(ctx.subs) {
