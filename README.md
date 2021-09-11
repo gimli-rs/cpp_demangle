@@ -14,7 +14,7 @@ declarations can pair up definitions in one unit with references in another.
 Almost all platforms other than Microsoft Windows follow the
 [Itanium C++ ABI][itanium]'s rules for this.
 
-[itanium]: https://itanium-cxx-abi.github.io/cxx-abi/abi.html#mangle
+[itanium]: https://itanium-cxx-abi.github.io/cxx-abi/abi.html#mangling
 
 For example, suppose a C++ compilation unit has the definition:
 
