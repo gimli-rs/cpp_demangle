@@ -101,6 +101,11 @@ fn main() {
                 .help("Do not display function arguments"),
         )
         .arg(
+            Arg::with_name("hide-expression-literal-types")
+                .long("hide-expression-literal-types")
+                .help("Hide types in template parameter expression literals"),
+        )
+        .arg(
             Arg::with_name("mangled_names")
                 .multiple(true)
                 .value_delimiter(" "),
@@ -119,6 +124,9 @@ fn main() {
     let mut options = DemangleOptions::new();
     if matches.is_present("noparams") {
         options = options.no_params();
+    }
+    if matches.is_present("hide-expression-literal-types") {
+        options = options.hide_expression_literal_types();
     }
     if matches.is_present("noreturntype") {
         options = options.no_return_type();
