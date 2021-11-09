@@ -107,6 +107,7 @@ impl ParseOptions {
 pub struct DemangleOptions {
     no_params: bool,
     no_return_type: bool,
+    hide_expression_literal_types: bool,
     recursion_limit: Option<NonZeroU32>,
 }
 
@@ -125,6 +126,15 @@ impl DemangleOptions {
     /// Do not display the function return type.
     pub fn no_return_type(mut self) -> Self {
         self.no_return_type = true;
+        self
+    }
+
+    /// Hide type annotations in template value parameters.
+    /// These are not needed to distinguish template instances
+    /// so this can make it easier to match user-provided
+    /// template instance names.
+    pub fn hide_expression_literal_types(mut self) -> Self {
+        self.hide_expression_literal_types = true;
         self
     }
 

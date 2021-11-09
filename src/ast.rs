@@ -553,6 +553,9 @@ where
     // unless that call is via the toplevel call to `MangledName::demangle`.
     show_return_type: bool,
 
+    // Whether to show types of expression literals.
+    show_expression_literal_types: bool,
+
     // recursion protection.
     state: Cell<DemangleState>,
 }
@@ -601,6 +604,7 @@ where
             is_template_argument_pack: false,
             show_params: !options.no_params,
             show_return_type: !options.no_return_type,
+            show_expression_literal_types: !options.hide_expression_literal_types,
             state: Cell::new(DemangleState { recursion_level: 0 }),
         }
     }
@@ -6703,13 +6707,16 @@ where
                 start,
                 end,
             ) => {
-                write!(ctx, "(")?;
-                ty.demangle(ctx, scope)?;
+                if ctx.show_expression_literal_types {
+                    write!(ctx, "(")?;
+                    ty.demangle(ctx, scope)?;
+                    write!(ctx, ")")?;
+                }
                 let start = if start < end && ctx.input[start] == b'n' {
-                    write!(ctx, ")-[")?;
+                    write!(ctx, "-[")?;
                     start + 1
                 } else {
-                    write!(ctx, ")[")?;
+                    write!(ctx, "[")?;
                     start
                 };
                 let s = ::std::str::from_utf8(&ctx.input[start..end]).map_err(|e| {
@@ -6725,9 +6732,11 @@ where
                 end,
             ) => write_literal(ctx, start, end),
             ExprPrimary::Literal(ref ty, start, end) => {
-                write!(ctx, "(")?;
-                ty.demangle(ctx, scope)?;
-                write!(ctx, ")")?;
+                if ctx.show_expression_literal_types {
+                    write!(ctx, "(")?;
+                    ty.demangle(ctx, scope)?;
+                    write!(ctx, ")")?;
+                }
                 write_literal(ctx, start, end)
             }
         }
