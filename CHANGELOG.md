@@ -28,7 +28,18 @@ Released YYYY/MM/DD
 
 --------------------------------------------------------------------------------
 
-# 0.3.2
+# 0.3.4
+
+Released 2021/11/21
+
+## Added
+
+* `DemangleOptions` now has a `hide_expression_literal_types` method that
+  can make it easier to match user-provided template instance names. #230
+
+--------------------------------------------------------------------------------
+
+# 0.3.3
 
 Released 2021/7/8
 
