@@ -76,7 +76,7 @@ cpp_demangle = {
 
 Example programs:
 
-* [A `c++filt` clone.](./src/bin/cppfilt.rs)
+* [A `c++filt` clone.](./examples/cppfilt.rs)
 
   Install it locally with this command:
 
