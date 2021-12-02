@@ -4732,7 +4732,7 @@ where
 ///
 /// ```text
 /// <vector-type> ::= Dv <number> _ <type>
-///               ::= Dv _ <expression> _ <type>
+///               ::= Dv <expression> _ <type>
 /// ```
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum VectorType {
@@ -4760,7 +4760,6 @@ impl Parse for VectorType {
             return Ok((VectorType::DimensionNumber(num as _, ty), tail));
         }
 
-        let tail = consume(b"_", tail)?;
         let (expr, tail) = Expression::parse(ctx, subs, tail)?;
         let tail = consume(b"_", tail)?;
         let (ty, tail) = TypeHandle::parse(ctx, subs, tail)?;
@@ -9090,7 +9089,7 @@ mod tests {
                         b"...",
                         []
                     }
-                    b"Dv_tr_S_..." => {
+                    b"Dvtr_S_..." => {
                         VectorType::DimensionExpression(Expression::Rethrow,
                                                         TypeHandle::BackReference(0)),
                         b"...",
@@ -9102,7 +9101,8 @@ mod tests {
                     b"Dv" => Error::UnexpectedEnd,
                     b"Dv42_" => Error::UnexpectedEnd,
                     b"Dv42_..." => Error::UnexpectedText,
-                    b"Dvtr_" => Error::UnexpectedText,
+                    b"Dvtr_" => Error::UnexpectedEnd,
+                    b"Dvtr_..." => Error::UnexpectedText,
                     b"" => Error::UnexpectedEnd,
                     b"..." => Error::UnexpectedText,
                 }

@@ -595,3 +595,8 @@ demangles_simplify_template_parameters!(
     _ZN11SmiTagging2ILs4EE13kSmiShiftSizeE,
     "SmiTagging2<4>::kSmiShiftSize"
 );
+
+demangles!(
+    _ZN4glslL7combineIhLi2EEEDvmlT0_Li4E_T_DvT0__S1_S3_S3_S3_,
+    "unsigned char __vector((2)*(4)) glsl::combine<unsigned char, 2>(unsigned char __vector(2), unsigned char __vector(2), unsigned char __vector(2), unsigned char __vector(2))"
+);
