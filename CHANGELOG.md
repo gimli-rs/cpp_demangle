@@ -28,6 +28,18 @@ Released YYYY/MM/DD
 
 --------------------------------------------------------------------------------
 
+# 0.3.5
+
+Released 2021/12/2
+
+## Changed
+
+* The LLVM mangling for vector types with a dimension expression is now
+  supported. The libiberty mangling which appears to be unused by gcc has
+  been removed.
+
+--------------------------------------------------------------------------------
+
 # 0.3.4
 
 Released 2021/11/21
