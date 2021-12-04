@@ -1,6 +1,6 @@
 # `cpp_demangle`: a C++ linker symbol demangler
 
-[![](https://docs.rs/cpp_demangle/badge.svg)](https://docs.rs/cpp_demangle/) [![](https://img.shields.io/crates/v/cpp_demangle.svg) ![](https://img.shields.io/crates/d/cpp_demangle.png)](https://crates.io/crates/cpp_demangle) [![Build Status](https://github.com/gimli-rs/cpp_demangle/workflows/ci/badge.svg)](https://github.com/gimli-rs/cpp_demangle/actions)
+[![](https://docs.rs/cpp_demangle/badge.svg)](https://docs.rs/cpp_demangle/) [![](https://img.shields.io/crates/v/cpp_demangle.svg) ![](https://img.shields.io/crates/d/cpp_demangle.svg)](https://crates.io/crates/cpp_demangle) [![Build Status](https://github.com/gimli-rs/cpp_demangle/workflows/ci/badge.svg)](https://github.com/gimli-rs/cpp_demangle/actions)
 
 This crate can parse a C++ “mangled” linker symbol name into a Rust value
 describing what the name refers to: a variable, a function, a virtual table,
