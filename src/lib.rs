@@ -49,16 +49,12 @@ cfg_if! {
             pub use alloc::boxed;
             pub use alloc::vec;
             pub use alloc::string;
-            pub use alloc::borrow;
-            pub use alloc::collections::btree_map;
         }
     } else {
         mod imports {
             pub use std::boxed;
             pub use std::vec;
             pub use std::string;
-            pub use std::borrow;
-            pub use std::collections::btree_map;
         }
     }
 }
