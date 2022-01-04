@@ -70,7 +70,13 @@ use std::io::Read;
                 "no file name for AFL.rs seed test case",
             )
         })?;
-        println!("cargo:rerun-if-changed=in/{}", Path::new(file_name).display());
+        println!(
+            "cargo:rerun-if-changed=in/{}",
+            Path::new(file_name).display()
+        );
+
+        // properly escape windows paths
+        let path = path.to_string_lossy().replace("\\", "\\\\");
 
         writeln!(
             &mut test_file,
@@ -85,7 +91,7 @@ fn test_afl_seed_{}() {{
 }}
 "#,
             file_name.to_string_lossy(),
-            path.to_string_lossy()
+            path
         )?;
     }
 
@@ -190,7 +196,7 @@ use std::fmt::Write;
             Some(Err(e)) => return Err(e),
         };
 
-        if options.find("--no-params").is_some() {
+        if options.contains("--no-params") {
             // This line is the expected demangled output without function and
             // template parameters, but we don't currently have such an option
             // in `cpp_demangle`, so just consume and ignore the line.
@@ -207,10 +213,10 @@ use std::fmt::Write;
         }
 
         // Skip tests for unsupported languages or options.
-        if options.find("--format=gnu-v3").is_none()
-            || options.find("--is-v3-ctor").is_some()
-            || options.find("--is-v3-dtor").is_some()
-            || options.find("--ret-postfix").is_some()
+        if !options.contains("--format=gnu-v3")
+            || options.contains("--is-v3-ctor")
+            || options.contains("--is-v3-dtor")
+            || options.contains("--ret-postfix")
         {
             continue;
         }
