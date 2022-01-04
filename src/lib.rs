@@ -10,7 +10,7 @@
 //! another.  Almost all platforms other than Microsoft Windows follow the
 //! [Itanium C++ ABI][itanium]'s rules for this.
 //!
-//! [itanium]: http://itanium-cxx-abi.github.io/cxx-abi/abi.html#mangle
+//! [itanium]: https://itanium-cxx-abi.github.io/cxx-abi/abi.html#mangling
 //!
 //! For example, suppose a C++ compilation unit has the definition:
 //!
@@ -49,16 +49,12 @@ cfg_if! {
             pub use alloc::boxed;
             pub use alloc::vec;
             pub use alloc::string;
-            pub use alloc::borrow;
-            pub use alloc::collections::btree_map;
         }
     } else {
         mod imports {
             pub use std::boxed;
             pub use std::vec;
             pub use std::string;
-            pub use std::borrow;
-            pub use std::collections::btree_map;
         }
     }
 }
@@ -107,6 +103,7 @@ impl ParseOptions {
 pub struct DemangleOptions {
     no_params: bool,
     no_return_type: bool,
+    hide_expression_literal_types: bool,
     recursion_limit: Option<NonZeroU32>,
 }
 
@@ -125,6 +122,15 @@ impl DemangleOptions {
     /// Do not display the function return type.
     pub fn no_return_type(mut self) -> Self {
         self.no_return_type = true;
+        self
+    }
+
+    /// Hide type annotations in template value parameters.
+    /// These are not needed to distinguish template instances
+    /// so this can make it easier to match user-provided
+    /// template instance names.
+    pub fn hide_expression_literal_types(mut self) -> Self {
+        self.hide_expression_literal_types = true;
         self
     }
 

@@ -553,6 +553,9 @@ where
     // unless that call is via the toplevel call to `MangledName::demangle`.
     show_return_type: bool,
 
+    // Whether to show types of expression literals.
+    show_expression_literal_types: bool,
+
     // recursion protection.
     state: Cell<DemangleState>,
 }
@@ -601,6 +604,7 @@ where
             is_template_argument_pack: false,
             show_params: !options.no_params,
             show_return_type: !options.no_return_type,
+            show_expression_literal_types: !options.hide_expression_literal_types,
             state: Cell::new(DemangleState { recursion_level: 0 }),
         }
     }
@@ -1502,7 +1506,7 @@ where
                 // whether this is a template.
                 //
                 // For the details, see
-                // http://itanium-cxx-abi.github.io/cxx-abi/abi.html#mangle.function-type
+                // https://itanium-cxx-abi.github.io/cxx-abi/abi.html#mangle.function-type
                 let scope = if let Some(template_args) = name.get_template_args(ctx.subs) {
                     let scope = scope.push(template_args);
                     if ctx.show_return_type && !name.is_ctor_dtor_conversion(ctx.subs) {
@@ -4742,7 +4746,7 @@ where
 ///
 /// ```text
 /// <vector-type> ::= Dv <number> _ <type>
-///               ::= Dv _ <expression> _ <type>
+///               ::= Dv <expression> _ <type>
 /// ```
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum VectorType {
@@ -4770,7 +4774,6 @@ impl Parse for VectorType {
             return Ok((VectorType::DimensionNumber(num as _, ty), tail));
         }
 
-        let tail = consume(b"_", tail)?;
         let (expr, tail) = Expression::parse(ctx, subs, tail)?;
         let tail = consume(b"_", tail)?;
         let (ty, tail) = TypeHandle::parse(ctx, subs, tail)?;
@@ -6774,13 +6777,16 @@ where
                 start,
                 end,
             ) => {
-                write!(ctx, "(")?;
-                ty.demangle(ctx, scope)?;
+                if ctx.show_expression_literal_types {
+                    write!(ctx, "(")?;
+                    ty.demangle(ctx, scope)?;
+                    write!(ctx, ")")?;
+                }
                 let start = if start < end && ctx.input[start] == b'n' {
-                    write!(ctx, ")-[")?;
+                    write!(ctx, "-[")?;
                     start + 1
                 } else {
-                    write!(ctx, ")[")?;
+                    write!(ctx, "[")?;
                     start
                 };
                 let s = ::std::str::from_utf8(&ctx.input[start..end]).map_err(|e| {
@@ -6796,9 +6802,11 @@ where
                 end,
             ) => write_literal(ctx, start, end),
             ExprPrimary::Literal(ref ty, start, end) => {
-                write!(ctx, "(")?;
-                ty.demangle(ctx, scope)?;
-                write!(ctx, ")")?;
+                if ctx.show_expression_literal_types {
+                    write!(ctx, "(")?;
+                    ty.demangle(ctx, scope)?;
+                    write!(ctx, ")")?;
+                }
                 write_literal(ctx, start, end)
             }
         }
@@ -9171,7 +9179,7 @@ mod tests {
                         b"...",
                         []
                     }
-                    b"Dv_tr_S_..." => {
+                    b"Dvtr_S_..." => {
                         VectorType::DimensionExpression(Expression::Rethrow,
                                                         TypeHandle::BackReference(0)),
                         b"...",
@@ -9183,7 +9191,8 @@ mod tests {
                     b"Dv" => Error::UnexpectedEnd,
                     b"Dv42_" => Error::UnexpectedEnd,
                     b"Dv42_..." => Error::UnexpectedText,
-                    b"Dvtr_" => Error::UnexpectedText,
+                    b"Dvtr_" => Error::UnexpectedEnd,
+                    b"Dvtr_..." => Error::UnexpectedText,
                     b"" => Error::UnexpectedEnd,
                     b"..." => Error::UnexpectedText,
                 }

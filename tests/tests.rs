@@ -93,6 +93,19 @@ macro_rules! demangles_no_param_and_no_return_type {
     };
 }
 
+macro_rules! demangles_simplify_template_parameters {
+    ( $mangled:ident , $demangled:expr ) => {
+        demangles_simplify_template_parameters!($mangled, stringify!($mangled), $demangled);
+    };
+    ( $name:ident , $mangled:expr , $demangled:expr ) => {
+        #[test]
+        fn $name() {
+            let options = DemangleOptions::new().hide_expression_literal_types();
+            assert_demangles_as($mangled, $demangled, Some(options));
+        }
+    };
+}
+
 macro_rules! demangles_no_return_type {
     ( $mangled:ident , $demangled:expr ) => {
         demangles_no_return_type!($mangled, stringify!($mangled), $demangled);
@@ -599,4 +612,14 @@ demangles!(
 demangles!(
     _ZNKSt6__ndk112basic_stringIDuNS_11char_traitsIDuEENS_9allocatorIDuEEE5c_strEv,
     "std::__ndk1::basic_string<char8_t, std::__ndk1::char_traits<char8_t>, std::__ndk1::allocator<char8_t> >::c_str() const"
+);
+
+demangles_simplify_template_parameters!(
+    _ZN11SmiTagging2ILs4EE13kSmiShiftSizeE,
+    "SmiTagging2<4>::kSmiShiftSize"
+);
+
+demangles!(
+    _ZN4glslL7combineIhLi2EEEDvmlT0_Li4E_T_DvT0__S1_S3_S3_S3_,
+    "unsigned char __vector((2)*(4)) glsl::combine<unsigned char, 2>(unsigned char __vector(2), unsigned char __vector(2), unsigned char __vector(2), unsigned char __vector(2))"
 );
