@@ -28,10 +28,6 @@ jobs:
     runs-on: ubuntu-18.04
     steps:
     - uses: actions/checkout@v2
-    - uses: actions-rs/toolchain@v1
-      with:
-        toolchain: nightly
-        override: true
     - name: Build
       run: cargo build --verbose --no-default-features --features alloc
     - name: Run tests
@@ -41,10 +37,6 @@ jobs:
     runs-on: ubuntu-18.04
     steps:
     - uses: actions/checkout@v2
-    - uses: actions-rs/toolchain@v1
-      with:
-        toolchain: nightly
-        override: true
     - name: Build
       run: cargo build --verbose --release --no-default-features --features alloc
     - name: Run tests
