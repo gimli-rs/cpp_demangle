@@ -1,9 +1,12 @@
 //! Abstract syntax tree types for mangled symbols.
 
 use super::{DemangleNodeType, DemangleOptions, DemangleWrite, ParseOptions};
-use boxed::Box;
-use error::{self, Result};
-use index_str::IndexStr;
+use crate::boxed::Box;
+use crate::error::{self, Result};
+use crate::index_str::IndexStr;
+use crate::string::String;
+use crate::subs::{Substitutable, SubstitutionTable};
+use crate::vec::Vec;
 use std::cell::Cell;
 #[cfg(feature = "logging")]
 use std::cell::RefCell;
@@ -12,9 +15,6 @@ use std::hash::{Hash, Hasher};
 use std::mem;
 use std::ops;
 use std::ptr;
-use string::String;
-use subs::{Substitutable, SubstitutionTable};
-use vec::Vec;
 
 struct AutoLogParse;
 
@@ -7803,13 +7803,13 @@ mod tests {
         WellKnownComponent,
     };
 
-    use boxed::Box;
-    use error::Error;
-    use index_str::IndexStr;
+    use crate::boxed::Box;
+    use crate::error::Error;
+    use crate::index_str::IndexStr;
+    use crate::string::String;
+    use crate::subs::{Substitutable, SubstitutionTable};
     use std::fmt::Debug;
     use std::iter::FromIterator;
-    use string::String;
-    use subs::{Substitutable, SubstitutionTable};
 
     fn assert_parse_ok<P, S1, S2, I1, I2>(
         production: &'static str,
