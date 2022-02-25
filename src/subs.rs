@@ -2,10 +2,10 @@
 
 use super::DemangleWrite;
 use crate::ast;
-use crate::vec::Vec;
-use std::fmt;
-use std::iter::FromIterator;
-use std::ops::Deref;
+use alloc::vec::Vec;
+use core::fmt;
+use core::iter::FromIterator;
+use core::ops::Deref;
 
 /// An enumeration of all of the types that can end up in the substitution
 /// table.

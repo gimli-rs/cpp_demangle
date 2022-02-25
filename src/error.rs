@@ -1,8 +1,8 @@
 //! Custom `Error` and `Result` types for the `cpp_demangle` crate.
 
+use core::fmt;
 #[cfg(feature = "std")]
 use std::error;
-use std::fmt;
 
 /// Errors that can occur while demangling a symbol.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -43,9 +43,8 @@ pub enum Error {
 
 #[test]
 fn size_of_error() {
-    use std::mem;
     assert_eq!(
-        mem::size_of::<Error>(),
+        core::mem::size_of::<Error>(),
         1,
         "We should keep the size of our Error type in check"
     );
@@ -122,4 +121,4 @@ impl error::Error for Error {
 }
 
 /// A demangling result of `T` or a `cpp_demangle::error::Error`.
-pub type Result<T> = ::std::result::Result<T, Error>;
+pub type Result<T> = ::core::result::Result<T, Error>;

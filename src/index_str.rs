@@ -1,9 +1,9 @@
 //! Provides the `IndexStr` type to keep track of a substring's index into its
 //! original string is.
 
-use crate::string::String;
-use std::fmt;
-use std::ops::{Range, RangeFrom, RangeTo};
+use alloc::string::String;
+use core::fmt;
+use core::ops::{Range, RangeFrom, RangeTo};
 
 /// The `IndexStr` type allows us to take substrings from an original input and
 /// keep track of what index the substring is at in the original input.
