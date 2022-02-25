@@ -38,17 +38,15 @@ diff = "0.1.11"
 # Default features.
 default = ["std"]
 
-# Build using the `std` library. Disabling this and enabling the `alloc` feature
-# enables `no_std` support.
-std = []
+# Build using the `std` library. Disabling this enables `no_std` support.
+std = ["alloc"]
 
-# Use collections from the `alloc` crate rather than from `std`. Combined with
-# disabling `std`, this enables `no_std` support.
+# Use collections from the `alloc` crate rather than from `std`.
 alloc = []
 
 # Enable copious amounts of logging. This is for internal use only, and is only
 # useful for hacking on `cpp_demangle` itself.
-logging = []
+logging = ["std"]
 
 # Run all libiberty tests, even the ones that are known not to pass yet. This is
 # for internal use only.

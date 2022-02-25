@@ -1,20 +1,21 @@
 //! Abstract syntax tree types for mangled symbols.
 
 use super::{DemangleNodeType, DemangleOptions, DemangleWrite, ParseOptions};
-use crate::boxed::Box;
 use crate::error::{self, Result};
 use crate::index_str::IndexStr;
-use crate::string::String;
 use crate::subs::{Substitutable, SubstitutionTable};
-use crate::vec::Vec;
-use std::cell::Cell;
+use alloc::boxed::Box;
+use alloc::string::String;
+use alloc::vec::Vec;
+use core::cell::Cell;
 #[cfg(feature = "logging")]
-use std::cell::RefCell;
-use std::fmt::{self, Write};
-use std::hash::{Hash, Hasher};
-use std::mem;
-use std::ops;
-use std::ptr;
+use core::cell::RefCell;
+use core::fmt::{self, Write};
+use core::hash::{Hash, Hasher};
+use core::mem;
+use core::ops;
+use core::ptr;
+use core::str;
 
 struct AutoLogParse;
 
@@ -454,13 +455,13 @@ struct AutoParseDemangle<'a, 'b, W: 'a + DemangleWrite>(&'b mut DemangleContext<
 
 impl<'a, 'b, W: 'a + DemangleWrite> AutoParseDemangle<'a, 'b, W> {
     #[inline]
-    fn new(ctx: &'b mut DemangleContext<'a, W>) -> std::result::Result<Self, fmt::Error> {
+    fn new(ctx: &'b mut DemangleContext<'a, W>) -> core::result::Result<Self, fmt::Error> {
         ctx.enter_recursion()?;
         Ok(AutoParseDemangle(ctx))
     }
 }
 
-impl<'a, 'b, W: 'a + DemangleWrite> std::ops::Deref for AutoParseDemangle<'a, 'b, W> {
+impl<'a, 'b, W: 'a + DemangleWrite> ops::Deref for AutoParseDemangle<'a, 'b, W> {
     type Target = DemangleContext<'a, W>;
 
     fn deref(&self) -> &Self::Target {
@@ -468,7 +469,7 @@ impl<'a, 'b, W: 'a + DemangleWrite> std::ops::Deref for AutoParseDemangle<'a, 'b
     }
 }
 
-impl<'a, 'b, W: 'a + DemangleWrite> std::ops::DerefMut for AutoParseDemangle<'a, 'b, W> {
+impl<'a, 'b, W: 'a + DemangleWrite> ops::DerefMut for AutoParseDemangle<'a, 'b, W> {
     fn deref_mut(&mut self) -> &mut Self::Target {
         self.0
     }
@@ -718,7 +719,7 @@ where
 
     fn set_source_name(&mut self, start: usize, end: usize) {
         let ident = &self.input[start..end];
-        self.source_name = std::str::from_utf8(ident).ok();
+        self.source_name = str::from_utf8(ident).ok();
     }
 
     fn push_demangle_node(&mut self, t: DemangleNodeType) {
@@ -4943,7 +4944,7 @@ impl TemplateParam {
     fn resolve<'subs, 'prev>(
         &'subs self,
         scope: Option<ArgScopeStack<'prev, 'subs>>,
-    ) -> ::std::result::Result<&'subs TemplateArg, fmt::Error> {
+    ) -> ::core::result::Result<&'subs TemplateArg, fmt::Error> {
         scope
             .get_template_arg(self.0)
             .map_err(|e| {
@@ -6664,7 +6665,7 @@ where
             } else {
                 start
             };
-            let s = ::std::str::from_utf8(&ctx.input[start..end]).map_err(|e| {
+            let s = str::from_utf8(&ctx.input[start..end]).map_err(|e| {
                 log!("Error writing literal: {}", e);
                 fmt::Error
             })?;
@@ -6718,7 +6719,7 @@ where
                     write!(ctx, "[")?;
                     start
                 };
-                let s = ::std::str::from_utf8(&ctx.input[start..end]).map_err(|e| {
+                let s = str::from_utf8(&ctx.input[start..end]).map_err(|e| {
                     log!("Error writing literal: {}", e);
                     fmt::Error
                 })?;
@@ -7775,7 +7776,7 @@ fn parse_number(base: u32, allow_signed: bool, mut input: IndexStr) -> Result<(i
     let head = unsafe {
         // Safe because we know we only have valid numeric chars in this
         // slice, which are valid UTF-8.
-        ::std::str::from_utf8_unchecked(head)
+        str::from_utf8_unchecked(head)
     };
 
     let mut number = isize::from_str_radix(head, base).map_err(|_| error::Error::Overflow)?;
@@ -7803,13 +7804,13 @@ mod tests {
         WellKnownComponent,
     };
 
-    use crate::boxed::Box;
     use crate::error::Error;
     use crate::index_str::IndexStr;
-    use crate::string::String;
     use crate::subs::{Substitutable, SubstitutionTable};
-    use std::fmt::Debug;
-    use std::iter::FromIterator;
+    use alloc::boxed::Box;
+    use alloc::string::String;
+    use core::fmt::Debug;
+    use core::iter::FromIterator;
 
     fn assert_parse_ok<P, S1, S2, I1, I2>(
         production: &'static str,

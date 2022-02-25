@@ -34,35 +34,14 @@
 #![allow(unknown_lints)]
 #![allow(clippy::inline_always)]
 #![allow(clippy::redundant_field_names)]
-#![cfg_attr(all(not(feature = "std"), feature = "alloc"), no_std)]
-#![cfg_attr(all(not(feature = "std"), feature = "alloc"), feature(alloc))]
+#![cfg_attr(not(feature = "std"), no_std)]
 
+#[cfg(feature = "alloc")]
 #[macro_use]
-extern crate cfg_if;
+extern crate alloc;
 
-cfg_if! {
-    if #[cfg(all(not(feature = "std"), feature = "alloc"))] {
-        extern crate core as std;
-        #[macro_use]
-        extern crate alloc;
-        mod imports {
-            pub use alloc::boxed;
-            pub use alloc::vec;
-            pub use alloc::string;
-        }
-    } else {
-        mod imports {
-            pub use std::boxed;
-            pub use std::vec;
-            pub use std::string;
-        }
-    }
-}
-
-use imports::*;
-
-use string::String;
-use vec::Vec;
+#[cfg(not(feature = "alloc"))]
+compile_error!("`alloc` or `std` feature is required for this crate");
 
 #[macro_use]
 mod logging;
@@ -72,11 +51,13 @@ pub mod error;
 mod index_str;
 mod subs;
 
+use alloc::string::String;
+use alloc::vec::Vec;
 use ast::{Demangle, Parse, ParseContext};
+use core::fmt;
+use core::num::NonZeroU32;
 use error::{Error, Result};
 use index_str::IndexStr;
-use std::fmt;
-use std::num::NonZeroU32;
 
 /// Options to control the parsing process.
 #[derive(Clone, Copy, Debug, Default)]
@@ -291,7 +272,10 @@ substitutions = {:#?}",
     /// assert_eq!(demangled_again, demangled);
     /// ```
     #[allow(clippy::trivially_copy_pass_by_ref)]
-    pub fn demangle(&self, options: &DemangleOptions) -> ::std::result::Result<String, fmt::Error> {
+    pub fn demangle(
+        &self,
+        options: &DemangleOptions,
+    ) -> ::core::result::Result<String, fmt::Error> {
         let mut out = String::new();
         {
             let mut ctx = ast::DemangleContext::new(
