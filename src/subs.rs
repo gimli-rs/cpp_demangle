@@ -1,11 +1,11 @@
 //! Types dealing with the substitutions table.
 
 use super::DemangleWrite;
-use ast;
+use crate::ast;
+use crate::vec::Vec;
 use std::fmt;
 use std::iter::FromIterator;
 use std::ops::Deref;
-use vec::Vec;
 
 /// An enumeration of all of the types that can end up in the substitution
 /// table.
