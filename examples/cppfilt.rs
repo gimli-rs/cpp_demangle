@@ -4,10 +4,9 @@
 extern crate cpp_demangle;
 
 // For command line integration
-#[macro_use]
 extern crate clap;
 
-use clap::{App, Arg};
+use clap::Parser;
 use cpp_demangle::{BorrowedSymbol, DemangleOptions};
 use std::io::{self, BufRead, Cursor, Write};
 use std::process;
@@ -89,28 +88,24 @@ where
     Ok(())
 }
 
+/// A c++filt clone as an example of how to use the cpp_demangle crate!
+#[derive(Parser)]
+#[clap(version, author)]
+struct Cli {
+    #[clap(short = 'p', long)]
+    /// Do not display function arguments.
+    no_params: bool,
+    /// Do not display function return types.
+    #[clap(long)]
+    no_return_type: bool,
+    #[clap(long)]
+    /// Hide types in template parameter expression literals
+    hide_expression_literal_types: bool,
+    mangled_names: Vec<String>,
+}
+
 fn main() {
-    let matches = App::new("cppfilt")
-        .version(crate_version!())
-        .author(crate_authors!())
-        .about("A c++filt clone as an example of how to use the cpp_demangle crate!")
-        .arg(
-            Arg::with_name("noparams")
-                .short("p")
-                .long("no-params")
-                .help("Do not display function arguments"),
-        )
-        .arg(
-            Arg::with_name("hide-expression-literal-types")
-                .long("hide-expression-literal-types")
-                .help("Hide types in template parameter expression literals"),
-        )
-        .arg(
-            Arg::with_name("mangled_names")
-                .multiple(true)
-                .value_delimiter(" "),
-        )
-        .get_matches();
+    let cli = Cli::parse();
 
     let stdin = io::stdin();
     let mut stdin = stdin.lock();
@@ -122,22 +117,25 @@ fn main() {
     let mut stderr = stderr.lock();
 
     let mut options = DemangleOptions::new();
-    if matches.is_present("noparams") {
+    if cli.no_params {
         options = options.no_params();
     }
-    if matches.is_present("hide-expression-literal-types") {
+    if cli.hide_expression_literal_types {
         options = options.hide_expression_literal_types();
     }
-    if matches.is_present("noreturntype") {
+    if cli.no_return_type {
         options = options.no_return_type();
     }
 
-    let demangle_result = if let Some(names) = matches.values_of("mangled_names") {
-        let mut input = Cursor::new(names.fold(String::new(), |mut accumulated, name| {
-            accumulated.push_str(&name);
-            accumulated.push_str("\n");
-            accumulated
-        }));
+    let demangle_result = if !cli.mangled_names.is_empty() {
+        let mut input = Cursor::new(cli.mangled_names.into_iter().fold(
+            String::new(),
+            |mut accumulated, name| {
+                accumulated.push_str(&name);
+                accumulated.push_str("\n");
+                accumulated
+            },
+        ));
         demangle_all(&mut input, &mut stdout, options)
     } else {
         demangle_all(&mut stdin, &mut stdout, options)
