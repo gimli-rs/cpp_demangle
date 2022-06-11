@@ -1,5 +1,5 @@
 [package]
-authors = ["Nick Fitzgerald <fitzgen@gmail.com>", "Jim Blandy <jimb@red-bean.com>"]
+authors = ["Nick Fitzgerald <fitzgen@gmail.com>", "Jim Blandy <jimb@red-bean.com>", "Kyle Huey <khuey@kylehuey.com>"]
 build = "build.rs"
 categories = ["development-tools::debugging", "development-tools::ffi"]
 description = "A crate for demangling C++ symbols"
