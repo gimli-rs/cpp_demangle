@@ -28,9 +28,33 @@ Released YYYY/MM/DD
 
 --------------------------------------------------------------------------------
 
+# 0.3.6
+
+Released 2022/10/20
+
+## Added
+
+* The non-deprecated versions of noexcept are supported. #273
+
+* Most of the subobject production that clang uses is supported. #273
+
+## Changed
+
+* Rust 2018 is now used. #251
+
+* cppfilt now uses clap 4.0. #271
+
+## Fixed
+
+* no_std works. #251
+
+* Inheriting constructors no longer produce substitutable values. #272
+
+--------------------------------------------------------------------------------
+
 # 0.3.5
 
-Released 2021/12/2
+Released 2021/12/02
 
 ## Changed
 
