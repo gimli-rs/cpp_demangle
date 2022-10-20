@@ -5427,6 +5427,7 @@ where
 ///               ::= at <type>                                    # alignof (type)
 ///               ::= az <expression>                              # alignof (expression)
 ///               ::= nx <expression>                              # noexcept (expression)
+///               ::= so <subobject-expr>
 ///               ::= <template-param>
 ///               ::= <function-param>
 ///               ::= dt <expression> <unresolved-name>            # expr.name
@@ -5536,6 +5537,9 @@ pub enum Expression {
 
     /// `noexcept (expression)`
     Noexcept(Box<Expression>),
+
+    /// Subobject expression,
+    Subobject(SubobjectExpr),
 
     /// A named template parameter.
     TemplateParam(TemplateParam),
@@ -5691,6 +5695,11 @@ impl Parse for Expression {
                 b"nx" => {
                     let (expr, tail) = Expression::parse(ctx, subs, tail)?;
                     let expr = Expression::Noexcept(Box::new(expr));
+                    return Ok((expr, tail));
+                }
+                b"so" => {
+                    let (expr, tail) = SubobjectExpr::parse(ctx, subs, tail)?;
+                    let expr = Expression::Subobject(expr);
                     return Ok((expr, tail));
                 }
                 b"dt" => {
@@ -6152,6 +6161,7 @@ where
                 write!(ctx, ")")?;
                 Ok(())
             }
+            Expression::Subobject(ref expr) => expr.demangle(ctx, scope),
             Expression::TemplateParam(ref param) => param.demangle(ctx, scope),
             Expression::FunctionParam(ref param) => param.demangle(ctx, scope),
             Expression::Member(ref expr, ref name) => {
@@ -7751,6 +7761,65 @@ where
         Ok(())
     }
 }
+
+/// The subobject expression production.
+///
+/// <expression> ::= so <referent type> <expr> [<offset number>] <union-selector>* [p] E
+/// <union-selector> ::= _ [<number>]
+///
+/// Not yet in the spec: https://github.com/itanium-cxx-abi/cxx-abi/issues/47
+/// But it has been shipping in clang for some time.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SubobjectExpr {
+    ty: TypeHandle,
+    expr: Box<Expression>,
+    offset: isize,
+}
+
+impl Parse for SubobjectExpr {
+    fn parse<'a, 'b>(
+        ctx: &'a ParseContext,
+        subs: &'a mut SubstitutionTable,
+        input: IndexStr<'b>,
+    ) -> Result<(SubobjectExpr, IndexStr<'b>)> {
+        try_begin_parse!("SubobjectExpr", ctx, input);
+
+        let (ty, tail) = TypeHandle::parse(ctx, subs, input)?;
+        let (expr, tail) = Expression::parse(ctx, subs, tail)?;
+        let (offset, tail) = parse_number(10, true, tail).unwrap_or((0, tail));
+
+        // XXXkhuey handle union-selector and [p]
+        let tail = consume(b"E", tail)?;
+        Ok((
+            SubobjectExpr {
+                ty: ty,
+                expr: Box::new(expr),
+                offset: offset,
+            },
+            tail,
+        ))
+    }
+}
+
+impl<'subs, W> Demangle<'subs, W> for SubobjectExpr
+where
+    W: 'subs + DemangleWrite,
+{
+    #[inline]
+    fn demangle<'prev, 'ctx>(
+        &'subs self,
+        ctx: &'ctx mut DemangleContext<'subs, W>,
+        scope: Option<ArgScopeStack<'prev, 'subs>>,
+    ) -> fmt::Result {
+        let ctx = try_begin_demangle!(self, ctx, scope);
+
+        self.expr.demangle(ctx, scope)?;
+        write!(ctx, ".<")?;
+        self.ty.demangle(ctx, scope)?;
+        write!(ctx, " at offset {}>", self.offset)
+    }
+}
+
 /// Expect and consume the given byte str, and return the advanced `IndexStr` if
 /// we saw the expectation. Otherwise return an error of kind
 /// `error::Error::UnexpectedText` if the input doesn't match, or
@@ -7866,8 +7935,8 @@ mod tests {
         FunctionType, GlobalCtorDtor, Identifier, Initializer, LambdaSig, LocalName, MangledName,
         MemberName, Name, NestedName, NonSubstitution, Number, NvOffset, OperatorName, Parse,
         ParseContext, PointerToMemberType, Prefix, PrefixHandle, RefQualifier, ResourceName, SeqId,
-        SimpleId, SimpleOperatorName, SourceName, SpecialName, StandardBuiltinType, Substitution,
-        TaggedName, TemplateArg, TemplateArgs, TemplateParam, TemplateTemplateParam,
+        SimpleId, SimpleOperatorName, SourceName, SpecialName, StandardBuiltinType, SubobjectExpr,
+        Substitution, TaggedName, TemplateArg, TemplateArgs, TemplateParam, TemplateTemplateParam,
         TemplateTemplateParamHandle, Type, TypeHandle, UnnamedTypeName, UnqualifiedName,
         UnresolvedName, UnresolvedQualifierLevel, UnresolvedType, UnresolvedTypeHandle,
         UnscopedName, UnscopedTemplateName, UnscopedTemplateNameHandle, VOffset, VectorType,
@@ -11367,6 +11436,71 @@ mod tests {
                 b"bu-buuuu" => Error::UnexpectedText,
                 b"q" => Error::UnexpectedEnd,
                 b"" => Error::UnexpectedEnd,
+            }
+        });
+    }
+
+    #[test]
+    fn parse_subobject_expr() {
+        assert_parse!(SubobjectExpr {
+            with subs [] => {
+                Ok => {
+                    "PKcL_Z3FooEE..." => {
+                        SubobjectExpr {
+                            ty: TypeHandle::BackReference(1),
+                            expr: Box::new(Expression::Primary(
+                                ExprPrimary::External(
+                                    MangledName::Encoding(
+                                        Encoding::Data(
+                                            Name::Unscoped(
+                                                UnscopedName::Unqualified(
+                                                    UnqualifiedName::Source(
+                                                        SourceName(
+                                                            Identifier {
+                                                                start: 7,
+                                                                end: 10,
+                                                            }
+                                                        )
+                                                    )
+                                                )
+                                            )
+                                        ),
+                                        vec![]
+                                    )
+                                )
+                            )),
+                            offset: 0,
+                        },
+                        b"...",
+                        [
+                            Substitutable::Type(
+                                Type::Qualified(
+                                    CvQualifiers {
+                                        restrict: false,
+                                        volatile: false,
+                                        const_: true,
+                                    },
+                                    TypeHandle::Builtin(
+                                        BuiltinType::Standard(
+                                            StandardBuiltinType::Char,
+                                        ),
+                                    ),
+                                )
+                            ),
+                            Substitutable::Type(
+                                Type::PointerTo(
+                                    TypeHandle::BackReference(
+                                        0,
+                                    ),
+                                ),
+                            )
+                        ]
+                    }
+                }
+                Err => {
+                    "" => Error::UnexpectedEnd,
+                    "" => Error::UnexpectedEnd,
+                }
             }
         });
     }
