@@ -600,3 +600,8 @@ demangles!(
     _ZN4glslL7combineIhLi2EEEDvmlT0_Li4E_T_DvT0__S1_S3_S3_S3_,
     "unsigned char __vector((2)*(4)) glsl::combine<unsigned char, 2>(unsigned char __vector(2), unsigned char __vector(2), unsigned char __vector(2), unsigned char __vector(2))"
 );
+
+demangles!(
+    _Z14WasmMemoryCopyIPhPDoFPvS1_PKvmEjEiP9JSContextT_mT1_S9_S9_T0_,
+    "int WasmMemoryCopy<unsigned char*, void* (*)(void*, void const*, unsigned long) noexcept, unsigned int>(JSContext*, unsigned char*, unsigned long, unsigned int, unsigned int, unsigned int, void* (*)(void*, void const*, unsigned long) noexcept)"
+);
