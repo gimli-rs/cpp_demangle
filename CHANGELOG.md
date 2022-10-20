@@ -28,6 +28,19 @@ Released YYYY/MM/DD
 
 --------------------------------------------------------------------------------
 
+# 0.4.0
+
+Released 2022/10/20
+
+## Removed
+
+* The deprecated nightly and cppfilt features are gone.
+
+## Changed
+
+* If no-default-features is used the alloc feature must be explicitly specified.
+
+--------------------------------------------------------------------------------
 # 0.3.6
 
 Released 2022/10/20
