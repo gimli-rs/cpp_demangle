@@ -55,12 +55,5 @@ run_libiberty_tests = []
 # Enable fuzzing support. This is for internal use only.
 fuzz = ["afl"]
 
-# DEPRECATED. Don't use these features, they do nothing.
-#
-# TODO: remove on next breaking version bump.
-nightly = []
-cppfilt = []
-
-
 [profile.release]
 debug = true
