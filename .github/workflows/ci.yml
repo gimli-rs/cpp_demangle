@@ -9,7 +9,7 @@ jobs:
   debug:
     runs-on: ubuntu-18.04
     steps:
-    - uses: actions/checkout@v2
+    - uses: actions/checkout@v3
     - name: Build
       run: cargo build --verbose
     - name: Run tests
@@ -18,7 +18,7 @@ jobs:
   release:
     runs-on: ubuntu-18.04
     steps:
-    - uses: actions/checkout@v2
+    - uses: actions/checkout@v3
     - name: Build
       run: cargo build --verbose --release
     - name: Run tests
@@ -27,7 +27,7 @@ jobs:
   debug-nostd:
     runs-on: ubuntu-18.04
     steps:
-    - uses: actions/checkout@v2
+    - uses: actions/checkout@v3
     - name: Build
       run: cargo build --verbose --no-default-features --features alloc
     - name: Run tests
@@ -36,7 +36,7 @@ jobs:
   release-nostd:
     runs-on: ubuntu-18.04
     steps:
-    - uses: actions/checkout@v2
+    - uses: actions/checkout@v3
     - name: Build
       run: cargo build --verbose --release --no-default-features --features alloc
     - name: Run tests
@@ -45,6 +45,6 @@ jobs:
   c_api:
     runs-on: ubuntu-18.04
     steps:
-    - uses: actions/checkout@v2
+    - uses: actions/checkout@v3
     - name: Run c_api test
       run: cd c_api && ./run_test.sh
