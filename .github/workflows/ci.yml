@@ -7,7 +7,7 @@ env:
 
 jobs:
   debug:
-    runs-on: ubuntu-18.04
+    runs-on: ubuntu-22.04
     steps:
     - uses: actions/checkout@v3
     - name: Build
@@ -16,7 +16,7 @@ jobs:
       run: cargo test --verbose
 
   release:
-    runs-on: ubuntu-18.04
+    runs-on: ubuntu-22.04
     steps:
     - uses: actions/checkout@v3
     - name: Build
@@ -25,7 +25,7 @@ jobs:
       run: cargo test --verbose --release
 
   debug-nostd:
-    runs-on: ubuntu-18.04
+    runs-on: ubuntu-22.04
     steps:
     - uses: actions/checkout@v3
     - name: Build
@@ -34,7 +34,7 @@ jobs:
       run: cargo test --verbose --no-default-features --features alloc
 
   release-nostd:
-    runs-on: ubuntu-18.04
+    runs-on: ubuntu-22.04
     steps:
     - uses: actions/checkout@v3
     - name: Build
@@ -43,7 +43,7 @@ jobs:
       run: cargo test --verbose --release --no-default-features --features alloc
 
   c_api:
-    runs-on: ubuntu-18.04
+    runs-on: ubuntu-22.04
     steps:
     - uses: actions/checkout@v3
     - name: Run c_api test
