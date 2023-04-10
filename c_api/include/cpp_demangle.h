@@ -9,6 +9,8 @@ extern "C" {
 struct ParseOptions {
   // The parsing recursion limit. 0 uses the default value.
   uint32_t recursion_limit;
+  // The substitution table limit. 0 uses the default value.
+  uint32_t substitutions_limit;
 };
 
 // Flags currently in `cpp_demangle`, but options that control demangling

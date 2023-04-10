@@ -2,6 +2,7 @@
 
 use super::DemangleWrite;
 use crate::ast;
+use crate::error::{self, Result};
 use alloc::vec::Vec;
 use core::fmt;
 use core::iter::FromIterator;
@@ -79,6 +80,8 @@ pub struct SubstitutionTable {
     // which are not candidates for substitution end up in this part of the
     // table. See `<prefix>` parsing for further details.
     non_substitutions: Vec<Substitutable>,
+    // The table is bounded by this size if present.
+    size_limit: Option<usize>,
 }
 
 impl fmt::Debug for SubstitutionTable {
@@ -96,25 +99,36 @@ impl fmt::Debug for SubstitutionTable {
 
 impl SubstitutionTable {
     /// Construct a new `SubstitutionTable`.
-    pub fn new() -> SubstitutionTable {
-        Default::default()
+    pub fn new(substitutions_limit: Option<usize>) -> SubstitutionTable {
+        SubstitutionTable {
+            size_limit: substitutions_limit,
+            ..Default::default()
+        }
     }
 
     /// Insert a freshly-parsed substitutable component into the table and
     /// return the index at which it now lives.
-    pub fn insert(&mut self, entity: Substitutable) -> usize {
+    pub fn insert(&mut self, entity: Substitutable) -> Result<usize> {
         let idx = self.substitutions.len();
+        if self.size_limit.map(|l| l > idx + self.non_substitutions.len()).unwrap_or(false) {
+            log!("Substitution table too big");
+            return Err(error::Error::TooManySubstitutions);
+        }
         log!("SubstitutionTable::insert @ {}: {:?}", idx, entity);
         self.substitutions.push(entity);
-        idx
+        Ok(idx)
     }
 
     /// Insert a an entity into the table that is not a candidate for
     /// substitution.
-    pub fn insert_non_substitution(&mut self, entity: Substitutable) -> usize {
+    pub fn insert_non_substitution(&mut self, entity: Substitutable) -> Result<usize> {
         let idx = self.non_substitutions.len();
+        if self.size_limit.map(|l| l > idx + self.substitutions.len()).unwrap_or(false) {
+            log!("Substitution table too big");
+            return Err(error::Error::TooManySubstitutions);
+        }
         self.non_substitutions.push(entity);
-        idx
+        Ok(idx)
     }
 
     /// Does this substitution table contain a component at the given index?
@@ -160,6 +174,7 @@ impl FromIterator<Substitutable> for SubstitutionTable {
         SubstitutionTable {
             substitutions: Vec::from_iter(iter),
             non_substitutions: vec![],
+            size_limit: None,
         }
     }
 }

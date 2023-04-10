@@ -39,6 +39,9 @@ pub enum Error {
 
     /// Encountered too much recursion when demangling symbol.
     TooMuchRecursion,
+
+    /// The substitution table grew too large when demangling symbol.
+    TooManySubstitutions,
 }
 
 #[test]
@@ -85,6 +88,9 @@ impl fmt::Display for Error {
             Error::TooMuchRecursion => {
                 write!(f, "encountered too much recursion when demangling symbol")
             }
+            Error::TooManySubstitutions => {
+                write!(f, "encountered too many substitutions when demangling symbol")
+            }
         }
     }
 }
@@ -116,6 +122,7 @@ impl error::Error for Error {
                 "an overflow or underflow would occur when parsing an integer in a mangled symbol"
             }
             Error::TooMuchRecursion => "encountered too much recursion when demangling symbol",
+            Error::TooManySubstitutions => "encountered too many substitutions when demangling symbol",
         }
     }
 }

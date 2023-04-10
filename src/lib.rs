@@ -64,6 +64,7 @@ use index_str::IndexStr;
 #[repr(C)]
 pub struct ParseOptions {
     recursion_limit: Option<NonZeroU32>,
+    substitutions_limit: Option<NonZeroU32>,
 }
 
 impl ParseOptions {
@@ -74,6 +75,15 @@ impl ParseOptions {
     /// a debug build.
     pub fn recursion_limit(mut self, limit: u32) -> Self {
         self.recursion_limit = Some(NonZeroU32::new(limit).expect("Recursion limit must be > 0"));
+        self
+    }
+    /// Set the limit on the size of the substitutions table during the parsing
+    /// phase. A low limit will cause valid symbols to be rejected, but a high
+    /// limit may allow pathological symbols to run away and use an inordinate
+    /// amount of CPU and memory during parsing.
+    /// The default value is unlimited.
+    pub fn substitutions_limit(mut self, limit: u32) -> Self {
+        self.substitutions_limit = Some(NonZeroU32::new(limit).expect("Substitutions limit must be > 0"));
         self
     }
 }
@@ -216,7 +226,7 @@ where
     /// );
     /// ```
     pub fn new_with_options(raw: T, options: &ParseOptions) -> Result<Symbol<T>> {
-        let mut substitutions = subs::SubstitutionTable::new();
+        let mut substitutions = subs::SubstitutionTable::new(options.substitutions_limit.map(|v| v.get() as usize));
 
         let parsed = {
             let ctx = ParseContext::new(*options);
@@ -406,7 +416,7 @@ where
         input: &'a T,
         options: &ParseOptions,
     ) -> Result<(BorrowedSymbol<'a>, &'a [u8])> {
-        let mut substitutions = subs::SubstitutionTable::new();
+        let mut substitutions = subs::SubstitutionTable::new(options.substitutions_limit.map(|v| v.get() as usize));
 
         let ctx = ParseContext::new(*options);
         let idx_str = IndexStr::new(input.as_ref());

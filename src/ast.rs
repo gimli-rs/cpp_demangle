@@ -1702,7 +1702,7 @@ impl Parse for Name {
         if let Ok((name, tail)) = UnscopedName::parse(ctx, subs, input) {
             if tail.peek() == Some(b'I') {
                 let name = UnscopedTemplateName(name);
-                let idx = subs.insert(Substitutable::UnscopedTemplateName(name));
+                let idx = subs.insert(Substitutable::UnscopedTemplateName(name))?;
                 let handle = UnscopedTemplateNameHandle::BackReference(idx);
 
                 let (args, tail) = TemplateArgs::parse(ctx, subs, tail)?;
@@ -1879,7 +1879,7 @@ impl Parse for UnscopedTemplateNameHandle {
 
         if let Ok((name, tail)) = UnscopedName::parse(ctx, subs, input) {
             let name = UnscopedTemplateName(name);
-            let idx = subs.insert(Substitutable::UnscopedTemplateName(name));
+            let idx = subs.insert(Substitutable::UnscopedTemplateName(name))?;
             let handle = UnscopedTemplateNameHandle::BackReference(idx);
             return Ok((handle, tail));
         }
@@ -2156,18 +2156,18 @@ impl Parse for PrefixHandle {
             subs: &mut SubstitutionTable,
             prefix: Prefix,
             tail_tail: IndexStr<'_>,
-        ) -> PrefixHandle {
+        ) -> Result<PrefixHandle> {
             if let Some(b'E') = tail_tail.peek() {
                 // An `E` means that we just finished parsing a `<nested-name>`
                 // and this final set of prefixes isn't substitutable itself,
                 // only as part of the whole `<nested-name>`. Since they are
                 // effectively equivalent, it doesn't make sense to add entries
                 // for both.
-                let idx = subs.insert_non_substitution(Substitutable::Prefix(prefix));
-                PrefixHandle::NonSubstitution(NonSubstitution(idx))
+                let idx = subs.insert_non_substitution(Substitutable::Prefix(prefix))?;
+                Ok(PrefixHandle::NonSubstitution(NonSubstitution(idx)))
             } else {
-                let idx = subs.insert(Substitutable::Prefix(prefix));
-                PrefixHandle::BackReference(idx)
+                let idx = subs.insert(Substitutable::Prefix(prefix))?;
+                Ok(PrefixHandle::BackReference(idx))
             }
         }
 
@@ -2201,7 +2201,7 @@ impl Parse for PrefixHandle {
                 Some(b'T') => {
                     // <prefix> ::= <template-param>
                     let (param, tail_tail) = TemplateParam::parse(ctx, subs, tail)?;
-                    current = Some(save(subs, Prefix::TemplateParam(param), tail_tail));
+                    current = Some(save(subs, Prefix::TemplateParam(param), tail_tail)?);
                     tail = tail_tail;
                 }
                 Some(b'D') => {
@@ -2213,7 +2213,7 @@ impl Parse for PrefixHandle {
                     //
                     //     <prefix> ::= <unqualified-name> ::= <ctor-dtor-name>
                     if let Ok((decltype, tail_tail)) = Decltype::parse(ctx, subs, tail) {
-                        current = Some(save(subs, Prefix::Decltype(decltype), tail_tail));
+                        current = Some(save(subs, Prefix::Decltype(decltype), tail_tail)?);
                         tail = tail_tail;
                     } else {
                         let (name, tail_tail) = UnqualifiedName::parse(ctx, subs, tail)?;
@@ -2221,7 +2221,7 @@ impl Parse for PrefixHandle {
                             None => Prefix::Unqualified(name),
                             Some(handle) => Prefix::Nested(handle, name),
                         };
-                        current = Some(save(subs, prefix, tail_tail));
+                        current = Some(save(subs, prefix, tail_tail)?);
                         tail = tail_tail;
                     }
                 }
@@ -2231,7 +2231,7 @@ impl Parse for PrefixHandle {
                     // <prefix> ::= <template-prefix> <template-args>
                     let (args, tail_tail) = TemplateArgs::parse(ctx, subs, tail)?;
                     let prefix = Prefix::Template(current.unwrap(), args);
-                    current = Some(save(subs, prefix, tail_tail));
+                    current = Some(save(subs, prefix, tail_tail)?);
                     tail = tail_tail;
                 }
                 Some(c) if current.is_some() && SourceName::starts_with(c) => {
@@ -2248,7 +2248,7 @@ impl Parse for PrefixHandle {
                     let (name, tail_tail) = SourceName::parse(ctx, subs, tail)?;
                     if tail_tail.peek() == Some(b'M') {
                         let prefix = Prefix::DataMember(current.unwrap(), DataMemberPrefix(name));
-                        current = Some(save(subs, prefix, tail_tail));
+                        current = Some(save(subs, prefix, tail_tail)?);
                         tail = consume(b"M", tail_tail).unwrap();
                     } else {
                         let name = UnqualifiedName::Source(name);
@@ -2256,7 +2256,7 @@ impl Parse for PrefixHandle {
                             None => Prefix::Unqualified(name),
                             Some(handle) => Prefix::Nested(handle, name),
                         };
-                        current = Some(save(subs, prefix, tail_tail));
+                        current = Some(save(subs, prefix, tail_tail)?);
                         tail = tail_tail;
                     }
                 }
@@ -2267,7 +2267,7 @@ impl Parse for PrefixHandle {
                         None => Prefix::Unqualified(name),
                         Some(handle) => Prefix::Nested(handle, name),
                     };
-                    current = Some(save(subs, prefix, tail_tail));
+                    current = Some(save(subs, prefix, tail_tail)?);
                     tail = tail_tail;
                 }
                 Some(_) => {
@@ -3521,7 +3521,7 @@ impl Parse for TypeHandle {
             tail: IndexStr<'b>,
         ) -> Result<(TypeHandle, IndexStr<'b>)> {
             let ty = Substitutable::Type(ty);
-            let idx = subs.insert(ty);
+            let idx = subs.insert(ty)?;
             let handle = TypeHandle::BackReference(idx);
             Ok((handle, tail))
         }
@@ -5075,7 +5075,7 @@ impl Parse for TemplateTemplateParamHandle {
         let (param, tail) = TemplateParam::parse(ctx, subs, input)?;
         let ttp = TemplateTemplateParam(param);
         let ttp = Substitutable::TemplateTemplateParam(ttp);
-        let idx = subs.insert(ttp);
+        let idx = subs.insert(ttp)?;
         let handle = TemplateTemplateParamHandle::BackReference(idx);
         Ok((handle, tail))
     }
@@ -5362,7 +5362,7 @@ impl Parse for MemberName {
         if let Ok((template, tail)) = TemplateArgs::parse(ctx, subs, tail) {
             let name = UnscopedTemplateName(name);
             // In libiberty, these are unsubstitutable.
-            let idx = subs.insert_non_substitution(Substitutable::UnscopedTemplateName(name));
+            let idx = subs.insert_non_substitution(Substitutable::UnscopedTemplateName(name))?;
             let handle = UnscopedTemplateNameHandle::NonSubstitution(NonSubstitution(idx));
             Ok((MemberName(Name::UnscopedTemplate(handle, template)), tail))
         } else {
@@ -6415,7 +6415,7 @@ impl Parse for UnresolvedTypeHandle {
             };
             let ty = UnresolvedType::Template(param, args);
             let ty = Substitutable::UnresolvedType(ty);
-            let idx = subs.insert(ty);
+            let idx = subs.insert(ty)?;
             let handle = UnresolvedTypeHandle::BackReference(idx);
             return Ok((handle, tail));
         }
@@ -6423,7 +6423,7 @@ impl Parse for UnresolvedTypeHandle {
         if let Ok((decltype, tail)) = Decltype::parse(ctx, subs, input) {
             let ty = UnresolvedType::Decltype(decltype);
             let ty = Substitutable::UnresolvedType(ty);
-            let idx = subs.insert(ty);
+            let idx = subs.insert(ty)?;
             let handle = UnresolvedTypeHandle::BackReference(idx);
             return Ok((handle, tail));
         }
