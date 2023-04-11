@@ -1705,7 +1705,10 @@ impl Parse for Name {
                 let idx = subs.insert(Substitutable::UnscopedTemplateName(name));
                 let handle = UnscopedTemplateNameHandle::BackReference(idx);
 
-                let (args, tail) = TemplateArgs::parse(ctx, subs, tail)?;
+                let (args, tail) = TemplateArgs::parse(ctx, subs, tail).map_err(|err| {
+                    subs.pop();
+                    err
+                })?;
                 return Ok((Name::UnscopedTemplate(handle, args), tail));
             } else {
                 return Ok((Name::Unscoped(name), tail));

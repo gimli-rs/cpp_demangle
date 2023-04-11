@@ -163,6 +163,18 @@ fn test_stackoverflow_does_not_occur_issue_186() {
     assert_does_not_demangle("__ZNSt3__18__bind_rINS_4pairINS_12basic_stringIcNS_11char_traitsIcEENS_9allocatorIcEEEE8cc_errorEEZN5stlab2v15asyncIZNSB_14serial_queue_tclIZN12_GLOBAL__N_114future_adaptorIN10redacteLib12ValueOrErrorIS7_EEZNK10cc_element17rendition_requestEmbE4$_14EEDaNS_6futureIT_EEOT0_EUlSO_E_JNSN_ISJ_EEEEESM_OSO_DpOT0_EUlSU_E_SS_JST_EEENSB_6futureINS_9result_ofIFNS_5decayISQ_E4typeEDpNS11_IT1_E4typeEEE4typeEvEESO_SR_DpOS14_EUlRST_E_JST_EEC1IS1F_JST_EvEESU_SX_");
 }
 
+// This symbol runs into some mutual recursion that was previously eagerly allocating substitution table entries.
+// See <https://github.com/gimli-rs/cpp_demangle/issues/277> and <https://github.com/getsentry/symbolic/issues/477>
+#[ignore = "extremely slow with the given recursion limit"]
+#[test]
+fn test_does_not_oom() {
+    let s = "_ZUlzjjlZZL1zStUlSt7j_Z3kjIIjIjL1vfIIEEEjzjjfjzSt7j_Z3kjIIjfjzL4t3kjIIjfjtUlSt7j_Z3kjIIjIjL1vfIIEEEjzjjfjzSt7j_Z3kjIIjfjzL4t3kjIIjfjzL4t7IjIjjzjjzSt7j_Z3kjIIjfjzStfjzSt7j_ZA3kjIIjIjL1vfIIEEEjzjjfjzSt7j_Z3kjIIjIjL1vfIIEEEjzjjfjzSt7j_Z3kjIIjfjzL4t3kjIIjzL4t7IjIjjzjjzSt7j_Z3kjIIjfjzStfjzSt7j_ZA3kjIIjIjL1vfIIEEEjzjjfjzSt7j_Z3kjIIjIjL1vfIIEEEjzjjfjzSt7j_Z3kjIIjfjzL4t3kjIIjfjzL4t7IjIjL1vfIIEEEjzjjSI";
+    let parse_options = cpp_demangle::ParseOptions::default().recursion_limit(160); // default is 96
+    if let Ok(sym) = cpp_demangle::Symbol::new_with_options(s, &parse_options) {
+        panic!("Unexpectedly parsed '{}' as '{}'", s, sym);
+    }
+}
+
 demangles!(
     _ZN7mozilla6detail12ListenerImplINS_14AbstractThreadEZNS_20MediaEventSourceImplILNS_14ListenerPolicyE0EJNS_13TimedMetadataEEE15ConnectInternalIS2_NS_12MediaDecoderEMS8_FvOS5_EEENS_8EnableIfIXsr8TakeArgsIT1_EE5valueENS_18MediaEventListenerEE4TypeEPT_PT0_SD_EUlS9_E_JS5_EE17ApplyWithArgsImplISL_EENSC_IXsr8TakeArgsISH_EE5valueEvE4TypeERKSH_S9_,
     // This does not match llvm-cxxfilt
