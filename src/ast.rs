@@ -3533,6 +3533,40 @@ impl Parse for TypeHandle {
             return Ok((handle, tail));
         }
 
+        // ::= <qualified-type>
+        // We don't have a separate type for the <qualified-type> production.
+        // Process these all up front, so that any ambiguity that might exist
+        // with later productions is handled correctly.
+
+        // ::= <extended-qualifier>
+        if let Ok(tail) = consume(b"U", input) {
+            let (name, tail) = SourceName::parse(ctx, subs, tail)?;
+            let (args, tail) = if let Ok((args, tail)) = TemplateArgs::parse(ctx, subs, tail) {
+                (Some(args), tail)
+            } else {
+                (None, tail)
+            };
+            let (ty, tail) = TypeHandle::parse(ctx, subs, tail)?;
+            let ty = Type::VendorExtension(name, args, ty);
+            return insert_and_return_handle(ty, subs, tail);
+        }
+
+        // ::= <CV-qualifiers>
+        if let Ok((qualifiers, tail)) = CvQualifiers::parse(ctx, subs, input) {
+            // CvQualifiers can parse successfully without consuming any input,
+            // but we don't want to recurse unless we know we did consume some
+            // input, lest we go into an infinite loop and blow the stack.
+            if tail.len() < input.len() {
+                // If the following production is a <function-type>, we want to let
+                // it pick up these <CV-qualifiers>.
+                if !FunctionType::starts_with(&tail) {
+                    let (ty, tail) = TypeHandle::parse(ctx, subs, tail)?;
+                    let ty = Type::Qualified(qualifiers, ty);
+                    return insert_and_return_handle(ty, subs, tail);
+                }
+            }
+        }
+
         if let Ok((ty, tail)) = ClassEnumType::parse(ctx, subs, input) {
             let ty = Type::ClassEnum(ty);
             return insert_and_return_handle(ty, subs, tail);
@@ -3625,17 +3659,6 @@ impl Parse for TypeHandle {
             return insert_and_return_handle(ty, subs, tail);
         }
 
-        if let Ok((qualifiers, tail)) = CvQualifiers::parse(ctx, subs, input) {
-            // CvQualifiers can parse successfully without consuming any input,
-            // but we don't want to recurse unless we know we did consume some
-            // input, lest we go into an infinite loop and blow the stack.
-            if tail.len() < input.len() {
-                let (ty, tail) = TypeHandle::parse(ctx, subs, tail)?;
-                let ty = Type::Qualified(qualifiers, ty);
-                return insert_and_return_handle(ty, subs, tail);
-            }
-        }
-
         if let Ok(tail) = consume(b"P", input) {
             let (ty, tail) = TypeHandle::parse(ctx, subs, tail)?;
             let ty = Type::PointerTo(ty);
@@ -3663,18 +3686,6 @@ impl Parse for TypeHandle {
         if let Ok(tail) = consume(b"G", input) {
             let (ty, tail) = TypeHandle::parse(ctx, subs, tail)?;
             let ty = Type::Imaginary(ty);
-            return insert_and_return_handle(ty, subs, tail);
-        }
-
-        if let Ok(tail) = consume(b"U", input) {
-            let (name, tail) = SourceName::parse(ctx, subs, tail)?;
-            let (args, tail) = if let Ok((args, tail)) = TemplateArgs::parse(ctx, subs, tail) {
-                (Some(args), tail)
-            } else {
-                (None, tail)
-            };
-            let (ty, tail) = TypeHandle::parse(ctx, subs, tail)?;
-            let ty = Type::VendorExtension(name, args, ty);
             return insert_and_return_handle(ty, subs, tail);
         }
 
@@ -4327,6 +4338,18 @@ where
 
     fn downcast_to_function_type(&self) -> Option<&FunctionType> {
         Some(self)
+    }
+}
+
+impl FunctionType {
+    #[inline]
+    fn starts_with(input: &IndexStr) -> bool {
+        input.peek() == Some(b'F')
+            || (input.peek() == Some(b'D')
+                && (matches!(
+                    input.peek_second(),
+                    Some(b'o') | Some(b'O') | Some(b'x') | Some(b'w')
+                )))
     }
 }
 
@@ -8953,6 +8976,7 @@ mod tests {
                     b"Dp" => Error::UnexpectedEnd,
                     b"D" => Error::UnexpectedEnd,
                     b"P" => Error::UnexpectedEnd,
+                    b"UlvE_" => Error::UnexpectedText,
                     b"" => Error::UnexpectedEnd,
                 }
             }
