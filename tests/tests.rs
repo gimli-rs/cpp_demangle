@@ -610,3 +610,14 @@ demangles!(
     _ZN7mozilla10extensions7AtomSet3GetIXadsoPKcL_ZNS0_16WILDCARD_SCHEMESEEEEEE8nsresultR6RefPtrIS1_E,
     "nsresult mozilla::extensions::AtomSet::Get<&(mozilla::extensions::WILDCARD_SCHEMES.<char const* at offset 0>)>(RefPtr<mozilla::extensions::AtomSet>&)"
 );
+
+// This symbol previously ran into some mutual recursion and unbounded growth of the substitution table.
+// See <https://github.com/gimli-rs/cpp_demangle/issues/277> and <https://github.com/getsentry/symbolic/issues/477>
+#[test]
+fn test_pathological_recursion() {
+    let s = "_ZUlzjjlZZL1zStUlSt7j_Z3kjIIjIjL1vfIIEEEjzjjfjzSt7j_Z3kjIIjfjzL4t3kjIIjfjtUlSt7j_Z3kjIIjIjL1vfIIEEEjzjjfjzSt7j_Z3kjIIjfjzL4t3kjIIjfjzL4t7IjIjjzjjzSt7j_Z3kjIIjfjzStfjzSt7j_ZA3kjIIjIjL1vfIIEEEjzjjfjzSt7j_Z3kjIIjIjL1vfIIEEEjzjjfjzSt7j_Z3kjIIjfjzL4t3kjIIjzL4t7IjIjjzjjzSt7j_Z3kjIIjfjzStfjzSt7j_ZA3kjIIjIjL1vfIIEEEjzjjfjzSt7j_Z3kjIIjIjL1vfIIEEEjzjjfjzSt7j_Z3kjIIjfjzL4t3kjIIjfjzL4t7IjIjL1vfIIEEEjzjjSI";
+    let parse_options = cpp_demangle::ParseOptions::default().recursion_limit(160); // default is 96
+    if let Ok(sym) = cpp_demangle::Symbol::new_with_options(s, &parse_options) {
+        panic!("Unexpectedly parsed '{}' as '{}'", s, sym);
+    }
+}
