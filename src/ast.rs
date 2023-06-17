@@ -17,6 +17,17 @@ use core::ops;
 use core::ptr;
 use core::str;
 
+macro_rules! r#try_recurse {
+    ($expr:expr $(,)?) => {
+        match $expr {
+            Result::Err(error::Error::TooMuchRecursion) => {
+                return Result::Err(error::Error::TooMuchRecursion);
+            }
+            val => val,
+        }
+    };
+}
+
 struct AutoLogParse;
 
 #[cfg(feature = "logging")]
@@ -1436,8 +1447,8 @@ impl Parse for Encoding {
     ) -> Result<(Encoding, IndexStr<'b>)> {
         try_begin_parse!("Encoding", ctx, input);
 
-        if let Ok((name, tail)) = Name::parse(ctx, subs, input) {
-            if let Ok((ty, tail)) = BareFunctionType::parse(ctx, subs, tail) {
+        if let Ok((name, tail)) = try_recurse!(Name::parse(ctx, subs, input)) {
+            if let Ok((ty, tail)) = try_recurse!(BareFunctionType::parse(ctx, subs, tail)) {
                 return Ok((Encoding::Function(name, ty), tail));
             } else {
                 return Ok((Encoding::Data(name), tail));
@@ -1695,11 +1706,11 @@ impl Parse for Name {
     ) -> Result<(Name, IndexStr<'b>)> {
         try_begin_parse!("Name", ctx, input);
 
-        if let Ok((name, tail)) = NestedName::parse(ctx, subs, input) {
+        if let Ok((name, tail)) = try_recurse!(NestedName::parse(ctx, subs, input)) {
             return Ok((Name::Nested(name), tail));
         }
 
-        if let Ok((name, tail)) = UnscopedName::parse(ctx, subs, input) {
+        if let Ok((name, tail)) = try_recurse!(UnscopedName::parse(ctx, subs, input)) {
             if tail.peek() == Some(b'I') {
                 let name = UnscopedTemplateName(name);
                 let idx = subs.insert(Substitutable::UnscopedTemplateName(name));
@@ -1712,7 +1723,8 @@ impl Parse for Name {
             }
         }
 
-        if let Ok((name, tail)) = UnscopedTemplateNameHandle::parse(ctx, subs, input) {
+        if let Ok((name, tail)) = try_recurse!(UnscopedTemplateNameHandle::parse(ctx, subs, input))
+        {
             let (args, tail) = TemplateArgs::parse(ctx, subs, tail)?;
             return Ok((Name::UnscopedTemplate(name, args), tail));
         }
@@ -1877,7 +1889,7 @@ impl Parse for UnscopedTemplateNameHandle {
     ) -> Result<(UnscopedTemplateNameHandle, IndexStr<'b>)> {
         try_begin_parse!("UnscopedTemplateNameHandle", ctx, input);
 
-        if let Ok((name, tail)) = UnscopedName::parse(ctx, subs, input) {
+        if let Ok((name, tail)) = try_recurse!(UnscopedName::parse(ctx, subs, input)) {
             let name = UnscopedTemplateName(name);
             let idx = subs.insert(Substitutable::UnscopedTemplateName(name));
             let handle = UnscopedTemplateNameHandle::BackReference(idx);
@@ -1950,17 +1962,19 @@ impl Parse for NestedName {
 
         let tail = consume(b"N", input)?;
 
-        let (cv_qualifiers, tail) = if let Ok((q, tail)) = CvQualifiers::parse(ctx, subs, tail) {
-            (q, tail)
-        } else {
-            (Default::default(), tail)
-        };
+        let (cv_qualifiers, tail) =
+            if let Ok((q, tail)) = try_recurse!(CvQualifiers::parse(ctx, subs, tail)) {
+                (q, tail)
+            } else {
+                (Default::default(), tail)
+            };
 
-        let (ref_qualifier, tail) = if let Ok((r, tail)) = RefQualifier::parse(ctx, subs, tail) {
-            (Some(r), tail)
-        } else {
-            (None, tail)
-        };
+        let (ref_qualifier, tail) =
+            if let Ok((r, tail)) = try_recurse!(RefQualifier::parse(ctx, subs, tail)) {
+                (Some(r), tail)
+            } else {
+                (None, tail)
+            };
 
         let (prefix, tail) = PrefixHandle::parse(ctx, subs, tail)?;
         let tail = consume(b"E", tail)?;
@@ -2212,7 +2226,9 @@ impl Parse for PrefixHandle {
                     // or
                     //
                     //     <prefix> ::= <unqualified-name> ::= <ctor-dtor-name>
-                    if let Ok((decltype, tail_tail)) = Decltype::parse(ctx, subs, tail) {
+                    if let Ok((decltype, tail_tail)) =
+                        try_recurse!(Decltype::parse(ctx, subs, tail))
+                    {
                         current = Some(save(subs, Prefix::Decltype(decltype), tail_tail));
                         tail = tail_tail;
                     } else {
@@ -2456,33 +2472,34 @@ impl Parse for UnqualifiedName {
     ) -> Result<(UnqualifiedName, IndexStr<'b>)> {
         try_begin_parse!("UnqualifiedName", ctx, input);
 
-        if let Ok((op, tail)) = OperatorName::parse(ctx, subs, input) {
+        if let Ok((op, tail)) = try_recurse!(OperatorName::parse(ctx, subs, input)) {
             return Ok((UnqualifiedName::Operator(op), tail));
         }
 
-        if let Ok((ctor_dtor, tail)) = CtorDtorName::parse(ctx, subs, input) {
+        if let Ok((ctor_dtor, tail)) = try_recurse!(CtorDtorName::parse(ctx, subs, input)) {
             return Ok((UnqualifiedName::CtorDtor(ctor_dtor), tail));
         }
 
         if let Ok(tail) = consume(b"L", input) {
             let (name, tail) = SourceName::parse(ctx, subs, tail)?;
-            let (discr, tail) = if let Ok((d, t)) = Discriminator::parse(ctx, subs, tail) {
-                (Some(d), t)
-            } else {
-                (None, tail)
-            };
+            let (discr, tail) =
+                if let Ok((d, t)) = try_recurse!(Discriminator::parse(ctx, subs, tail)) {
+                    (Some(d), t)
+                } else {
+                    (None, tail)
+                };
             return Ok((UnqualifiedName::LocalSourceName(name, discr), tail));
         }
 
-        if let Ok((source, tail)) = SourceName::parse(ctx, subs, input) {
+        if let Ok((source, tail)) = try_recurse!(SourceName::parse(ctx, subs, input)) {
             return Ok((UnqualifiedName::Source(source), tail));
         }
 
-        if let Ok((tagged, tail)) = TaggedName::parse(ctx, subs, input) {
+        if let Ok((tagged, tail)) = try_recurse!(TaggedName::parse(ctx, subs, input)) {
             return Ok((UnqualifiedName::ABITag(tagged), tail));
         }
 
-        if let Ok((closure, tail)) = ClosureTypeName::parse(ctx, subs, input) {
+        if let Ok((closure, tail)) = try_recurse!(ClosureTypeName::parse(ctx, subs, input)) {
             return Ok((UnqualifiedName::ClosureType(closure), tail));
         }
 
@@ -2971,7 +2988,7 @@ impl OperatorName {
     ) -> Result<(OperatorName, IndexStr<'b>)> {
         try_begin_parse!("OperatorName", ctx, input);
 
-        if let Ok((simple, tail)) = SimpleOperatorName::parse(ctx, subs, input) {
+        if let Ok((simple, tail)) = try_recurse!(SimpleOperatorName::parse(ctx, subs, input)) {
             return Ok((OperatorName::Simple(simple), tail));
         }
 
@@ -3526,7 +3543,7 @@ impl Parse for TypeHandle {
             Ok((handle, tail))
         }
 
-        if let Ok((builtin, tail)) = BuiltinType::parse(ctx, subs, input) {
+        if let Ok((builtin, tail)) = try_recurse!(BuiltinType::parse(ctx, subs, input)) {
             // Builtin types are one of two exceptions that do not end up in the
             // substitutions table.
             let handle = TypeHandle::Builtin(builtin);
@@ -3541,18 +3558,19 @@ impl Parse for TypeHandle {
         // ::= <extended-qualifier>
         if let Ok(tail) = consume(b"U", input) {
             let (name, tail) = SourceName::parse(ctx, subs, tail)?;
-            let (args, tail) = if let Ok((args, tail)) = TemplateArgs::parse(ctx, subs, tail) {
-                (Some(args), tail)
-            } else {
-                (None, tail)
-            };
+            let (args, tail) =
+                if let Ok((args, tail)) = try_recurse!(TemplateArgs::parse(ctx, subs, tail)) {
+                    (Some(args), tail)
+                } else {
+                    (None, tail)
+                };
             let (ty, tail) = TypeHandle::parse(ctx, subs, tail)?;
             let ty = Type::VendorExtension(name, args, ty);
             return insert_and_return_handle(ty, subs, tail);
         }
 
         // ::= <CV-qualifiers>
-        if let Ok((qualifiers, tail)) = CvQualifiers::parse(ctx, subs, input) {
+        if let Ok((qualifiers, tail)) = try_recurse!(CvQualifiers::parse(ctx, subs, input)) {
             // CvQualifiers can parse successfully without consuming any input,
             // but we don't want to recurse unless we know we did consume some
             // input, lest we go into an infinite loop and blow the stack.
@@ -3567,12 +3585,12 @@ impl Parse for TypeHandle {
             }
         }
 
-        if let Ok((ty, tail)) = ClassEnumType::parse(ctx, subs, input) {
+        if let Ok((ty, tail)) = try_recurse!(ClassEnumType::parse(ctx, subs, input)) {
             let ty = Type::ClassEnum(ty);
             return insert_and_return_handle(ty, subs, tail);
         }
 
-        if let Ok((sub, tail)) = Substitution::parse(ctx, subs, input) {
+        if let Ok((sub, tail)) = try_recurse!(Substitution::parse(ctx, subs, input)) {
             // If we see an 'I', then this is actually a substitution for a
             // <template-template-param>, and the template args are what
             // follows. Throw away what we just parsed, and re-parse it in
@@ -3592,27 +3610,27 @@ impl Parse for TypeHandle {
             }
         }
 
-        if let Ok((funty, tail)) = FunctionType::parse(ctx, subs, input) {
+        if let Ok((funty, tail)) = try_recurse!(FunctionType::parse(ctx, subs, input)) {
             let ty = Type::Function(funty);
             return insert_and_return_handle(ty, subs, tail);
         }
 
-        if let Ok((ty, tail)) = ArrayType::parse(ctx, subs, input) {
+        if let Ok((ty, tail)) = try_recurse!(ArrayType::parse(ctx, subs, input)) {
             let ty = Type::Array(ty);
             return insert_and_return_handle(ty, subs, tail);
         }
 
-        if let Ok((ty, tail)) = VectorType::parse(ctx, subs, input) {
+        if let Ok((ty, tail)) = try_recurse!(VectorType::parse(ctx, subs, input)) {
             let ty = Type::Vector(ty);
             return insert_and_return_handle(ty, subs, tail);
         }
 
-        if let Ok((ty, tail)) = PointerToMemberType::parse(ctx, subs, input) {
+        if let Ok((ty, tail)) = try_recurse!(PointerToMemberType::parse(ctx, subs, input)) {
             let ty = Type::PointerToMember(ty);
             return insert_and_return_handle(ty, subs, tail);
         }
 
-        if let Ok((param, tail)) = TemplateParam::parse(ctx, subs, input) {
+        if let Ok((param, tail)) = try_recurse!(TemplateParam::parse(ctx, subs, input)) {
             // Same situation as with `Substitution::parse` at the top of this
             // function: this is actually a <template-template-param> and
             // <template-args>.
@@ -3633,7 +3651,9 @@ impl Parse for TypeHandle {
                 // NB: Parsing a <template-args> production may modify the substitutions
                 // table, so we need to avoid contaminating the official copy.
                 let mut tmp_subs = subs.clone();
-                if let Ok((_, new_tail)) = TemplateArgs::parse(ctx, &mut tmp_subs, tail) {
+                if let Ok((_, new_tail)) =
+                    try_recurse!(TemplateArgs::parse(ctx, &mut tmp_subs, tail))
+                {
                     if new_tail.peek() != Some(b'I') {
                         // Don't consume the TemplateArgs.
                         let ty = Type::TemplateParam(param);
@@ -3648,13 +3668,14 @@ impl Parse for TypeHandle {
             }
         }
 
-        if let Ok((ttp, tail)) = TemplateTemplateParamHandle::parse(ctx, subs, input) {
+        if let Ok((ttp, tail)) = try_recurse!(TemplateTemplateParamHandle::parse(ctx, subs, input))
+        {
             let (args, tail) = TemplateArgs::parse(ctx, subs, tail)?;
             let ty = Type::TemplateTemplate(ttp, args);
             return insert_and_return_handle(ty, subs, tail);
         }
 
-        if let Ok((param, tail)) = Decltype::parse(ctx, subs, input) {
+        if let Ok((param, tail)) = try_recurse!(Decltype::parse(ctx, subs, input)) {
             let ty = Type::Decltype(param);
             return insert_and_return_handle(ty, subs, tail);
         }
@@ -4090,7 +4111,7 @@ impl Parse for BuiltinType {
     ) -> Result<(BuiltinType, IndexStr<'b>)> {
         try_begin_parse!("BuiltinType", ctx, input);
 
-        if let Ok((ty, tail)) = StandardBuiltinType::parse(ctx, subs, input) {
+        if let Ok((ty, tail)) = try_recurse!(StandardBuiltinType::parse(ctx, subs, input)) {
             return Ok((BuiltinType::Standard(ty), tail));
         }
 
@@ -4236,19 +4257,21 @@ impl Parse for FunctionType {
     ) -> Result<(FunctionType, IndexStr<'b>)> {
         try_begin_parse!("FunctionType", ctx, input);
 
-        let (cv_qualifiers, tail) =
-            if let Ok((cv_qualifiers, tail)) = CvQualifiers::parse(ctx, subs, input) {
-                (cv_qualifiers, tail)
-            } else {
-                (Default::default(), input)
-            };
+        let (cv_qualifiers, tail) = if let Ok((cv_qualifiers, tail)) =
+            try_recurse!(CvQualifiers::parse(ctx, subs, input))
+        {
+            (cv_qualifiers, tail)
+        } else {
+            (Default::default(), input)
+        };
 
-        let (exception_spec, tail) =
-            if let Ok((exception_spec, tail)) = ExceptionSpec::parse(ctx, subs, tail) {
-                (Some(exception_spec), tail)
-            } else {
-                (None, tail)
-            };
+        let (exception_spec, tail) = if let Ok((exception_spec, tail)) =
+            try_recurse!(ExceptionSpec::parse(ctx, subs, tail))
+        {
+            (Some(exception_spec), tail)
+        } else {
+            (None, tail)
+        };
 
         let (transaction_safe, tail) = if let Ok(tail) = consume(b"Dx", tail) {
             (true, tail)
@@ -4267,7 +4290,7 @@ impl Parse for FunctionType {
         let (bare, tail) = BareFunctionType::parse(ctx, subs, tail)?;
 
         let (ref_qualifier, tail) =
-            if let Ok((ref_qualifier, tail)) = RefQualifier::parse(ctx, subs, tail) {
+            if let Ok((ref_qualifier, tail)) = try_recurse!(RefQualifier::parse(ctx, subs, tail)) {
                 (Some(ref_qualifier), tail)
             } else {
                 (None, tail)
@@ -4519,7 +4542,7 @@ impl Parse for ClassEnumType {
     ) -> Result<(ClassEnumType, IndexStr<'b>)> {
         try_begin_parse!("ClassEnumType", ctx, input);
 
-        if let Ok((name, tail)) = Name::parse(ctx, subs, input) {
+        if let Ok((name, tail)) = try_recurse!(Name::parse(ctx, subs, input)) {
             return Ok((ClassEnumType::Named(name), tail));
         }
 
@@ -4703,7 +4726,7 @@ impl Parse for ArrayType {
             return Ok((ArrayType::DimensionNumber(num as _, ty), tail));
         }
 
-        if let Ok((expr, tail)) = Expression::parse(ctx, subs, tail) {
+        if let Ok((expr, tail)) = try_recurse!(Expression::parse(ctx, subs, tail)) {
             let tail = consume(b"_", tail)?;
             let (ty, tail) = TypeHandle::parse(ctx, subs, tail)?;
             return Ok((ArrayType::DimensionExpression(expr, ty), tail));
@@ -5081,7 +5104,7 @@ impl Parse for TemplateTemplateParamHandle {
     ) -> Result<(TemplateTemplateParamHandle, IndexStr<'b>)> {
         try_begin_parse!("TemplateTemplateParamHandle", ctx, input);
 
-        if let Ok((sub, tail)) = Substitution::parse(ctx, subs, input) {
+        if let Ok((sub, tail)) = try_recurse!(Substitution::parse(ctx, subs, input)) {
             match sub {
                 Substitution::WellKnown(component) => {
                     return Ok((TemplateTemplateParamHandle::WellKnown(component), tail));
@@ -5309,11 +5332,11 @@ impl Parse for TemplateArg {
             return Ok((TemplateArg::Expression(expr), tail));
         }
 
-        if let Ok((expr, tail)) = ExprPrimary::parse(ctx, subs, input) {
+        if let Ok((expr, tail)) = try_recurse!(ExprPrimary::parse(ctx, subs, input)) {
             return Ok((TemplateArg::SimpleExpression(expr), tail));
         }
 
-        if let Ok((ty, tail)) = TypeHandle::parse(ctx, subs, input) {
+        if let Ok((ty, tail)) = try_recurse!(TypeHandle::parse(ctx, subs, input)) {
             return Ok((TemplateArg::Type(ty), tail));
         }
 
@@ -5382,7 +5405,7 @@ impl Parse for MemberName {
 
         let (name, tail) = UnqualifiedName::parse(ctx, subs, input)?;
         let name = UnscopedName::Unqualified(name);
-        if let Ok((template, tail)) = TemplateArgs::parse(ctx, subs, tail) {
+        if let Ok((template, tail)) = try_recurse!(TemplateArgs::parse(ctx, subs, tail)) {
             let name = UnscopedTemplateName(name);
             // In libiberty, these are unsubstitutable.
             let idx = subs.insert_non_substitution(Substitutable::UnscopedTemplateName(name));
@@ -5774,7 +5797,7 @@ impl Parse for Expression {
                     return Ok((expr, tail));
                 }
                 b"gs" => {
-                    if let Ok((expr, tail)) = can_be_global(true, ctx, subs, tail) {
+                    if let Ok((expr, tail)) = try_recurse!(can_be_global(true, ctx, subs, tail)) {
                         return Ok((expr, tail));
                     }
                 }
@@ -5782,26 +5805,26 @@ impl Parse for Expression {
             }
         }
 
-        if let Ok((expr, tail)) = can_be_global(false, ctx, subs, input) {
+        if let Ok((expr, tail)) = try_recurse!(can_be_global(false, ctx, subs, input)) {
             return Ok((expr, tail));
         }
 
-        if let Ok((param, tail)) = TemplateParam::parse(ctx, subs, input) {
+        if let Ok((param, tail)) = try_recurse!(TemplateParam::parse(ctx, subs, input)) {
             let expr = Expression::TemplateParam(param);
             return Ok((expr, tail));
         }
 
-        if let Ok((param, tail)) = FunctionParam::parse(ctx, subs, input) {
+        if let Ok((param, tail)) = try_recurse!(FunctionParam::parse(ctx, subs, input)) {
             let expr = Expression::FunctionParam(param);
             return Ok((expr, tail));
         }
 
-        if let Ok((name, tail)) = UnresolvedName::parse(ctx, subs, input) {
+        if let Ok((name, tail)) = try_recurse!(UnresolvedName::parse(ctx, subs, input)) {
             let expr = Expression::UnresolvedName(name);
             return Ok((expr, tail));
         }
 
-        if let Ok((prim, tail)) = ExprPrimary::parse(ctx, subs, input) {
+        if let Ok((prim, tail)) = try_recurse!(ExprPrimary::parse(ctx, subs, input)) {
             let expr = Expression::Primary(prim);
             return Ok((expr, tail));
         }
@@ -6317,7 +6340,7 @@ impl Parse for UnresolvedName {
         try_begin_parse!("UnresolvedName", ctx, input);
 
         if let Ok(tail) = consume(b"gs", input) {
-            if let Ok((name, tail)) = BaseUnresolvedName::parse(ctx, subs, tail) {
+            if let Ok((name, tail)) = try_recurse!(BaseUnresolvedName::parse(ctx, subs, tail)) {
                 return Ok((UnresolvedName::Global(name), tail));
             }
 
@@ -6328,7 +6351,7 @@ impl Parse for UnresolvedName {
             return Ok((UnresolvedName::GlobalNested2(levels, name), tail));
         }
 
-        if let Ok((name, tail)) = BaseUnresolvedName::parse(ctx, subs, input) {
+        if let Ok((name, tail)) = try_recurse!(BaseUnresolvedName::parse(ctx, subs, input)) {
             return Ok((UnresolvedName::Name(name), tail));
         }
 
@@ -6343,7 +6366,7 @@ impl Parse for UnresolvedName {
             return Ok((UnresolvedName::Nested1(ty, levels, name), tail));
         }
 
-        if let Ok((ty, tail)) = UnresolvedTypeHandle::parse(ctx, subs, tail) {
+        if let Ok((ty, tail)) = try_recurse!(UnresolvedTypeHandle::parse(ctx, subs, tail)) {
             let (name, tail) = BaseUnresolvedName::parse(ctx, subs, tail)?;
             return Ok((UnresolvedName::Nested1(ty, vec![], name), tail));
         }
@@ -6430,12 +6453,13 @@ impl Parse for UnresolvedTypeHandle {
     ) -> Result<(UnresolvedTypeHandle, IndexStr<'b>)> {
         try_begin_parse!("UnresolvedTypeHandle", ctx, input);
 
-        if let Ok((param, tail)) = TemplateParam::parse(ctx, subs, input) {
-            let (args, tail) = if let Ok((args, tail)) = TemplateArgs::parse(ctx, subs, tail) {
-                (Some(args), tail)
-            } else {
-                (None, tail)
-            };
+        if let Ok((param, tail)) = try_recurse!(TemplateParam::parse(ctx, subs, input)) {
+            let (args, tail) =
+                if let Ok((args, tail)) = try_recurse!(TemplateArgs::parse(ctx, subs, tail)) {
+                    (Some(args), tail)
+                } else {
+                    (None, tail)
+                };
             let ty = UnresolvedType::Template(param, args);
             let ty = Substitutable::UnresolvedType(ty);
             let idx = subs.insert(ty);
@@ -6443,7 +6467,7 @@ impl Parse for UnresolvedTypeHandle {
             return Ok((handle, tail));
         }
 
-        if let Ok((decltype, tail)) = Decltype::parse(ctx, subs, input) {
+        if let Ok((decltype, tail)) = try_recurse!(Decltype::parse(ctx, subs, input)) {
             let ty = UnresolvedType::Decltype(decltype);
             let ty = Substitutable::UnresolvedType(ty);
             let idx = subs.insert(ty);
@@ -6546,11 +6570,12 @@ impl Parse for SimpleId {
         try_begin_parse!("SimpleId", ctx, input);
 
         let (name, tail) = SourceName::parse(ctx, subs, input)?;
-        let (args, tail) = if let Ok((args, tail)) = TemplateArgs::parse(ctx, subs, tail) {
-            (Some(args), tail)
-        } else {
-            (None, tail)
-        };
+        let (args, tail) =
+            if let Ok((args, tail)) = try_recurse!(TemplateArgs::parse(ctx, subs, tail)) {
+                (Some(args), tail)
+            } else {
+                (None, tail)
+            };
         Ok((SimpleId(name, args), tail))
     }
 }
@@ -6603,17 +6628,18 @@ impl Parse for BaseUnresolvedName {
     ) -> Result<(BaseUnresolvedName, IndexStr<'b>)> {
         try_begin_parse!("BaseUnresolvedName", ctx, input);
 
-        if let Ok((name, tail)) = SimpleId::parse(ctx, subs, input) {
+        if let Ok((name, tail)) = try_recurse!(SimpleId::parse(ctx, subs, input)) {
             return Ok((BaseUnresolvedName::Name(name), tail));
         }
 
         if let Ok(tail) = consume(b"on", input) {
             let (opname, tail) = OperatorName::parse(ctx, subs, tail)?;
-            let (args, tail) = if let Ok((args, tail)) = TemplateArgs::parse(ctx, subs, tail) {
-                (Some(args), tail)
-            } else {
-                (None, tail)
-            };
+            let (args, tail) =
+                if let Ok((args, tail)) = try_recurse!(TemplateArgs::parse(ctx, subs, tail)) {
+                    (Some(args), tail)
+                } else {
+                    (None, tail)
+                };
             return Ok((BaseUnresolvedName::Operator(opname, args), tail));
         }
 
@@ -6671,7 +6697,7 @@ impl Parse for DestructorName {
     ) -> Result<(DestructorName, IndexStr<'b>)> {
         try_begin_parse!("DestructorName", ctx, input);
 
-        if let Ok((ty, tail)) = UnresolvedTypeHandle::parse(ctx, subs, input) {
+        if let Ok((ty, tail)) = try_recurse!(UnresolvedTypeHandle::parse(ctx, subs, input)) {
             return Ok((DestructorName::Unresolved(ty), tail));
         }
 
@@ -6729,7 +6755,7 @@ impl Parse for ExprPrimary {
 
         let tail = consume(b"L", input)?;
 
-        if let Ok((ty, tail)) = TypeHandle::parse(ctx, subs, tail) {
+        if let Ok((ty, tail)) = try_recurse!(TypeHandle::parse(ctx, subs, tail)) {
             let start = tail.index();
             let num_bytes_in_literal = tail.as_ref().iter().take_while(|&&c| c != b'E').count();
             let tail = tail.range_from(num_bytes_in_literal..);
@@ -6924,20 +6950,22 @@ impl Parse for LocalName {
         let tail = consume(b"E", tail)?;
 
         if let Ok(tail) = consume(b"s", tail) {
-            let (disc, tail) = if let Ok((disc, tail)) = Discriminator::parse(ctx, subs, tail) {
-                (Some(disc), tail)
-            } else {
-                (None, tail)
-            };
+            let (disc, tail) =
+                if let Ok((disc, tail)) = try_recurse!(Discriminator::parse(ctx, subs, tail)) {
+                    (Some(disc), tail)
+                } else {
+                    (None, tail)
+                };
             return Ok((LocalName::Relative(Box::new(encoding), None, disc), tail));
         }
 
         if let Ok(tail) = consume(b"d", tail) {
-            let (param, tail) = if let Ok((num, tail)) = Number::parse(ctx, subs, tail) {
-                (Some(num as _), tail)
-            } else {
-                (None, tail)
-            };
+            let (param, tail) =
+                if let Ok((num, tail)) = try_recurse!(Number::parse(ctx, subs, tail)) {
+                    (Some(num as _), tail)
+                } else {
+                    (None, tail)
+                };
             let tail = consume(b"_", tail)?;
             let (name, tail) = Name::parse(ctx, subs, tail)?;
             return Ok((
@@ -6947,11 +6975,12 @@ impl Parse for LocalName {
         }
 
         let (name, tail) = Name::parse(ctx, subs, tail)?;
-        let (disc, tail) = if let Ok((disc, tail)) = Discriminator::parse(ctx, subs, tail) {
-            (Some(disc), tail)
-        } else {
-            (None, tail)
-        };
+        let (disc, tail) =
+            if let Ok((disc, tail)) = try_recurse!(Discriminator::parse(ctx, subs, tail)) {
+                (Some(disc), tail)
+            } else {
+                (None, tail)
+            };
 
         Ok((
             LocalName::Relative(Box::new(encoding), Some(Box::new(name)), disc),
@@ -7294,12 +7323,12 @@ impl Parse for Substitution {
     ) -> Result<(Substitution, IndexStr<'b>)> {
         try_begin_parse!("Substitution", ctx, input);
 
-        if let Ok((well_known, tail)) = WellKnownComponent::parse(ctx, subs, input) {
+        if let Ok((well_known, tail)) = try_recurse!(WellKnownComponent::parse(ctx, subs, input)) {
             return Ok((Substitution::WellKnown(well_known), tail));
         }
 
         let tail = consume(b"S", input)?;
-        let (idx, tail) = if let Ok((idx, tail)) = SeqId::parse(ctx, subs, tail) {
+        let (idx, tail) = if let Ok((idx, tail)) = try_recurse!(SeqId::parse(ctx, subs, tail)) {
             (idx.0 + 1, tail)
         } else {
             (0, tail)
@@ -7867,7 +7896,7 @@ where
     let (first, mut tail) = P::parse(ctx, subs, input)?;
     let mut results = vec![first];
     loop {
-        if let Ok((parsed, tail_tail)) = P::parse(ctx, subs, tail) {
+        if let Ok((parsed, tail_tail)) = try_recurse!(P::parse(ctx, subs, tail)) {
             results.push(parsed);
             tail = tail_tail;
         } else {
@@ -7887,7 +7916,7 @@ where
     let mut tail = input;
     let mut results = vec![];
     loop {
-        if let Ok((parsed, tail_tail)) = P::parse(ctx, subs, tail) {
+        if let Ok((parsed, tail_tail)) = try_recurse!(P::parse(ctx, subs, tail)) {
             results.push(parsed);
             tail = tail_tail;
         } else {
