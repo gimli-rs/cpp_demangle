@@ -28,6 +28,20 @@ Released YYYY/MM/DD
 
 --------------------------------------------------------------------------------
 
+# 0.4.2
+
+Released 2023/6/26
+
+## Fixed
+
+* Handling of recursion depth errors has been improved. Exceeding cpp_demangle's
+  recursion limits will now return immediately, which significantly improves
+  performance when attempting to demangle these symbols, and removes the possibility
+  of returning an incorrect demangling if any productions in the symbol might be
+  ambiguous. (#284)[https://github.com/gimli-rs/cpp_demangle/pull/284]
+
+--------------------------------------------------------------------------------
+
 # 0.4.1
 
 Released 2023/4/13
