@@ -28,6 +28,17 @@ Released YYYY/MM/DD
 
 --------------------------------------------------------------------------------
 
+# 0.4.1
+
+Released 2023/4/13
+
+## Fixed
+
+* A case of runaway recursion caused by parsing ambiguous input in an incorrect
+  order has been fixed. (#280)[https://github.com/gimli-rs/cpp_demangle/pull/280]
+
+--------------------------------------------------------------------------------
+
 # 0.4.0
 
 Released 2022/10/20
@@ -42,16 +53,6 @@ Released 2022/10/20
 
 --------------------------------------------------------------------------------
 
-# 0.4.1
-
-Released 2023/4/13
-
-## Fixed
-
-* A case of runaway recursion caused by parsing ambiguous input in an incorrect
-  order has been fixed. (#280)[https://github.com/gimli-rs/cpp_demangle/pull/280]
-
---------------------------------------------------------------------------------
 # 0.3.6
 
 Released 2022/10/20
