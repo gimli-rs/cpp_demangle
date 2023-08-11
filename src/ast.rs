@@ -3277,13 +3277,13 @@ impl Parse for VOffset {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum CtorDtorName {
     /// "C1", the "complete object constructor"
-    CompleteConstructor(Option<Box<Name>>),
+    CompleteConstructor(Option<TypeHandle>),
     /// "C2", the "base object constructor"
-    BaseConstructor(Option<Box<Name>>),
+    BaseConstructor(Option<TypeHandle>),
     /// "C3", the "complete object allocating constructor"
-    CompleteAllocatingConstructor(Option<Box<Name>>),
+    CompleteAllocatingConstructor(Option<TypeHandle>),
     /// "C4", the "maybe in-charge constructor"
-    MaybeInChargeConstructor(Option<Box<Name>>),
+    MaybeInChargeConstructor(Option<TypeHandle>),
     /// "D0", the "deleting destructor"
     DeletingDestructor,
     /// "D1", the "complete object destructor"
@@ -3295,7 +3295,7 @@ pub enum CtorDtorName {
 }
 
 impl CtorDtorName {
-    fn inheriting_mut(&mut self) -> &mut Option<Box<Name>> {
+    fn inheriting_mut(&mut self) -> &mut Option<TypeHandle> {
         match self {
             CtorDtorName::CompleteConstructor(ref mut inheriting)
             | CtorDtorName::BaseConstructor(ref mut inheriting)
@@ -3354,8 +3354,8 @@ impl Parse for CtorDtorName {
                 }?;
 
                 if inheriting {
-                    let (ty, tail) = Name::parse(ctx, subs, tail)?;
-                    *ctor_type.inheriting_mut() = Some(Box::new(ty));
+                    let (ty, tail) = TypeHandle::parse(ctx, subs, tail)?;
+                    *ctor_type.inheriting_mut() = Some(ty);
                     Ok((ctor_type, tail))
                 } else {
                     Ok((ctor_type, tail))

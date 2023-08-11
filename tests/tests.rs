@@ -611,6 +611,12 @@ demangles!(
     "nsresult mozilla::extensions::AtomSet::Get<&(mozilla::extensions::WILDCARD_SCHEMES.<char const* at offset 0>)>(RefPtr<mozilla::extensions::AtomSet>&)"
 );
 
+// Test that inheriting constructor types are eligible for substitution.
+demangles!(
+    _ZN6deluge3gui9menu_item15MasterTransposeCI18MenuItemERKNSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEESB_,
+    "deluge::gui::menu_item::MasterTranspose::MenuItem(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&)"
+);
+
 // This symbol previously ran into some mutual recursion and unbounded growth of the substitution table.
 // See <https://github.com/gimli-rs/cpp_demangle/issues/277> and <https://github.com/getsentry/symbolic/issues/477>
 #[test]
