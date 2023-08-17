@@ -13,11 +13,6 @@ repository = "https://github.com/gimli-rs/cpp_demangle"
 version = "0.4.2"
 edition = "2018"
 
-[badges]
-
-[badges.travis-ci]
-repository = "gimli-rs/cpp_demangle"
-
 [[bin]]
 name = "afl_runner"
 path = "src/bin/afl_runner.rs"
