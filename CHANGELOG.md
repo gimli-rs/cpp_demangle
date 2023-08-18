@@ -28,6 +28,18 @@ Released YYYY/MM/DD
 
 --------------------------------------------------------------------------------
 
+# 0.4.3
+
+Released 2023/8/18
+
+## Fixed
+
+* Inheriting constructions now correctly add themselves to the substitution table,
+  fixing issues with demangling symbols that use them and then use a later
+  substitution. (#286)[https://github.com/gimli-rs/cpp_demangle/issues/286]
+
+--------------------------------------------------------------------------------
+
 # 0.4.2
 
 Released 2023/6/26

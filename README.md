@@ -34,7 +34,7 @@ Add `cpp_demangle` to your crate's `Cargo.toml`:
 
 ```toml
 [dependencies]
-cpp_demangle = "0.4.2"
+cpp_demangle = "0.4.3"
 ```
 
 And then demangle some C++ symbols!
@@ -64,7 +64,7 @@ Disable the "std" feature, and enable the "alloc" feature:
 ```toml
 [dependencies]
 cpp_demangle = {
-  version = "0.4.2",
+  version = "0.4.3",
   default-features = false,
   features = ["alloc"]
 }
