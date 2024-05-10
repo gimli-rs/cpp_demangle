@@ -355,6 +355,7 @@ trait ArgScope<'me, 'ctx>: fmt::Debug {
     fn get_template_arg(&'me self, index: usize)
         -> Result<(&'ctx TemplateArg, &'ctx TemplateArgs)>;
 
+    #[allow(unused)]
     /// Get the current scope's `index`th function argument's type.
     fn get_function_arg(&'me self, index: usize) -> Result<&'ctx Type>;
 }
