@@ -52,3 +52,8 @@ fuzz = ["afl"]
 
 [profile.release]
 debug = true
+
+[[example]]
+name = "simple"
+path = "examples/simple.rs"
+required-features = ["std"]
