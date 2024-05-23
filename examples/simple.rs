@@ -1,5 +1,3 @@
-#![cfg(feature = "std")]
-
 use cpp_demangle::Symbol;
 
 pub fn main() -> Result<(), Box<dyn std::error::Error>> {
