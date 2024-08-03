@@ -4047,6 +4047,7 @@ define_vocabulary! {
     ///                ::= De # IEEE 754r decimal floating point (128 bits)
     ///                ::= Df # IEEE 754r decimal floating point (32 bits)
     ///                ::= Dh # IEEE 754r half-precision floating point (16 bits)
+    ///                ::= DF16b # C++23 std::bfloat16_t
     ///                ::= Di # char32_t
     ///                ::= Ds # char16_t
     ///                ::= Du # char8_t
@@ -4081,6 +4082,7 @@ define_vocabulary! {
         DecimalFloat128  (b"De", "decimal128"),
         DecimalFloat32   (b"Df", "decimal32"),
         DecimalFloat16   (b"Dh", "half"),
+        BFloat16         (b"DF16b", "std::bfloat16_t"),
         Char32           (b"Di", "char32_t"),
         Char16           (b"Ds", "char16_t"),
         Char8            (b"Du", "char8_t"),
@@ -4090,11 +4092,112 @@ define_vocabulary! {
     }
 }
 
+/// <builtin-type> ::= DF <number> _ # ISO/IEC TS 18661 binary floating point type _FloatN (N bits), C++23 std::floatN_t
+///                ::= DF <number> x # IEEE extended precision formats, C23 _FloatNx (N bits)
+///                ::= DB <number> _        # C23 signed _BitInt(N)
+///                ::= DB <instantiation-dependent expression> _ # C23 signed _BitInt(N)
+///                ::= DU <number> _        # C23 unsigned _BitInt(N)
+///                ::= DU <instantiation-dependent expression> _ # C23 unsigned _BitInt(N)
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ParametricBuiltinType {
+    /// _FloatN
+    FloatN(Number),
+    /// _FloatNx
+    FloatNx(Number),
+    /// signed _BitInt(N)
+    SignedBitInt(Number),
+    /// unsigned _BitInt(N)
+    UnsignedBitInt(Number),
+    /// signed _BitInt(expr)
+    SignedBitIntExpression(Box<Expression>),
+    /// unsigned _BitInt(expr)
+    UnsignedBitIntExpression(Box<Expression>),
+}
+
+impl Parse for ParametricBuiltinType {
+    fn parse<'a, 'b>(
+        ctx: &'a ParseContext,
+        subs: &'a mut SubstitutionTable,
+        input: IndexStr<'b>,
+    ) -> Result<(ParametricBuiltinType, IndexStr<'b>)> {
+        try_begin_parse!("ParametricBuiltinType", ctx, input);
+
+        let input = consume(b"D", input)?;
+        let (ch, input) = input.next_or(error::Error::UnexpectedEnd)?;
+        let allow_expression = match ch {
+            b'F' => false,
+            b'B' | b'U' => true,
+            _ => return Err(error::Error::UnexpectedText),
+        };
+        if input.next_or(error::Error::UnexpectedEnd)?.0.is_ascii_digit() {
+            let (bit_size, input) = parse_number(10, false, input)?;
+            if ch == b'F' {
+                if let Ok(input) = consume(b"x", input) {
+                    return Ok((ParametricBuiltinType::FloatNx(bit_size), input));
+                }
+            }
+            let input = consume(b"_", input)?;
+            let t = match ch {
+                b'F' => ParametricBuiltinType::FloatN(bit_size),
+                b'B' => ParametricBuiltinType::SignedBitInt(bit_size),
+                b'U' => ParametricBuiltinType::UnsignedBitInt(bit_size),
+                _ => panic!("oh noes"),
+            };
+            Ok((t, input))
+        } else if allow_expression {
+            let (expr, input) = Expression::parse(ctx, subs, input)?;
+            let expr = Box::new(expr);
+            let t = match ch {
+                b'B' => ParametricBuiltinType::SignedBitIntExpression(expr),
+                b'U' => ParametricBuiltinType::UnsignedBitIntExpression(expr),
+                _ => panic!("oh noes"),
+            };
+            Ok((t, input))
+        } else {
+            Err(error::Error::UnexpectedText)
+        }
+    }
+}
+
+impl<'subs, W> Demangle<'subs, W> for ParametricBuiltinType
+where
+    W: 'subs + DemangleWrite,
+{
+    fn demangle<'prev, 'ctx>(
+        &'subs self,
+        ctx: &'ctx mut DemangleContext<'subs, W>,
+        scope: Option<ArgScopeStack<'prev, 'subs>>,
+    ) -> fmt::Result {
+        let ctx = try_begin_demangle!(self, ctx, scope);
+
+        match *self {
+            Self::FloatN(n) => write!(ctx, "_Float{}", n),
+            Self::FloatNx(n) => write!(ctx, "_Float{}x", n),
+            Self::SignedBitInt(n) => write!(ctx, "signed _BitInt({})", n),
+            Self::UnsignedBitInt(n) => write!(ctx, "unsigned _BitInt({})", n),
+            Self::SignedBitIntExpression(ref expr) => {
+                write!(ctx, "signed _BitInt(")?;
+                expr.demangle(ctx, scope)?;
+                write!(ctx, ")")
+            }
+            Self::UnsignedBitIntExpression(ref expr) => {
+                write!(ctx, "unsigned _BitInt(")?;
+                expr.demangle(ctx, scope)?;
+                write!(ctx, ")")
+            }
+        }
+    }
+}
+
+
 /// The `<builtin-type>` production.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum BuiltinType {
-    /// A standards compliant builtin type.
+    /// A simple standards compliant builtin type.
     Standard(StandardBuiltinType),
+
+    /// A standards compliant builtin type with a parameter, e.g. _BitInt(32).
+    Parametric(ParametricBuiltinType),
 
     /// A non-standard, vendor extension type.
     ///
@@ -4116,9 +4219,15 @@ impl Parse for BuiltinType {
             return Ok((BuiltinType::Standard(ty), tail));
         }
 
-        let tail = consume(b"u", input)?;
-        let (name, tail) = SourceName::parse(ctx, subs, tail)?;
-        Ok((BuiltinType::Extension(name), tail))
+        if let Ok(tail) = consume(b"u", input) {
+            let (name, tail) = SourceName::parse(ctx, subs, tail)?;
+            Ok((BuiltinType::Extension(name), tail))
+        } else {
+            match try_recurse!(ParametricBuiltinType::parse(ctx, subs, input)) {
+                Ok((ty, tail)) => Ok((BuiltinType::Parametric(ty), tail)),
+                Err(e) => Err(e),
+            }
+        }
     }
 }
 
@@ -4135,6 +4244,7 @@ where
 
         match *self {
             BuiltinType::Standard(ref ty) => ty.demangle(ctx, scope),
+            BuiltinType::Parametric(ref ty) => ty.demangle(ctx, scope),
             BuiltinType::Extension(ref name) => name.demangle(ctx, scope),
         }
     }
@@ -7993,7 +8103,7 @@ mod tests {
         TemplateTemplateParamHandle, Type, TypeHandle, UnnamedTypeName, UnqualifiedName,
         UnresolvedName, UnresolvedQualifierLevel, UnresolvedType, UnresolvedTypeHandle,
         UnscopedName, UnscopedTemplateName, UnscopedTemplateNameHandle, VOffset, VectorType,
-        WellKnownComponent,
+        WellKnownComponent, ParametricBuiltinType,
     };
 
     use crate::error::Error;
@@ -11060,10 +11170,44 @@ mod tests {
                     })),
                     b"..."
                 }
+                b"DF16b..." => {
+                    BuiltinType::Standard(StandardBuiltinType::BFloat16),
+                    b"..."
+                }
             }
             Err => {
                 b"." => Error::UnexpectedText,
                 b"" => Error::UnexpectedEnd,
+            }
+        });
+    }
+
+    #[test]
+    fn parse_parametric_builtin_type() {
+        assert_parse!(BuiltinType {
+            Ok => {
+                b"DB8_..." => {
+                    BuiltinType::Parametric(ParametricBuiltinType::SignedBitInt(8)),
+                    b"..."
+                }
+                b"DUsZT_" => {
+                    BuiltinType::Parametric(ParametricBuiltinType::UnsignedBitIntExpression(Box::new(Expression::SizeofTemplatePack(TemplateParam(0))))),
+                    b""
+                }
+                b"DF128_..." => {
+                    BuiltinType::Parametric(ParametricBuiltinType::FloatN(128)),
+                    b"..."
+                }
+                b"DF256x..." => {
+                    BuiltinType::Parametric(ParametricBuiltinType::FloatNx(256)),
+                    b"..."
+                }
+            }
+            Err => {
+                b"DB100000000000000000000000_" => Error::Overflow,
+                b"DFsZT_" => Error::UnexpectedText,
+                b"DB" => Error::UnexpectedEnd,
+                b"DB32" => Error::UnexpectedEnd,
             }
         });
     }
