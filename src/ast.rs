@@ -4129,7 +4129,11 @@ impl Parse for ParametricBuiltinType {
             b'B' | b'U' => true,
             _ => return Err(error::Error::UnexpectedText),
         };
-        if input.next_or(error::Error::UnexpectedEnd)?.0.is_ascii_digit() {
+        if input
+            .next_or(error::Error::UnexpectedEnd)?
+            .0
+            .is_ascii_digit()
+        {
             let (bit_size, input) = parse_number(10, false, input)?;
             if ch == b'F' {
                 if let Ok(input) = consume(b"x", input) {
@@ -4188,7 +4192,6 @@ where
         }
     }
 }
-
 
 /// The `<builtin-type>` production.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -8096,14 +8099,14 @@ mod tests {
         ClosureTypeName, CtorDtorName, CvQualifiers, DataMemberPrefix, Decltype, DestructorName,
         Discriminator, Encoding, ExceptionSpec, ExprPrimary, Expression, FunctionParam,
         FunctionType, GlobalCtorDtor, Identifier, Initializer, LambdaSig, LocalName, MangledName,
-        MemberName, Name, NestedName, NonSubstitution, Number, NvOffset, OperatorName, Parse,
-        ParseContext, PointerToMemberType, Prefix, PrefixHandle, RefQualifier, ResourceName, SeqId,
-        SimpleId, SimpleOperatorName, SourceName, SpecialName, StandardBuiltinType, SubobjectExpr,
-        Substitution, TaggedName, TemplateArg, TemplateArgs, TemplateParam, TemplateTemplateParam,
-        TemplateTemplateParamHandle, Type, TypeHandle, UnnamedTypeName, UnqualifiedName,
-        UnresolvedName, UnresolvedQualifierLevel, UnresolvedType, UnresolvedTypeHandle,
-        UnscopedName, UnscopedTemplateName, UnscopedTemplateNameHandle, VOffset, VectorType,
-        WellKnownComponent, ParametricBuiltinType,
+        MemberName, Name, NestedName, NonSubstitution, Number, NvOffset, OperatorName,
+        ParametricBuiltinType, Parse, ParseContext, PointerToMemberType, Prefix, PrefixHandle,
+        RefQualifier, ResourceName, SeqId, SimpleId, SimpleOperatorName, SourceName, SpecialName,
+        StandardBuiltinType, SubobjectExpr, Substitution, TaggedName, TemplateArg, TemplateArgs,
+        TemplateParam, TemplateTemplateParam, TemplateTemplateParamHandle, Type, TypeHandle,
+        UnnamedTypeName, UnqualifiedName, UnresolvedName, UnresolvedQualifierLevel, UnresolvedType,
+        UnresolvedTypeHandle, UnscopedName, UnscopedTemplateName, UnscopedTemplateNameHandle,
+        VOffset, VectorType, WellKnownComponent,
     };
 
     use crate::error::Error;
