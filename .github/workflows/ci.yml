@@ -48,3 +48,10 @@ jobs:
     - uses: actions/checkout@v3
     - name: Run c_api test
       run: cd c_api && ./run_test.sh
+
+  fmt:
+    runs-on: ubuntu-22.04
+    steps:
+    - uses: actions/checkout@v3
+    - name: Format
+      run: cargo fmt --check
