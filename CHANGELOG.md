@@ -28,6 +28,18 @@ Released YYYY/MM/DD
 
 --------------------------------------------------------------------------------
 
+# 0.4.4
+
+Released 2024/8/28
+
+## Added
+
+* C++23 extended floating-point types (_FloatN, Float_Nx, and std::bfloat16_t)
+  and integer types (_BitInt) are supported.
+  (#295)[https://github.com/gimli-rs/cpp_demangle/pull/295]
+
+--------------------------------------------------------------------------------
+
 # 0.4.3
 
 Released 2023/8/18
