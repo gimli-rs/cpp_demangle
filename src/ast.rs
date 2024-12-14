@@ -4054,6 +4054,15 @@ define_vocabulary! {
     ///                ::= Da # auto
     ///                ::= Dc # decltype(auto)
     ///                ::= Dn # std::nullptr_t (i.e., decltype(nullptr))
+    ///                ::= [DS] DA  # N1169 fixed-point [_Sat] T _Accum
+    ///                ::= [DS] DR  # N1169 fixed-point [_Sat] T _Fract
+    ///
+    ///  <fixed-point-size> ::= s # short
+    ///                     ::= t # unsigned short
+    ///                     ::= i # plain
+    ///                     ::= j # unsigned
+    ///                     ::= l # long
+    ///                     ::= m # unsigned long
     /// ```
     #[derive(Clone, Debug, PartialEq, Eq)]
     pub enum StandardBuiltinType {
@@ -4088,7 +4097,31 @@ define_vocabulary! {
         Char8            (b"Du", "char8_t"),
         Auto             (b"Da", "auto"),
         Decltype         (b"Dc", "decltype(auto)"),
-        Nullptr          (b"Dn", "std::nullptr_t")
+        Nullptr          (b"Dn", "std::nullptr_t"),
+        AccumShort       (b"DAs", "short _Accum"),
+        AccumUShort      (b"DAt", "unsigned short _Accum"),
+        Accum            (b"DAi", "_Accum"),
+        AccumUnsigned    (b"DAj", "unsigned _Accum"),
+        AccumLong        (b"DAl", "long _Accum"),
+        AccumULong       (b"DAm", "unsigned long _Accum"),
+        FractShort       (b"DRs", "short _Fract"),
+        FractUShort      (b"DRt", "unsigned short _Fract"),
+        Fract            (b"DRi", "_Fract"),
+        FractUnsigned    (b"DRj", "unsigned _Fract"),
+        FractLong        (b"DRl", "long _Fract"),
+        FractULong       (b"DRm", "unsigned long _Fract"),
+        SatAccumShort    (b"DSDAs", "_Sat short _Accum"),
+        SatAccumUShort   (b"DSDAt", "_Sat unsigned short _Accum"),
+        SatAccum         (b"DSDAi", "_Sat _Accum"),
+        SatAccumUnsigned (b"DSDAj", "_Sat unsigned _Accum"),
+        SatAccumLong     (b"DSDAl", "_Sat long _Accum"),
+        SatAccumULong    (b"DSDAm", "_Sat unsigned long _Accum"),
+        SatFractShort    (b"DSDRs", "_Sat short _Fract"),
+        SatFractUShort   (b"DSDRt", "_Sat unsigned short _Fract"),
+        SatFract         (b"DSDRi", "_Sat _Fract"),
+        SatFractUnsigned (b"DSDRj", "_Sat unsigned _Fract"),
+        SatFractLong     (b"DSDRl", "_Sat long _Fract"),
+        SatFractULong    (b"DSDRm", "_Sat unsigned long _Fract")
     }
 }
 
