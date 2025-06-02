@@ -617,6 +617,32 @@ demangles!(
     "deluge::gui::menu_item::MasterTranspose::MenuItem(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&)"
 );
 
+// fixed-point types as defined in the N1169 draft of ISO/IEC DTR 18037
+demangles!(_Z1fDAs, "f(short _Accum)");
+demangles!(_Z1fDAt, "f(unsigned short _Accum)");
+demangles!(_Z1fDAi, "f(_Accum)");
+demangles!(_Z1fDAj, "f(unsigned _Accum)");
+demangles!(_Z1fDAl, "f(long _Accum)");
+demangles!(_Z1fDAm, "f(unsigned long _Accum)");
+demangles!(_Z1fDRs, "f(short _Fract)");
+demangles!(_Z1fDRt, "f(unsigned short _Fract)");
+demangles!(_Z1fDRi, "f(_Fract)");
+demangles!(_Z1fDRj, "f(unsigned _Fract)");
+demangles!(_Z1fDRl, "f(long _Fract)");
+demangles!(_Z1fDRm, "f(unsigned long _Fract)");
+demangles!(_Z1fDSDAs, "f(_Sat short _Accum)");
+demangles!(_Z1fDSDAt, "f(_Sat unsigned short _Accum)");
+demangles!(_Z1fDSDAi, "f(_Sat _Accum)");
+demangles!(_Z1fDSDAj, "f(_Sat unsigned _Accum)");
+demangles!(_Z1fDSDAl, "f(_Sat long _Accum)");
+demangles!(_Z1fDSDAm, "f(_Sat unsigned long _Accum)");
+demangles!(_Z1fDSDRs, "f(_Sat short _Fract)");
+demangles!(_Z1fDSDRt, "f(_Sat unsigned short _Fract)");
+demangles!(_Z1fDSDRi, "f(_Sat _Fract)");
+demangles!(_Z1fDSDRj, "f(_Sat unsigned _Fract)");
+demangles!(_Z1fDSDRl, "f(_Sat long _Fract)");
+demangles!(_Z1fDSDRm, "f(_Sat unsigned long _Fract)");
+
 // This symbol previously ran into some mutual recursion and unbounded growth of the substitution table.
 // See <https://github.com/gimli-rs/cpp_demangle/issues/277> and <https://github.com/getsentry/symbolic/issues/477>
 #[test]
