@@ -448,10 +448,11 @@ where
                 options,
                 &mut out,
             );
-            self.parsed.demangle(&mut ctx, None).map_err(|err| {
+            if let Err(err) = self.parsed.demangle(&mut ctx, None) {
                 log!("Demangling error: {:#?}", err);
-                fmt::Error
-            })?;
+                write!(f, "<Demangling failed>")?;
+                return Ok(());
+            }
         }
         write!(f, "{}", &out)
     }
