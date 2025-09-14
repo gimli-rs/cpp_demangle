@@ -1945,7 +1945,7 @@ pub enum NestedName {
     Unqualified(
         CvQualifiers,
         Option<RefQualifier>,
-        PrefixHandle,
+        Option<PrefixHandle>,
         UnqualifiedName,
     ),
 
@@ -1987,8 +1987,17 @@ impl Parse for NestedName {
         };
 
         match substitutable {
+            Some(&Substitutable::Prefix(Prefix::Unqualified(ref name))) => Ok((
+                NestedName::Unqualified(cv_qualifiers, ref_qualifier, None, name.clone()),
+                tail,
+            )),
             Some(&Substitutable::Prefix(Prefix::Nested(ref prefix, ref name))) => Ok((
-                NestedName::Unqualified(cv_qualifiers, ref_qualifier, prefix.clone(), name.clone()),
+                NestedName::Unqualified(
+                    cv_qualifiers,
+                    ref_qualifier,
+                    Some(prefix.clone()),
+                    name.clone(),
+                ),
                 tail,
             )),
             Some(&Substitutable::Prefix(Prefix::Template(..))) => Ok((
@@ -2020,9 +2029,10 @@ impl NestedName {
     // Not public because the prefix means different things for different
     // variants, and for `::Template` it actually contains part of what
     // conceptually belongs to `<nested-name>`.
-    fn prefix(&self) -> &PrefixHandle {
+    fn prefix(&self) -> Option<&PrefixHandle> {
         match *self {
-            NestedName::Unqualified(_, _, ref p, _) | NestedName::Template(_, _, ref p) => p,
+            NestedName::Unqualified(_, _, ref p, _) => p.as_ref(),
+            NestedName::Template(_, _, ref p) => Some(p),
         }
     }
 }
@@ -2041,9 +2051,11 @@ where
         match *self {
             NestedName::Unqualified(_, _, ref p, ref name) => {
                 ctx.push_demangle_node(DemangleNodeType::NestedName);
-                p.demangle(ctx, scope)?;
-                if name.accepts_double_colon() {
-                    ctx.write_str("::")?;
+                if let Some(p) = p.as_ref() {
+                    p.demangle(ctx, scope)?;
+                    if name.accepts_double_colon() {
+                        ctx.write_str("::")?;
+                    }
                 }
                 name.demangle(ctx, scope)?;
                 ctx.pop_demangle_node();
@@ -2086,7 +2098,7 @@ impl<'a> GetLeafName<'a> for NestedName {
         match *self {
             NestedName::Unqualified(_, _, ref prefix, ref name) => name
                 .get_leaf_name(subs)
-                .or_else(|| prefix.get_leaf_name(subs)),
+                .or_else(|| prefix.as_ref().and_then(|p| p.get_leaf_name(subs))),
             NestedName::Template(_, _, ref prefix) => prefix.get_leaf_name(subs),
         }
     }
@@ -2094,7 +2106,9 @@ impl<'a> GetLeafName<'a> for NestedName {
 
 impl IsCtorDtorConversion for NestedName {
     fn is_ctor_dtor_conversion(&self, subs: &SubstitutionTable) -> bool {
-        self.prefix().is_ctor_dtor_conversion(subs)
+        self.prefix()
+            .map(|p| p.is_ctor_dtor_conversion(subs))
+            .unwrap_or(false)
     }
 }
 
@@ -8572,7 +8586,7 @@ mod tests {
                     b"NS0_3abcE..." => {
                         Name::Nested(NestedName::Unqualified(CvQualifiers::default(),
                                                              None,
-                                                             PrefixHandle::BackReference(1),
+                                                             Some(PrefixHandle::BackReference(1)),
                                                              UnqualifiedName::Source(SourceName(Identifier {
                                                                  start: 5,
                                                                  end: 8,
@@ -8693,7 +8707,7 @@ mod tests {
                                 const_: true,
                             },
                             Some(RefQualifier::RValueRef),
-                            PrefixHandle::BackReference(0),
+                            Some(PrefixHandle::BackReference(0)),
                             UnqualifiedName::Source(
                                 SourceName(Identifier {
                                     start: 6,
@@ -8710,7 +8724,7 @@ mod tests {
                                 const_: false,
                             },
                             Some(RefQualifier::RValueRef),
-                            PrefixHandle::BackReference(0),
+                            Some(PrefixHandle::BackReference(0)),
                             UnqualifiedName::Source(
                                 SourceName(Identifier {
                                     start: 5,
@@ -8727,11 +8741,28 @@ mod tests {
                                 const_: false,
                             },
                             None,
-                            PrefixHandle::BackReference(0),
+                            Some(PrefixHandle::BackReference(0)),
                             UnqualifiedName::Source(
                                 SourceName(Identifier {
                                     start: 4,
                                     end: 7,
+                                }))),
+                        b"...",
+                        []
+                    }
+                    b"NK1fE..." => {
+                        NestedName::Unqualified(
+                            CvQualifiers {
+                                restrict: false,
+                                volatile: false,
+                                const_: true,
+                            },
+                            None,
+                            None,
+                            UnqualifiedName::Source(
+                                SourceName(Identifier {
+                                    start: 3,
+                                    end: 4,
                                 }))),
                         b"...",
                         []
@@ -8802,7 +8833,6 @@ mod tests {
                 }
                 Err => {
                     // Ends with a prefix that is not a name or template.
-                    b"NS_E..." => Error::UnexpectedText,
                     b"NS_DttrEE..." => Error::UnexpectedText,
 
                     b"zzz" => Error::UnexpectedText,

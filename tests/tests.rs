@@ -218,6 +218,7 @@ demangles!(
     "void Ty::method<Ty>(void (Ty::*)(char const*), void (Ty::*)(char const*))"
 );
 
+demangles!(_ZNK1fEv, "f() const");
 demangles!(_ZNK1fB5cxx11Ev, "f[abi:cxx11]() const");
 
 demangles!(
