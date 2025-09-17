@@ -556,6 +556,9 @@ where
     //  argument pack.
     is_template_argument_pack: bool,
 
+    // We are currently demangling an object with an explicit named parameter.
+    is_explicit_obj_param: bool,
+
     // Whether to show function parameters.
     // This must be set to true before calling `demangle` on `Encoding`
     // unless that call is via the toplevel call to `MangledName::demangle`.
@@ -615,6 +618,7 @@ where
             is_template_prefix: false,
             is_template_prefix_in_nested_name: false,
             is_template_argument_pack: false,
+            is_explicit_obj_param: false,
             show_params: !options.no_params,
             show_return_type: !options.no_return_type,
             show_expression_literal_types: !options.hide_expression_literal_types,
@@ -1034,6 +1038,12 @@ where
         if self.len() == 1 && self[0].is_void() {
             write!(ctx, ")")?;
             return Ok(());
+        }
+
+        // Only the first param should have `this`.
+        if ctx.is_explicit_obj_param {
+            write!(ctx, "this ")?;
+            ctx.is_explicit_obj_param = false;
         }
 
         let mut need_comma = false;
@@ -1938,6 +1948,8 @@ impl<'a> GetLeafName<'a> for UnscopedTemplateName {
 /// ```text
 /// <nested-name> ::= N [<CV-qualifiers>] [<ref-qualifier>] <prefix> <unqualified-name> E
 ///               ::= N [<CV-qualifiers>] [<ref-qualifier>] <template-prefix> <template-args> E
+///               ::= N H <prefix> <unqualified-name> E
+///               ::= N H <template-prefix> <template-args> E
 /// ```
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum NestedName {
@@ -1951,6 +1963,16 @@ pub enum NestedName {
 
     /// A nested template name. The `<template-args>` are part of the `PrefixHandle`.
     Template(CvQualifiers, Option<RefQualifier>, PrefixHandle),
+
+    /// A nested name with an explicit object.
+    UnqualifiedExplicitObject(
+        Option<PrefixHandle>,
+        UnqualifiedName,
+        ExplicitObjectParameter,
+    ),
+
+    /// A nested template name with an explicit object.
+    TemplateExplicitObject(PrefixHandle, ExplicitObjectParameter),
 }
 
 impl Parse for NestedName {
@@ -1963,19 +1985,29 @@ impl Parse for NestedName {
 
         let tail = consume(b"N", input)?;
 
-        let (cv_qualifiers, tail) =
-            if let Ok((q, tail)) = try_recurse!(CvQualifiers::parse(ctx, subs, tail)) {
-                (q, tail)
-            } else {
-                (Default::default(), tail)
-            };
+        let (cv_qualifiers, ref_qualifier, explicit_obj_param, tail) = match tail.peek() {
+            Some(b'H') => {
+                let (explicit_obj_param, tail) = ExplicitObjectParameter::parse(ctx, subs, tail)?;
+                (Default::default(), None, Some(explicit_obj_param), tail)
+            }
+            _ => {
+                let (cv_qualifiers, tail) =
+                    if let Ok((q, tail)) = try_recurse!(CvQualifiers::parse(ctx, subs, tail)) {
+                        (q, tail)
+                    } else {
+                        (Default::default(), tail)
+                    };
 
-        let (ref_qualifier, tail) =
-            if let Ok((r, tail)) = try_recurse!(RefQualifier::parse(ctx, subs, tail)) {
-                (Some(r), tail)
-            } else {
-                (None, tail)
-            };
+                let (ref_qualifier, tail) =
+                    if let Ok((r, tail)) = try_recurse!(RefQualifier::parse(ctx, subs, tail)) {
+                        (Some(r), tail)
+                    } else {
+                        (None, tail)
+                    };
+
+                (cv_qualifiers, ref_qualifier, None, tail)
+            }
+        };
 
         let (prefix, tail) = PrefixHandle::parse(ctx, subs, tail)?;
         let tail = consume(b"E", tail)?;
@@ -1986,12 +2018,12 @@ impl Parse for NestedName {
             PrefixHandle::WellKnown(_) => None,
         };
 
-        match substitutable {
-            Some(&Substitutable::Prefix(Prefix::Unqualified(ref name))) => Ok((
+        match (substitutable, explicit_obj_param) {
+            (Some(&Substitutable::Prefix(Prefix::Unqualified(ref name))), None) => Ok((
                 NestedName::Unqualified(cv_qualifiers, ref_qualifier, None, name.clone()),
                 tail,
             )),
-            Some(&Substitutable::Prefix(Prefix::Nested(ref prefix, ref name))) => Ok((
+            (Some(&Substitutable::Prefix(Prefix::Nested(ref prefix, ref name))), None) => Ok((
                 NestedName::Unqualified(
                     cv_qualifiers,
                     ref_qualifier,
@@ -2000,10 +2032,27 @@ impl Parse for NestedName {
                 ),
                 tail,
             )),
-            Some(&Substitutable::Prefix(Prefix::Template(..))) => Ok((
+            (Some(&Substitutable::Prefix(Prefix::Template(..))), None) => Ok((
                 NestedName::Template(cv_qualifiers, ref_qualifier, prefix),
                 tail,
             )),
+            (Some(&Substitutable::Prefix(Prefix::Unqualified(ref name))), Some(param)) => Ok((
+                NestedName::UnqualifiedExplicitObject(None, name.clone(), param),
+                tail,
+            )),
+            (Some(&Substitutable::Prefix(Prefix::Nested(ref prefix, ref name))), Some(param)) => {
+                Ok((
+                    NestedName::UnqualifiedExplicitObject(
+                        Some(prefix.clone()),
+                        name.clone(),
+                        param,
+                    ),
+                    tail,
+                ))
+            }
+            (Some(&Substitutable::Prefix(Prefix::Template(..))), Some(param)) => {
+                Ok((NestedName::TemplateExplicitObject(prefix, param), tail))
+            }
             _ => Err(error::Error::UnexpectedText),
         }
     }
@@ -2011,9 +2060,10 @@ impl Parse for NestedName {
 
 impl NestedName {
     /// Get the CV-qualifiers for this name.
-    pub fn cv_qualifiers(&self) -> &CvQualifiers {
+    pub fn cv_qualifiers(&self) -> Option<&CvQualifiers> {
         match *self {
-            NestedName::Unqualified(ref q, ..) | NestedName::Template(ref q, ..) => q,
+            NestedName::Unqualified(ref q, ..) | NestedName::Template(ref q, ..) => Some(q),
+            _ => None,
         }
     }
 
@@ -2031,8 +2081,20 @@ impl NestedName {
     // conceptually belongs to `<nested-name>`.
     fn prefix(&self) -> Option<&PrefixHandle> {
         match *self {
-            NestedName::Unqualified(_, _, ref p, _) => p.as_ref(),
-            NestedName::Template(_, _, ref p) => Some(p),
+            NestedName::Unqualified(_, _, ref p, _)
+            | NestedName::UnqualifiedExplicitObject(ref p, ..) => p.as_ref(),
+            NestedName::Template(_, _, ref p) | NestedName::TemplateExplicitObject(ref p, _) => {
+                Some(p)
+            }
+        }
+    }
+
+    /// Check to see if the object has an explicit named parameter.
+    pub fn has_explicit_obj_param(&self) -> bool {
+        match *self {
+            NestedName::UnqualifiedExplicitObject(_, _, ref _e)
+            | NestedName::TemplateExplicitObject(_, ref _e) => true,
+            _ => false,
         }
     }
 }
@@ -2049,7 +2111,8 @@ where
         let ctx = try_begin_demangle!(self, ctx, scope);
 
         match *self {
-            NestedName::Unqualified(_, _, ref p, ref name) => {
+            NestedName::Unqualified(_, _, ref p, ref name)
+            | NestedName::UnqualifiedExplicitObject(ref p, ref name, _) => {
                 ctx.push_demangle_node(DemangleNodeType::NestedName);
                 if let Some(p) = p.as_ref() {
                     p.demangle(ctx, scope)?;
@@ -2058,19 +2121,25 @@ where
                 name.demangle(ctx, scope)?;
                 ctx.pop_demangle_node();
             }
-            NestedName::Template(_, _, ref p) => {
+            NestedName::Template(_, _, ref p) | NestedName::TemplateExplicitObject(ref p, _) => {
                 ctx.is_template_prefix_in_nested_name = true;
                 p.demangle(ctx, scope)?;
                 ctx.is_template_prefix_in_nested_name = false;
             }
         }
 
+        if self.has_explicit_obj_param() {
+            ctx.is_explicit_obj_param = true;
+        }
+
         if let Some(inner) = ctx.pop_inner() {
             inner.demangle_as_inner(ctx, scope)?;
         }
 
-        if self.cv_qualifiers() != &CvQualifiers::default() && ctx.show_params {
-            self.cv_qualifiers().demangle(ctx, scope)?;
+        if let Some(cv_qualifiers) = self.cv_qualifiers() {
+            if cv_qualifiers != &CvQualifiers::default() && ctx.show_params {
+                cv_qualifiers.demangle(ctx, scope)?;
+            }
         }
 
         if let Some(ref refs) = self.ref_qualifier() {
@@ -2085,7 +2154,8 @@ where
 impl GetTemplateArgs for NestedName {
     fn get_template_args<'a>(&'a self, subs: &'a SubstitutionTable) -> Option<&'a TemplateArgs> {
         match *self {
-            NestedName::Template(_, _, ref prefix) => prefix.get_template_args(subs),
+            NestedName::Template(_, _, ref prefix)
+            | NestedName::TemplateExplicitObject(ref prefix, _) => prefix.get_template_args(subs),
             _ => None,
         }
     }
@@ -2094,10 +2164,12 @@ impl GetTemplateArgs for NestedName {
 impl<'a> GetLeafName<'a> for NestedName {
     fn get_leaf_name(&'a self, subs: &'a SubstitutionTable) -> Option<LeafName<'a>> {
         match *self {
-            NestedName::Unqualified(_, _, ref prefix, ref name) => name
+            NestedName::Unqualified(_, _, ref prefix, ref name)
+            | NestedName::UnqualifiedExplicitObject(ref prefix, ref name, _) => name
                 .get_leaf_name(subs)
                 .or_else(|| prefix.as_ref().and_then(|p| p.get_leaf_name(subs))),
-            NestedName::Template(_, _, ref prefix) => prefix.get_leaf_name(subs),
+            NestedName::Template(_, _, ref prefix)
+            | NestedName::TemplateExplicitObject(ref prefix, _) => prefix.get_leaf_name(subs),
         }
     }
 }
@@ -4061,6 +4133,14 @@ define_vocabulary! {
     pub enum RefQualifier {
         LValueRef(b"R", "&"),
         RValueRef(b"O", "&&")
+    }
+}
+
+define_vocabulary! {
+    /// A named explicit object parameter.
+    #[derive(Clone, Debug, PartialEq, Eq)]
+    pub enum ExplicitObjectParameter {
+        ExplicitObjectParameter(b"H", "this")
     }
 }
 
