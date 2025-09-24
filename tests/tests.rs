@@ -644,6 +644,15 @@ demangles!(_Z1fDSDRj, "f(_Sat unsigned _Fract)");
 demangles!(_Z1fDSDRl, "f(_Sat long _Fract)");
 demangles!(_Z1fDSDRm, "f(_Sat unsigned long _Fract)");
 
+// Test explicit named object parameter
+demangles!(_ZNH1S3fooES_, "S::foo(this S)");
+demangles!(_ZNH1S3barILi5EiEEvS_T0_, "void S::bar<5, int>(this S, int)");
+demangles!(_ZNH1S3bazERKS_, "S::baz(this S const&)");
+demangles!(
+    _ZZNH2ns3Foo3fooES0_iENH4Foo24foo2EOKS1_,
+    "ns::Foo::foo(this ns::Foo, int)::Foo2::foo2(this Foo2 const&&)"
+);
+
 // This symbol previously ran into some mutual recursion and unbounded growth of the substitution table.
 // See <https://github.com/gimli-rs/cpp_demangle/issues/277> and <https://github.com/getsentry/symbolic/issues/477>
 #[test]
