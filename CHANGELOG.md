@@ -28,6 +28,28 @@ Released YYYY/MM/DD
 
 --------------------------------------------------------------------------------
 
+# 0.4.5
+
+Released 2025/9/23
+
+## Fixed
+
+* ABI tags are now accepted after all variants of qualified names.
+  (#272)[https://github.com/gimli-rs/cpp_demangle/issues/272]
+
+* Unqualified nested names without prefixes are accepted to match
+  libiberty and LLVM.
+
+## Added
+
+* Fixed-point types from the N1169 draft of ISO/IEC DTR 18037 (_Accum, _Fract)
+  are supported. (#298)[https://github.com/gimli-rs/cpp_demangle/pull/298]
+
+* The proposed (and widely implemented) explicitly named object parameters are
+  supported. (#299)[https://github.com/gimli-rs/cpp_demangle/pull/299]
+
+--------------------------------------------------------------------------------
+
 # 0.4.4
 
 Released 2024/8/28
