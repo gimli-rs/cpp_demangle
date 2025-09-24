@@ -3,8 +3,6 @@
 extern crate cpp_demangle;
 extern crate diff;
 
-use std::io::Write;
-
 use cpp_demangle::DemangleOptions;
 
 fn assert_demangles_as(mangled: &str, expected: &str, options: Option<DemangleOptions>) {
@@ -12,11 +10,9 @@ fn assert_demangles_as(mangled: &str, expected: &str, options: Option<DemangleOp
         .expect("should parse mangled symbol ok");
 
     let actual = if let Some(o) = options {
-        sym.demangle(&o).expect("should demangle ok")
+        sym.demangle_with_options(&o).expect("should demangle ok")
     } else {
-        let mut actual = vec![];
-        write!(&mut actual, "{}", sym).expect("should demangle symbol ok");
-        String::from_utf8(actual).expect("should demangle to valid utf-8")
+        sym.demangle().expect("should demangle symbol ok")
     };
 
     if expected != actual {
@@ -51,14 +47,20 @@ fn assert_demangles_as(mangled: &str, expected: &str, options: Option<DemangleOp
 
 fn assert_does_not_parse(s: &str) {
     if let Ok(sym) = cpp_demangle::BorrowedSymbol::new(s.as_bytes()) {
-        panic!("Unexpectedly parsed '{}' as '{}'", s, sym);
+        match sym.demangle() {
+            Ok(sym) => panic!("Unexpectedly parsed '{}' as '{}'", s, sym),
+            Err(e) => panic!(
+                "Unexpectedly parsed '{}' as undemanglable '{:?}': {}",
+                s, sym, e
+            ),
+        }
     }
 }
 
 fn assert_does_not_demangle(s: &str) {
     match cpp_demangle::BorrowedSymbol::new(s.as_bytes()) {
         Ok(sym) => {
-            if let Ok(d) = sym.demangle(&DemangleOptions::default()) {
+            if let Ok(d) = sym.demangle() {
                 panic!("Unexpectedly demangled '{}' as '{}'", s, d);
             }
         }
@@ -660,6 +662,12 @@ fn test_pathological_recursion() {
     let s = "_ZUlzjjlZZL1zStUlSt7j_Z3kjIIjIjL1vfIIEEEjzjjfjzSt7j_Z3kjIIjfjzL4t3kjIIjfjtUlSt7j_Z3kjIIjIjL1vfIIEEEjzjjfjzSt7j_Z3kjIIjfjzL4t3kjIIjfjzL4t7IjIjjzjjzSt7j_Z3kjIIjfjzStfjzSt7j_ZA3kjIIjIjL1vfIIEEEjzjjfjzSt7j_Z3kjIIjIjL1vfIIEEEjzjjfjzSt7j_Z3kjIIjfjzL4t3kjIIjzL4t7IjIjjzjjzSt7j_Z3kjIIjfjzStfjzSt7j_ZA3kjIIjIjL1vfIIEEEjzjjfjzSt7j_Z3kjIIjIjL1vfIIEEEjzjjfjzSt7j_Z3kjIIjfjzL4t3kjIIjfjzL4t7IjIjL1vfIIEEEjzjjSI";
     let parse_options = cpp_demangle::ParseOptions::default().recursion_limit(160); // default is 96
     if let Ok(sym) = cpp_demangle::Symbol::new_with_options(s, &parse_options) {
-        panic!("Unexpectedly parsed '{}' as '{}'", s, sym);
+        match sym.demangle() {
+            Ok(sym) => panic!("Unexpectedly parsed '{}' as '{}'", s, sym),
+            Err(e) => panic!(
+                "Unexpectedly parsed '{}' as undemanglable '{:?}': {}",
+                s, sym, e
+            ),
+        }
     }
 }

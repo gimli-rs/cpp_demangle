@@ -4,9 +4,9 @@
 
 This crate can parse a C++ “mangled” linker symbol name into a Rust value
 describing what the name refers to: a variable, a function, a virtual table,
-etc. The description type implements `Display`, producing human-readable text
-describing the mangled name. Debuggers and profilers can use this crate to
-provide more meaningful output.
+etc. The description type implements functions such as `demangle()`,
+producing human-readable text describing the mangled name. Debuggers and
+profilers can use this crate to provide more meaningful output.
 
 C++ requires the compiler to choose names for linker symbols consistently across
 compilation units, so that two compilation units that have seen the same
@@ -24,9 +24,9 @@ For example, suppose a C++ compilation unit has the definition:
 
 The Itanium C++ ABI specifies that the linker symbol for that function must be
 named `_ZN5space3fooEii`. This crate can parse that name into a Rust value
-representing its structure. Formatting the value with the `format!` macro or the
-`std::string::ToString::to_string` trait method yields the string
-`space::foo(int, int)`, which is more meaningful to the C++ developer.
+representing its structure. That Rust value can be `demangle()`d to the
+string `space::foo(int, int)`, which is more meaningful to the C++
+developer.
 
 ## Usage
 
@@ -49,7 +49,7 @@ let mangled = b"_ZN5space3fooEibc";
 let sym = Symbol::new(&mangled[..])
     .expect("Could not parse mangled symbol!");
 
-let demangled = sym.to_string();
+let demangled = sym.demangle().unwrap();
 assert_eq!(demangled, "space::foo(int, bool, char)");
 ```
 

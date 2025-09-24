@@ -45,7 +45,6 @@ fn libxul_symbols_demangle() {
     let mut log_file = BufWriter::new(log_file);
 
     let mut line = Vec::new();
-    let mut demangled = Vec::new();
     let mut libiberty_sym = Vec::new();
 
     let which_cppfilt = get_cppfilt();
@@ -86,8 +85,7 @@ fn libxul_symbols_demangle() {
             num_parsed += 1;
 
             // Demangle the symbol.
-            demangled.clear();
-            if write!(&mut demangled, "{}", sym).is_ok() {
+            if let Ok(demangled) = sym.demangle() {
                 num_demangled += 1;
 
                 // Finally, we are going to have `c++filt` demangle the
@@ -107,6 +105,7 @@ fn libxul_symbols_demangle() {
                     .expect("should read line from c++filt");
                 // Drop the "\n".
                 libiberty_sym.pop();
+                let libiberty_sym = String::from_utf8_lossy(&libiberty_sym);
 
                 // Compare our demangling to libiberty's.
                 if libiberty_sym == demangled {
@@ -121,13 +120,13 @@ fn libxul_symbols_demangle() {
                     writeln!(
                         &mut log_file,
                         "           ...we demangled to: {}",
-                        String::from_utf8_lossy(&demangled)
+                        demangled
                     )
                     .unwrap();
                     writeln!(
                         &mut log_file,
                         "    ...libiberty demangled to: {}",
-                        String::from_utf8_lossy(&libiberty_sym)
+                        libiberty_sym
                     )
                     .unwrap();
                 }

@@ -52,7 +52,7 @@ fuzz_target!(|data: &[u8]| {
     }
 
     let sym = ignore_err!(cpp_demangle::Symbol::new(data));
-    let demangled = sym.to_string();
+    let demangled = sym.demangle().unwrap();
     assert_eq!(demangled.trim(), cppfilt_output.trim(),
                "Should demangle the input the same as `c++filt` does");
 });

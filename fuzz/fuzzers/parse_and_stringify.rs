@@ -4,6 +4,6 @@ extern crate cpp_demangle;
 
 fuzz_target!(|data: &[u8]| {
     if let Ok(sym) = cpp_demangle::Symbol::new(data) {
-        let _ = sym.to_string();
+        let _ = sym.demangle().unwrap();
     }
 });
