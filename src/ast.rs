@@ -2335,7 +2335,7 @@ impl Parse for PrefixHandle {
                     current = Some(save(subs, prefix, tail_tail));
                     tail = tail_tail;
                 }
-                Some(c) if current.is_some() && UnqualifiedName::starts_with(c, &tail) => {
+                Some(c) if UnqualifiedName::starts_with(c, &tail) => {
                     // Either
                     //
                     //     <prefix> ::= <unqualified-name>
@@ -2343,16 +2343,22 @@ impl Parse for PrefixHandle {
                     // or
                     //
                     //     <prefix> ::= <data-member-prefix> ::= <prefix> <source-name> M
-                    debug_assert!(UnqualifiedName::starts_with(c, &tail));
-
                     let (name, tail_tail) = UnqualifiedName::parse(ctx, subs, tail)?;
                     if tail_tail.peek() == Some(b'M') {
                         // XXXkhuey This seems to be a legacy thing that's dropped from the standard.
                         // Behave the way we used to.
-                        let UnqualifiedName::Source(name, _) = name else {
-                            return Err(error::Error::UnexpectedText);
+                        // Emit a Prefix::DataMember, but only if current.is_some().
+                        let prefix = match current {
+                            None => Prefix::Unqualified(name),
+                            Some(current) => {
+                                let name = match name {
+                                    UnqualifiedName::Source(name, _) => name,
+                                    UnqualifiedName::LocalSourceName(name, ..) => name,
+                                    _ => return Err(error::Error::UnexpectedText),
+                                };
+                                Prefix::DataMember(current, DataMemberPrefix(name))
+                            }
                         };
-                        let prefix = Prefix::DataMember(current.unwrap(), DataMemberPrefix(name));
                         current = Some(save(subs, prefix, tail_tail));
                         tail = consume(b"M", tail_tail).unwrap();
                     } else {
@@ -2363,16 +2369,6 @@ impl Parse for PrefixHandle {
                         current = Some(save(subs, prefix, tail_tail));
                         tail = tail_tail;
                     }
-                }
-                Some(c) if UnqualifiedName::starts_with(c, &tail) => {
-                    // <prefix> ::= <unqualified-name>
-                    let (name, tail_tail) = UnqualifiedName::parse(ctx, subs, tail)?;
-                    let prefix = match current {
-                        None => Prefix::Unqualified(name),
-                        Some(handle) => Prefix::Nested(handle, name),
-                    };
-                    current = Some(save(subs, prefix, tail_tail));
-                    tail = tail_tail;
                 }
                 Some(_) => {
                     if let Some(handle) = current {

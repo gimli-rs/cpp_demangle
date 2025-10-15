@@ -655,6 +655,16 @@ demangles!(
     "ns::Foo::foo(this ns::Foo, int)::Foo2::foo2(this Foo2 const&&)"
 );
 
+// Test some legacy 'M' in prefixes.
+demangles!(
+    _ZNKL4argsMUlvE_clEv,
+    "args::{lambda()#1}::operator()() const"
+);
+demangles!(
+    _ZNSt14_Function_base13_Base_managerIN6ospray3mpiL12setParamFcnsMUlPN3osp13ManagedObjectEPKcPKvE55_EE15_M_init_functorERSt9_Any_dataOSA_St17integral_constantIbLb1EE,
+    "std::_Function_base::_Base_manager<ospray::mpi::setParamFcns::{lambda(osp::ManagedObject*, char const*, void const*)#57}>::_M_init_functor(std::_Any_data&, void const*&&, std::integral_constant<bool, true>)"
+);
+
 // This symbol previously ran into some mutual recursion and unbounded growth of the substitution table.
 // See <https://github.com/gimli-rs/cpp_demangle/issues/277> and <https://github.com/getsentry/symbolic/issues/477>
 #[test]
