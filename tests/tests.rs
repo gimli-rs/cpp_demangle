@@ -669,6 +669,10 @@ demangles!(
     _ZN11OFnullptr_tcvPT_IFbPKvmS4_mEEEv,
     "OFnullptr_t::operator bool (*)(void const*, unsigned long, void const*, unsigned long)<bool (void const*, unsigned long, void const*, unsigned long)>()"
 );
+demangles!(
+    _Z13qGetPtrHelperIK14QScopedPointerIN8KDevelop24ObjectListTrackerPrivateE21QScopedPointerDeleterIS2_EEEDTcldtfp_onptEERT_,
+    "decltype (({parm#1}.operator->)()) qGetPtrHelper<QScopedPointer<KDevelop::ObjectListTrackerPrivate, QScopedPointerDeleter<KDevelop::ObjectListTrackerPrivate> > const>(QScopedPointer<KDevelop::ObjectListTrackerPrivate, QScopedPointerDeleter<KDevelop::ObjectListTrackerPrivate> > const&)"
+);
 
 // This symbol previously ran into some mutual recursion and unbounded growth of the substitution table.
 // See <https://github.com/gimli-rs/cpp_demangle/issues/277> and <https://github.com/getsentry/symbolic/issues/477>

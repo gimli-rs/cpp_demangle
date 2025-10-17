@@ -2516,7 +2516,7 @@ impl PrefixHandle {
 /// The `<unqualified-name>` production.
 ///
 /// ```text
-/// <unqualified-name> ::= <operator-name> [<abi-tags>]
+/// <unqualified-name> ::= [on] <operator-name> [<abi-tags>]
 ///                    ::= <ctor-dtor-name> [<abi-tags>]
 ///                    ::= <source-name> [<abi-tags>]
 ///                    ::= <local-source-name> [<abi-tags>]
@@ -2551,7 +2551,10 @@ impl Parse for UnqualifiedName {
     ) -> Result<(UnqualifiedName, IndexStr<'b>)> {
         try_begin_parse!("UnqualifiedName", ctx, input);
 
-        if let Ok((op, tail)) = try_recurse!(OperatorName::parse(ctx, subs, input)) {
+        // libiberty accepts inputs with and without "on" here,
+        // llvm only accepts with "on". Be less picky.
+        let operator_name_input = consume(b"on", input).unwrap_or(input);
+        if let Ok((op, tail)) = try_recurse!(OperatorName::parse(ctx, subs, operator_name_input)) {
             let (abi_tags, tail) = AbiTags::parse(ctx, subs, tail)?;
             return Ok((UnqualifiedName::Operator(op, abi_tags), tail));
         }
@@ -11490,7 +11493,7 @@ mod tests {
 
     #[test]
     fn parse_unqualified_name() {
-        // <unqualified-name> ::= <operator-name> [<abi-tags>]
+        // <unqualified-name> ::= [on] <operator-name> [<abi-tags>]
         //                    ::= <ctor-dtor-name> [<abi-tags>]
         //                    ::= <source-name> [<abi-tags>]
         //                    ::= <local-source-name> [<abi-tags>]
@@ -11499,6 +11502,10 @@ mod tests {
         assert_parse!(UnqualifiedName {
             Ok => {
                 b"qu.." => {
+                    UnqualifiedName::Operator(OperatorName::Simple(SimpleOperatorName::Question), AbiTags::default()),
+                    b".."
+                }
+                b"onqu.." => {
                     UnqualifiedName::Operator(OperatorName::Simple(SimpleOperatorName::Question), AbiTags::default()),
                     b".."
                 }
