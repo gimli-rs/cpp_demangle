@@ -132,7 +132,7 @@ extern crate diff;
     // The set of libiberty tests that pass. This should only ever grow!
     let libiberty_passing_tests = {
         let mut s: HashSet<_> = (0..86).collect();
-        s.extend(87..89);
+        s.extend(87..90);
         s.extend(91..93);
         s.extend(94..113);
         s.extend(115..118);

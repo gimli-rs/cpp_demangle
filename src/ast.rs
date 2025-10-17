@@ -3172,6 +3172,7 @@ where
                 simple.demangle(ctx, scope)
             }
             OperatorName::Cast(ref ty) | OperatorName::Conversion(ref ty) => {
+                inner_barrier!(ctx);
                 ctx.ensure_space()?;
 
                 // Cast operators can refer to template arguments before they
