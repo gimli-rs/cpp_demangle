@@ -87,7 +87,7 @@ impl fmt::Debug for SubstitutionTable {
         f.debug_map()
             .entries(self.substitutions.iter().enumerate())
             .finish()?;
-        f.pad("non_substitutions ")?;
+        f.pad(" non_substitutions ")?;
         f.debug_map()
             .entries(self.non_substitutions.iter().enumerate())
             .finish()

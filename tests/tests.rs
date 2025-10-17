@@ -665,6 +665,11 @@ demangles!(
     "std::_Function_base::_Base_manager<ospray::mpi::setParamFcns::{lambda(osp::ManagedObject*, char const*, void const*)#57}>::_M_init_functor(std::_Any_data&, void const*&&, std::integral_constant<bool, true>)"
 );
 
+demangles!(
+    _ZN11OFnullptr_tcvPT_IFbPKvmS4_mEEEv,
+    "OFnullptr_t::operator bool (*)(void const*, unsigned long, void const*, unsigned long)<bool (void const*, unsigned long, void const*, unsigned long)>()"
+);
+
 // This symbol previously ran into some mutual recursion and unbounded growth of the substitution table.
 // See <https://github.com/gimli-rs/cpp_demangle/issues/277> and <https://github.com/getsentry/symbolic/issues/477>
 #[test]

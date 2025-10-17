@@ -3767,19 +3767,19 @@ impl Parse for TypeHandle {
                 // NB: Parsing a <template-args> production may modify the substitutions
                 // table, so we need to avoid contaminating the official copy.
                 let mut tmp_subs = subs.clone();
-                if let Ok((_, new_tail)) =
-                    try_recurse!(TemplateArgs::parse(ctx, &mut tmp_subs, tail))
-                {
-                    if new_tail.peek() != Some(b'I') {
+                match try_recurse!(TemplateArgs::parse(ctx, &mut tmp_subs, tail)) {
+                    Ok((_, new_tail)) if new_tail.peek() == Some(b'I') => {
+                        // We really do have a <template-template-param>. Fall through.
+                        // NB: We can't use the arguments we just parsed because a
+                        // TemplateTemplateParam is substitutable, and if we use it
+                        // any substitutions in the arguments will come *before* it,
+                        // putting the substitution table out of order.
+                    }
+                    _ => {
                         // Don't consume the TemplateArgs.
                         let ty = Type::TemplateParam(param);
                         return insert_and_return_handle(ty, subs, tail);
                     }
-                    // We really do have a <template-template-param>. Fall through.
-                    // NB: We can't use the arguments we just parsed because a
-                    // TemplateTemplateParam is substitutable, and if we use it
-                    // any substitutions in the arguments will come *before* it,
-                    // putting the substitution table out of order.
                 }
             }
         }
