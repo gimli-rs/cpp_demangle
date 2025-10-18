@@ -677,6 +677,10 @@ demangles!(
     _Z10qHashMultiIJiiEEDTcmcmcl7declvalINSt9enable_ifIXgtsZT_Li0EEvE4typeEEEfrcmcl5qHashcl7declvalIRKT_EEEtlmEEmDpS5_,
     "decltype ((((declval<std::enable_if<((sizeof...(int, int))>(0)), void>::type>)()),((((qHash)((declval<int, int const&>)())),...))),(unsigned long{})) qHashMulti<int, int>(unsigned long, int, int const&)"
 );
+demangles!(
+    _ZNK8nlohmann10basic_jsonISt3mapSt6vectorNSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEEblmdSaNS_14adl_serializerES2_IhSaIhEEE3getIS8_S8_EEDTcldtcl7declvalIRKSC_EE8get_implIT0_EcvNS_6detail12priority_tagILj4EEEilEEEv,
+    "decltype ((((declval<nlohmann::basic_json<std::map, std::vector, std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >, bool, long, unsigned long, double, std::allocator, nlohmann::adl_serializer, std::vector<unsigned char, std::allocator<unsigned char> > > const&>)()).(get_impl<std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > >))((nlohmann::detail::priority_tag<(unsigned int)4>)({}))) nlohmann::basic_json<std::map, std::vector, std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >, bool, long, unsigned long, double, std::allocator, nlohmann::adl_serializer, std::vector<unsigned char, std::allocator<unsigned char> > >::get<std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >, std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > >() const"
+);
 
 // This symbol previously ran into some mutual recursion and unbounded growth of the substitution table.
 // See <https://github.com/gimli-rs/cpp_demangle/issues/277> and <https://github.com/getsentry/symbolic/issues/477>

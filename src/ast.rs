@@ -5802,7 +5802,7 @@ pub enum Expression {
     ConversionBraced(TypeHandle, Vec<Expression>),
 
     /// A braced init list expression.
-    BracedInitList(Box<Expression>),
+    BracedInitList(Vec<Expression>),
 
     /// The `new` operator.
     New(Vec<Expression>, TypeHandle, Option<Initializer>),
@@ -5959,9 +5959,9 @@ impl Parse for Expression {
                     return Ok((expr, tail));
                 }
                 b"il" => {
-                    let (expr, tail) = Expression::parse(ctx, subs, tail)?;
+                    let (exprs, tail) = zero_or_more::<Expression>(ctx, subs, tail)?;
+                    let expr = Expression::BracedInitList(exprs);
                     let tail = consume(b"E", tail)?;
-                    let expr = Expression::BracedInitList(Box::new(expr));
                     return Ok((expr, tail));
                 }
                 b"dc" => {
@@ -6334,9 +6334,16 @@ where
                 write!(ctx, "}}")?;
                 Ok(())
             }
-            Expression::BracedInitList(ref expr) => {
+            Expression::BracedInitList(ref exprs) => {
                 write!(ctx, "{{")?;
-                expr.demangle(ctx, scope)?;
+                let mut need_comma = false;
+                for expr in exprs {
+                    if need_comma {
+                        write!(ctx, ", ")?;
+                    }
+                    expr.demangle(ctx, scope)?;
+                    need_comma = true;
+                }
                 write!(ctx, "}}")?;
                 Ok(())
             }
@@ -10129,11 +10136,16 @@ mod tests {
                     }
                     b"ilLS_1EE..." => {
                         Expression::BracedInitList(
-                            Box::new(Expression::Primary(
+                            vec![Expression::Primary(
                                 ExprPrimary::Literal(
                                     TypeHandle::BackReference(0),
                                     5,
-                                    6)))),
+                                    6))]),
+                        b"...",
+                        []
+                    }
+                    b"ilE..." => {
+                        Expression::BracedInitList(vec![]),
                         b"...",
                         []
                     }
