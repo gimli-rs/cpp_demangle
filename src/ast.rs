@@ -5756,6 +5756,10 @@ where
 ///               ::= sZ <function-param>                          # sizeof...(parameter), size of a function parameter pack
 ///               ::= sP <template-arg>* E                         # sizeof...(T), size of a captured template parameter pack from an alias template
 ///               ::= sp <expression>                              # expression..., pack expansion
+///               ::= fl <binary operator-name> <expression>       # (... operator expression), unary left fold
+///               ::= fr <binary operator-name> <expression>       # (expression operator ...), unary right fold
+///               ::= fL <binary operator-name> <expression> <expression> # (expression operator ... operator expression), binary left fold
+///               ::= fR <binary operator-name> <expression> <expression> # (expression operator ... operator expression), binary right fold
 ///               ::= tw <expression>                              # throw expression
 ///               ::= tr                                           # throw with no operand (rethrow)
 ///               ::= <unresolved-name>                            # f(p), N::f(p), ::f(p),
@@ -5887,6 +5891,9 @@ pub enum Expression {
 
     /// `expression...`, pack expansion.
     PackExpansion(Box<Expression>),
+
+    /// The fold expressions.
+    Fold(FoldExpr),
 
     /// `throw expression`
     Throw(Box<Expression>),
@@ -6058,6 +6065,19 @@ impl Parse for Expression {
                 b"sp" => {
                     let (expr, tail) = Expression::parse(ctx, subs, tail)?;
                     let expr = Expression::PackExpansion(Box::new(expr));
+                    return Ok((expr, tail));
+                }
+                b"fl" | b"fr" | b"fR" => {
+                    let (expr, tail) = FoldExpr::parse(ctx, subs, input)?;
+                    let expr = Expression::Fold(expr);
+                    return Ok((expr, tail));
+                }
+                // NB: fL for a fold expression is ambiguous with fL for a
+                // function parameter at this point. Look ahead before we commit
+                // to a fold expression.
+                b"fL" if tail.peek().map(|c| !c.is_ascii_digit()).unwrap_or(false) => {
+                    let (expr, tail) = FoldExpr::parse(ctx, subs, input)?;
+                    let expr = Expression::Fold(expr);
                     return Ok((expr, tail));
                 }
                 b"tw" => {
@@ -6481,6 +6501,7 @@ where
                 Ok(())
             }
             Expression::Subobject(ref expr) => expr.demangle(ctx, scope),
+            Expression::Fold(ref expr) => expr.demangle(ctx, scope),
             Expression::TemplateParam(ref param) => param.demangle(ctx, scope),
             Expression::FunctionParam(ref param) => param.demangle(ctx, scope),
             Expression::Member(ref expr, ref name) => {
@@ -8139,6 +8160,127 @@ where
     }
 }
 
+/// The fold expressions.
+///
+/// These are not separate productions in the grammar but our code is cleaner
+/// if we handle them all together.
+///
+/// <expression>  ::= ...
+///               ::= fl <binary operator-name> <expression>       # (... operator expression), unary left fold
+///               ::= fr <binary operator-name> <expression>       # (expression operator ...), unary right fold
+///               ::= fL <binary operator-name> <expression> <expression> # (expression operator ... operator expression), binary left fold
+///               ::= fR <binary operator-name> <expression> <expression> # (expression operator ... operator expression), binary right fold
+///               ::= ...
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum FoldExpr {
+    /// (...+<expr>)
+    UnaryLeft(SimpleOperatorName, Box<Expression>),
+    /// (<expr>+...)
+    UnaryRight(SimpleOperatorName, Box<Expression>),
+    /// (<expr1>+...+<expr2>)
+    BinaryLeft(SimpleOperatorName, Box<Expression>, Box<Expression>),
+    /// (<expr1>+...+<expr2>)
+    BinaryRight(SimpleOperatorName, Box<Expression>, Box<Expression>),
+}
+
+impl Parse for FoldExpr {
+    fn parse<'a, 'b>(
+        ctx: &'a ParseContext,
+        subs: &'a mut SubstitutionTable,
+        input: IndexStr<'b>,
+    ) -> Result<(FoldExpr, IndexStr<'b>)> {
+        try_begin_parse!("FoldExpr", ctx, input);
+
+        let tail = consume(b"f", input)?;
+        if let Ok(tail) = consume(b"l", tail) {
+            let (operator, tail) = SimpleOperatorName::parse(ctx, subs, tail)?;
+            // Only binary operators are permitted.
+            if operator.arity() != 2 {
+                return Err(error::Error::UnexpectedText);
+            }
+            let (expr, tail) = Expression::parse(ctx, subs, tail)?;
+            return Ok((FoldExpr::UnaryLeft(operator, Box::new(expr)), tail));
+        }
+        if let Ok(tail) = consume(b"r", tail) {
+            let (operator, tail) = SimpleOperatorName::parse(ctx, subs, tail)?;
+            // Only binary operators are permitted.
+            if operator.arity() != 2 {
+                return Err(error::Error::UnexpectedText);
+            }
+            let (expr, tail) = Expression::parse(ctx, subs, tail)?;
+            return Ok((FoldExpr::UnaryRight(operator, Box::new(expr)), tail));
+        }
+        if let Ok(tail) = consume(b"L", tail) {
+            let (operator, tail) = SimpleOperatorName::parse(ctx, subs, tail)?;
+            // Only binary operators are permitted.
+            if operator.arity() != 2 {
+                return Err(error::Error::UnexpectedText);
+            }
+            let (expr1, tail) = Expression::parse(ctx, subs, tail)?;
+            let (expr2, tail) = Expression::parse(ctx, subs, tail)?;
+            return Ok((
+                FoldExpr::BinaryLeft(operator, Box::new(expr1), Box::new(expr2)),
+                tail,
+            ));
+        }
+        if let Ok(tail) = consume(b"R", tail) {
+            let (operator, tail) = SimpleOperatorName::parse(ctx, subs, tail)?;
+            // Only binary operators are permitted.
+            if operator.arity() != 2 {
+                return Err(error::Error::UnexpectedText);
+            }
+            let (expr1, tail) = Expression::parse(ctx, subs, tail)?;
+            let (expr2, tail) = Expression::parse(ctx, subs, tail)?;
+            return Ok((
+                FoldExpr::BinaryRight(operator, Box::new(expr1), Box::new(expr2)),
+                tail,
+            ));
+        }
+
+        Err(error::Error::UnexpectedText)
+    }
+}
+
+impl<'subs, W> Demangle<'subs, W> for FoldExpr
+where
+    W: 'subs + DemangleWrite,
+{
+    #[inline]
+    fn demangle<'prev, 'ctx>(
+        &'subs self,
+        ctx: &'ctx mut DemangleContext<'subs, W>,
+        scope: Option<ArgScopeStack<'prev, 'subs>>,
+    ) -> fmt::Result {
+        let ctx = try_begin_demangle!(self, ctx, scope);
+
+        match self {
+            FoldExpr::UnaryLeft(ref operator, ref expr) => {
+                write!(ctx, "(...")?;
+                operator.demangle(ctx, scope)?;
+                expr.demangle_as_subexpr(ctx, scope)?;
+                write!(ctx, ")")
+            }
+            FoldExpr::UnaryRight(ref operator, ref expr) => {
+                write!(ctx, "(")?;
+                expr.demangle_as_subexpr(ctx, scope)?;
+                operator.demangle(ctx, scope)?;
+                write!(ctx, "...)")
+            }
+            FoldExpr::BinaryLeft(ref operator, ref expr1, ref expr2)
+            | FoldExpr::BinaryRight(ref operator, ref expr1, ref expr2) => {
+                write!(ctx, "(")?;
+                expr1.demangle_as_subexpr(ctx, scope)?;
+                operator.demangle(ctx, scope)?;
+                write!(ctx, "...")?;
+                operator.demangle(ctx, scope)?;
+                expr2.demangle_as_subexpr(ctx, scope)?;
+                write!(ctx, ")")
+            }
+        }
+    }
+}
+
 /// Expect and consume the given byte str, and return the advanced `IndexStr` if
 /// we saw the expectation. Otherwise return an error of kind
 /// `error::Error::UnexpectedText` if the input doesn't match, or
@@ -8250,7 +8392,7 @@ mod tests {
     use super::{
         AbiTag, AbiTags, ArrayType, BareFunctionType, BaseUnresolvedName, BuiltinType, CallOffset,
         ClassEnumType, ClosureTypeName, CtorDtorName, CvQualifiers, DataMemberPrefix, Decltype,
-        DestructorName, Discriminator, Encoding, ExceptionSpec, ExprPrimary, Expression,
+        DestructorName, Discriminator, Encoding, ExceptionSpec, ExprPrimary, Expression, FoldExpr,
         FunctionParam, FunctionType, GlobalCtorDtor, Identifier, Initializer, LambdaSig, LocalName,
         MangledName, MemberName, Name, NestedName, NonSubstitution, Number, NvOffset, OperatorName,
         ParametricBuiltinType, Parse, ParseContext, PointerToMemberType, Prefix, PrefixHandle,
@@ -10257,6 +10399,15 @@ mod tests {
                         b"...",
                         []
                     }
+                    b"fL1pK_..." => {
+                        Expression::FunctionParam(FunctionParam(1, CvQualifiers {
+                            restrict: false,
+                            volatile: false,
+                            const_: true,
+                        }, Some(0))),
+                        b"...",
+                        []
+                    }
                     b"dtT_3abc..." => {
                         Expression::Member(
                             Box::new(Expression::TemplateParam(TemplateParam(0))),
@@ -10341,6 +10492,39 @@ mod tests {
                     b"spT_..." => {
                         Expression::PackExpansion(
                             Box::new(Expression::TemplateParam(TemplateParam(0)))),
+                        b"...",
+                        []
+                    }
+                    b"flplT_..." => {
+                        Expression::Fold(
+                            FoldExpr::UnaryLeft(
+                                SimpleOperatorName::Add,
+                                Box::new(Expression::TemplateParam(TemplateParam(0))),
+                            )
+                        ),
+                        b"...",
+                        []
+                    }
+                    b"fraaT_..." => {
+                        Expression::Fold(
+                            FoldExpr::UnaryRight(
+                                SimpleOperatorName::LogicalAnd,
+                                Box::new(Expression::TemplateParam(TemplateParam(0))),
+                            )
+                        ),
+                        b"...",
+                        []
+                    }
+                    b"fRoospT_spT0_..." => {
+                        Expression::Fold(
+                            FoldExpr::BinaryRight(
+                                SimpleOperatorName::LogicalOr,
+                                Box::new(Expression::PackExpansion(
+                                    Box::new(Expression::TemplateParam(TemplateParam(0))))),
+                                Box::new(Expression::PackExpansion(
+                                    Box::new(Expression::TemplateParam(TemplateParam(1))))),
+                            )
+                        ),
                         b"...",
                         []
                     }
@@ -10431,6 +10615,8 @@ mod tests {
                 }
                 Err => {
                     b"dtStfp_clI3abcE..." => Error::UnexpectedText,
+                    // A fold expression with a unary operator should be rejected.
+                    b"flpsT_..." => Error::UnexpectedText,
                 }
             }
         });

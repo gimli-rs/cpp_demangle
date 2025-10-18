@@ -673,6 +673,10 @@ demangles!(
     _Z13qGetPtrHelperIK14QScopedPointerIN8KDevelop24ObjectListTrackerPrivateE21QScopedPointerDeleterIS2_EEEDTcldtfp_onptEERT_,
     "decltype (({parm#1}.operator->)()) qGetPtrHelper<QScopedPointer<KDevelop::ObjectListTrackerPrivate, QScopedPointerDeleter<KDevelop::ObjectListTrackerPrivate> > const>(QScopedPointer<KDevelop::ObjectListTrackerPrivate, QScopedPointerDeleter<KDevelop::ObjectListTrackerPrivate> > const&)"
 );
+demangles!(
+    _Z10qHashMultiIJiiEEDTcmcmcl7declvalINSt9enable_ifIXgtsZT_Li0EEvE4typeEEEfrcmcl5qHashcl7declvalIRKT_EEEtlmEEmDpS5_,
+    "decltype ((((declval<std::enable_if<((sizeof...(int, int))>(0)), void>::type>)()),((((qHash)((declval<int, int const&>)())),...))),(unsigned long{})) qHashMulti<int, int>(unsigned long, int, int const&)"
+);
 
 // This symbol previously ran into some mutual recursion and unbounded growth of the substitution table.
 // See <https://github.com/gimli-rs/cpp_demangle/issues/277> and <https://github.com/getsentry/symbolic/issues/477>
