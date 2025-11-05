@@ -28,6 +28,35 @@ Released YYYY/MM/DD
 
 --------------------------------------------------------------------------------
 
+# 0.5.1
+
+Released 2025/11/5
+
+## Added
+
+* Fold expressions are supported. (#303)[https://github.com/gimli-rs/cpp_demangle/pull/303]
+
+## Fixed
+
+* We are now less conservative when accepting the legacy <data-member-prefix>
+  production for increased compatibility with libiberty.
+
+* When printing conversion and cast operators we now treat the type we are
+  converting/casting to as a self-contained child and prevent outer template
+  parameters/etc from leaking into it.
+
+* When looking for a <template-template-param> production after a conversion
+  operator, we now correctly handle the case where peeking for the next character
+  fails because we reached the end of the symbol.
+
+* When parsing <unqualified-name productions, accept <operator-names> both
+  with and without an "on" prefix. LLVM requires the prefix, while libiberty
+  accepts but does not require it.
+
+* Empty braced-enclosed initializer lists are now accepted.
+
+--------------------------------------------------------------------------------
+
 # 0.5.0
 
 Released 2025/9/23
