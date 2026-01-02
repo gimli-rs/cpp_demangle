@@ -5447,6 +5447,52 @@ where
     }
 }
 
+/// The `<template-param-decl>` production.
+///
+/// ```text
+/// <template-param-decl> ::= Tn <type>                   # non-type parameter
+/// ```
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum TemplateParamDecl {
+    /// A non-type parameter.
+    NonType(TypeHandle),
+}
+
+impl Parse for TemplateParamDecl {
+    fn parse<'a, 'b>(
+        ctx: &'a ParseContext,
+        subs: &'a mut SubstitutionTable,
+        input: IndexStr<'b>,
+    ) -> Result<(TemplateParamDecl, IndexStr<'b>)> {
+        try_begin_parse!("TemplateParamDecl", ctx, input);
+
+        let input = consume(b"T", input)?;
+        if let Ok(tail) = consume(b"n", input) {
+            let (ty, tail) = TypeHandle::parse(ctx, subs, tail)?;
+            return Ok((TemplateParamDecl::NonType(ty), tail));
+        }
+
+        Err(error::Error::UnexpectedText)
+    }
+}
+
+impl<'subs, W> Demangle<'subs, W> for TemplateParamDecl
+where
+    W: 'subs + DemangleWrite,
+{
+    fn demangle<'prev, 'ctx>(
+        &'subs self,
+        ctx: &'ctx mut DemangleContext<'subs, W>,
+        scope: Option<ArgScopeStack<'prev, 'subs>>,
+    ) -> fmt::Result {
+        let ctx = try_begin_demangle!(self, ctx, scope);
+
+        match self {
+            TemplateParamDecl::NonType(ref ty) => ty.demangle(ctx, scope),
+        }
+    }
+}
+
 /// The <function-param> production.
 ///
 /// ```text
@@ -5606,6 +5652,7 @@ impl<'subs> ArgScope<'subs, 'subs> for TemplateArgs {
 ///                ::= X <expression> E      # expression
 ///                ::= <expr-primary>        # simple expressions
 ///                ::= J <template-arg>* E   # argument pack
+///                ::= <template-param-decl> <template-arg> #
 /// ```
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum TemplateArg {
@@ -5620,6 +5667,9 @@ pub enum TemplateArg {
 
     /// An argument pack.
     ArgPack(Vec<TemplateArg>),
+
+    /// A <template-param-decl> followed by an additional <template-arg>.
+    ParamDecl(TemplateParamDecl, Box<TemplateArg>),
 }
 
 impl Parse for TemplateArg {
@@ -5642,6 +5692,16 @@ impl Parse for TemplateArg {
 
         if let Ok((ty, tail)) = try_recurse!(TypeHandle::parse(ctx, subs, input)) {
             return Ok((TemplateArg::Type(ty), tail));
+        }
+
+        if let Ok((template_param_decl, tail)) =
+            try_recurse!(TemplateParamDecl::parse(ctx, subs, input))
+        {
+            let (arg, tail) = TemplateArg::parse(ctx, subs, tail)?;
+            return Ok((
+                TemplateArg::ParamDecl(template_param_decl, Box::new(arg)),
+                tail,
+            ));
         }
 
         let tail = if input.peek() == Some(b'J') {
@@ -5686,6 +5746,10 @@ where
                     need_comma = true;
                 }
                 Ok(())
+            }
+            TemplateArg::ParamDecl(_, ref arg) => {
+                // llvm-cxxfilt doesn't print the param.
+                arg.demangle(ctx, scope)
             }
         }
     }
@@ -8436,8 +8500,8 @@ mod tests {
         ParametricBuiltinType, Parse, ParseContext, PointerToMemberType, Prefix, PrefixHandle,
         RefQualifier, ResourceName, SeqId, SimpleId, SimpleOperatorName, SourceName, SpecialName,
         StandardBuiltinType, SubobjectExpr, Substitution, TemplateArg, TemplateArgs, TemplateParam,
-        TemplateTemplateParam, TemplateTemplateParamHandle, Type, TypeHandle, UnnamedTypeName,
-        UnqualifiedName, UnresolvedName, UnresolvedQualifierLevel, UnresolvedType,
+        TemplateParamDecl, TemplateTemplateParam, TemplateTemplateParamHandle, Type, TypeHandle,
+        UnnamedTypeName, UnqualifiedName, UnresolvedName, UnresolvedQualifierLevel, UnresolvedType,
         UnresolvedTypeHandle, UnscopedName, UnscopedTemplateName, UnscopedTemplateNameHandle,
         VOffset, VectorType, WellKnownComponent,
     };
@@ -10017,12 +10081,25 @@ mod tests {
                         b"...",
                         []
                     }
+                    b"TnS_S_..." => {
+                        TemplateArg::ParamDecl(
+                            TemplateParamDecl::NonType(TypeHandle::BackReference(0)),
+                            Box::new(TemplateArg::Type(TypeHandle::BackReference(0)))
+                        ),
+                        b"...",
+                        []
+                    }
                 }
                 Err => {
                     b"..." => Error::UnexpectedText,
                     b"X..." => Error::UnexpectedText,
                     b"J..." => Error::UnexpectedText,
                     b"JS_..." => Error::UnexpectedText,
+                    // <template-param-decl>s that we don't implement yet.
+                    b"Ty" => Error::UnexpectedText,
+                    b"Tk" => Error::UnexpectedText,
+                    b"Tt" => Error::UnexpectedText,
+                    b"Tp" => Error::UnexpectedText,
                     b"JS_" => Error::UnexpectedEnd,
                     b"X" => Error::UnexpectedEnd,
                     b"J" => Error::UnexpectedEnd,

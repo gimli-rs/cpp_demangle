@@ -691,6 +691,12 @@ demangles!(_Z1fDF32_2xxS_, "f(_Float32, xx, xx)");
 // Vendor extended builtin type is substitutable.
 demangles!(_Z1fu2xxS_, "f(xx, xx)");
 
+// Non-type template parameter mangling is supported.
+demangles!(
+    _ZNSt3__112__hash_tableINS_17__hash_value_typeINS_12basic_stringIcNS_11char_traitsIcEENS_9allocatorIcEEEEmEENS_22__unordered_map_hasherIS7_S8_N2DB32StringHashForHeterogeneousLookupENS_8equal_toIvEELb1EEENS_21__unordered_map_equalIS7_S8_SD_SB_Lb1EEENS5_IS8_EEE16__emplace_uniqueB8ne190107IRS7_RmTnNS_9enable_ifIXsr21__can_extract_map_keyIT_S7_NS_4pairIKS7_mEEEE5valueEiE4typeELi0EEENSO_INS_15__hash_iteratorIPNS_11__hash_nodeIS8_PvEEEEbEEOSN_OT0_,
+    "std::__1::pair<std::__1::__hash_iterator<std::__1::__hash_node<std::__1::__hash_value_type<std::__1::basic_string<char, std::__1::char_traits<char>, std::__1::allocator<char> >, unsigned long>, void*>*>, bool> std::__1::__hash_table<std::__1::__hash_value_type<std::__1::basic_string<char, std::__1::char_traits<char>, std::__1::allocator<char> >, unsigned long>, std::__1::__unordered_map_hasher<std::__1::basic_string<char, std::__1::char_traits<char>, std::__1::allocator<char> >, std::__1::__hash_value_type<std::__1::basic_string<char, std::__1::char_traits<char>, std::__1::allocator<char> >, unsigned long>, DB::StringHashForHeterogeneousLookup, std::__1::equal_to<void>, true>, std::__1::__unordered_map_equal<std::__1::basic_string<char, std::__1::char_traits<char>, std::__1::allocator<char> >, std::__1::__hash_value_type<std::__1::basic_string<char, std::__1::char_traits<char>, std::__1::allocator<char> >, unsigned long>, std::__1::equal_to<void>, DB::StringHashForHeterogeneousLookup, true>, std::__1::allocator<std::__1::__hash_value_type<std::__1::basic_string<char, std::__1::char_traits<char>, std::__1::allocator<char> >, unsigned long> > >::__emplace_unique[abi:ne190107]<std::__1::basic_string<char, std::__1::char_traits<char>, std::__1::allocator<char> >&, unsigned long&, 0>(std::__1::basic_string<char, std::__1::char_traits<char>, std::__1::allocator<char> >&, unsigned long&)"
+);
+
 // This symbol previously ran into some mutual recursion and unbounded growth of the substitution table.
 // See <https://github.com/gimli-rs/cpp_demangle/issues/277> and <https://github.com/getsentry/symbolic/issues/477>
 #[test]
