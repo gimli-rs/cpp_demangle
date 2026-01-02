@@ -5451,11 +5451,14 @@ where
 ///
 /// ```text
 /// <template-param-decl> ::= Tn <type>                   # non-type parameter
+///                       ::= Tp <template-param-decl>    # parameter pack
 /// ```
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum TemplateParamDecl {
     /// A non-type parameter.
     NonType(TypeHandle),
+    /// A parameter pack.
+    ParameterPack(Box<TemplateParamDecl>),
 }
 
 impl Parse for TemplateParamDecl {
@@ -5470,6 +5473,11 @@ impl Parse for TemplateParamDecl {
         if let Ok(tail) = consume(b"n", input) {
             let (ty, tail) = TypeHandle::parse(ctx, subs, tail)?;
             return Ok((TemplateParamDecl::NonType(ty), tail));
+        }
+
+        if let Ok(tail) = consume(b"p", input) {
+            let (param_decl, tail) = TemplateParamDecl::parse(ctx, subs, tail)?;
+            return Ok((TemplateParamDecl::ParameterPack(Box::new(param_decl)), tail));
         }
 
         Err(error::Error::UnexpectedText)
@@ -5489,6 +5497,7 @@ where
 
         match self {
             TemplateParamDecl::NonType(ref ty) => ty.demangle(ctx, scope),
+            TemplateParamDecl::ParameterPack(ref pack) => pack.demangle(ctx, scope),
         }
     }
 }
@@ -10084,6 +10093,16 @@ mod tests {
                     b"TnS_S_..." => {
                         TemplateArg::ParamDecl(
                             TemplateParamDecl::NonType(TypeHandle::BackReference(0)),
+                            Box::new(TemplateArg::Type(TypeHandle::BackReference(0)))
+                        ),
+                        b"...",
+                        []
+                    }
+                    b"TpTnS_S_..." => {
+                        TemplateArg::ParamDecl(
+                            TemplateParamDecl::ParameterPack(Box::new(
+                                TemplateParamDecl::NonType(TypeHandle::BackReference(0))
+                            )),
                             Box::new(TemplateArg::Type(TypeHandle::BackReference(0)))
                         ),
                         b"...",

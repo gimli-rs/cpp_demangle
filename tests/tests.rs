@@ -697,6 +697,11 @@ demangles!(
     "std::__1::pair<std::__1::__hash_iterator<std::__1::__hash_node<std::__1::__hash_value_type<std::__1::basic_string<char, std::__1::char_traits<char>, std::__1::allocator<char> >, unsigned long>, void*>*>, bool> std::__1::__hash_table<std::__1::__hash_value_type<std::__1::basic_string<char, std::__1::char_traits<char>, std::__1::allocator<char> >, unsigned long>, std::__1::__unordered_map_hasher<std::__1::basic_string<char, std::__1::char_traits<char>, std::__1::allocator<char> >, std::__1::__hash_value_type<std::__1::basic_string<char, std::__1::char_traits<char>, std::__1::allocator<char> >, unsigned long>, DB::StringHashForHeterogeneousLookup, std::__1::equal_to<void>, true>, std::__1::__unordered_map_equal<std::__1::basic_string<char, std::__1::char_traits<char>, std::__1::allocator<char> >, std::__1::__hash_value_type<std::__1::basic_string<char, std::__1::char_traits<char>, std::__1::allocator<char> >, unsigned long>, std::__1::equal_to<void>, DB::StringHashForHeterogeneousLookup, true>, std::__1::allocator<std::__1::__hash_value_type<std::__1::basic_string<char, std::__1::char_traits<char>, std::__1::allocator<char> >, unsigned long> > >::__emplace_unique[abi:ne190107]<std::__1::basic_string<char, std::__1::char_traits<char>, std::__1::allocator<char> >&, unsigned long&, 0>(std::__1::basic_string<char, std::__1::char_traits<char>, std::__1::allocator<char> >&, unsigned long&)"
 );
 
+demangles!(
+    _ZNSt3__118__apply_tuple_implB8ne190107IRZN2DB13SystemLogBaseINS1_21BlobStorageLogElementEE7startupEvEUlvE_RNS_5tupleIJEEETpTnmJEEEDcOT_OT0_NS_15__tuple_indicesIJXspT1_EEEE,
+    "decltype(auto) std::__1::__apply_tuple_impl[abi:ne190107]<DB::SystemLogBase<DB::BlobStorageLogElement>::startup()::{lambda()#1}&, std::__1::tuple<>&, >(DB::SystemLogBase<DB::BlobStorageLogElement>::startup()::{lambda()#1}&, std::__1::tuple<>&, std::__1::__tuple_indices<()...>)"
+);
+
 // This symbol previously ran into some mutual recursion and unbounded growth of the substitution table.
 // See <https://github.com/gimli-rs/cpp_demangle/issues/277> and <https://github.com/getsentry/symbolic/issues/477>
 #[test]
