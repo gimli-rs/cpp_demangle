@@ -682,6 +682,15 @@ demangles!(
     "decltype ((((declval<nlohmann::basic_json<std::map, std::vector, std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >, bool, long, unsigned long, double, std::allocator, nlohmann::adl_serializer, std::vector<unsigned char, std::allocator<unsigned char> > > const&>)()).(get_impl<std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > >))((nlohmann::detail::priority_tag<(unsigned int)4>)({}))) nlohmann::basic_json<std::map, std::vector, std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >, bool, long, unsigned long, double, std::allocator, nlohmann::adl_serializer, std::vector<unsigned char, std::allocator<unsigned char> > >::get<std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >, std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > >() const"
 );
 
+// _BitInt(N) is substitutable, but _FloatN is not.
+demangles!(_Z1fDB8_S_, "f(_BitInt(8), _BitInt(8))");
+demangles!(_Z1fDU8_S_, "f(unsigned _BitInt(8), unsigned _BitInt(8))");
+demangles!(_Z1fILi8EEvDBT__S0_, "void f<8>(_BitInt(8), _BitInt(8))");
+demangles!(_Z1fDF32_2xxS_, "f(_Float32, xx, xx)");
+
+// Vendor extended builtin type is substitutable.
+demangles!(_Z1fu2xxS_, "f(xx, xx)");
+
 // This symbol previously ran into some mutual recursion and unbounded growth of the substitution table.
 // See <https://github.com/gimli-rs/cpp_demangle/issues/277> and <https://github.com/getsentry/symbolic/issues/477>
 #[test]

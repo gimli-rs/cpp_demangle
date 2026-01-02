@@ -3619,6 +3619,11 @@ pub enum Type {
 
     /// A pack expansion.
     PackExpansion(TypeHandle),
+
+    /// Builtin type eligible for substitutions, e.g. vendor extended type or _BitInt(N).
+    /// Note: most builtin types are excluded from substitutions, and we store them directly
+    /// in TypeHandle without creating a Type.
+    Builtin(BuiltinType),
 }
 
 define_handle! {
@@ -3665,6 +3670,30 @@ impl Parse for TypeHandle {
         if let Ok((builtin, tail)) = try_recurse!(BuiltinType::parse(ctx, subs, input)) {
             // Builtin types are one of two exceptions that do not end up in the
             // substitutions table.
+
+            // But there are exceptions to the exception:
+            //  * "vendor extended type" builtin types do go in the substitution table.
+            //  * Quirk: clang treats `_BitInt` types (`DB<n>_`, `DU<n>_`) as substitutable,
+            //    even though they're <builtin-type>. This contradicts the current Itanium ABI spec.
+            //    This behavior is consistent between clang's mangler and demangler.
+            //    It seems more likely that the ABI spec will be changed to match clang, rather than
+            //    the other way around. So we do what clang does and put _BitInt-s into the substitution table.
+            let substitutable = match &builtin {
+                BuiltinType::Parametric(p) => match p {
+                    ParametricBuiltinType::SignedBitInt(_)
+                    | ParametricBuiltinType::UnsignedBitInt(_)
+                    | ParametricBuiltinType::SignedBitIntExpression(_)
+                    | ParametricBuiltinType::UnsignedBitIntExpression(_) => true,
+                    _ => false,
+                },
+                BuiltinType::Extension(_) => true,
+                _ => false,
+            };
+            if substitutable {
+                let ty = Type::Builtin(builtin);
+                return insert_and_return_handle(ty, subs, tail);
+            }
+
             let handle = TypeHandle::Builtin(builtin);
             return Ok((handle, tail));
         }
@@ -3908,6 +3937,7 @@ where
                 }
                 Ok(())
             }
+            Type::Builtin(ref builtin) => builtin.demangle(ctx, scope),
         }
     }
 }
@@ -4309,6 +4339,7 @@ impl Parse for ParametricBuiltinType {
             Ok((t, input))
         } else if allow_expression {
             let (expr, input) = Expression::parse(ctx, subs, input)?;
+            let input = consume(b"_", input)?;
             let expr = Box::new(expr);
             let t = match ch {
                 b'B' => ParametricBuiltinType::SignedBitIntExpression(expr),
@@ -4336,10 +4367,10 @@ where
         match *self {
             Self::FloatN(n) => write!(ctx, "_Float{}", n),
             Self::FloatNx(n) => write!(ctx, "_Float{}x", n),
-            Self::SignedBitInt(n) => write!(ctx, "signed _BitInt({})", n),
+            Self::SignedBitInt(n) => write!(ctx, "_BitInt({})", n),
             Self::UnsignedBitInt(n) => write!(ctx, "unsigned _BitInt({})", n),
             Self::SignedBitIntExpression(ref expr) => {
-                write!(ctx, "signed _BitInt(")?;
+                write!(ctx, "_BitInt(")?;
                 expr.demangle(ctx, scope)?;
                 write!(ctx, ")")
             }
@@ -11615,7 +11646,7 @@ mod tests {
                     BuiltinType::Parametric(ParametricBuiltinType::SignedBitInt(8)),
                     b"..."
                 }
-                b"DUsZT_" => {
+                b"DUsZT__" => {
                     BuiltinType::Parametric(ParametricBuiltinType::UnsignedBitIntExpression(Box::new(Expression::SizeofTemplatePack(TemplateParam(0))))),
                     b""
                 }
