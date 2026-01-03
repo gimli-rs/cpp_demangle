@@ -5573,10 +5573,13 @@ where
 /// The `<template-args>` production.
 ///
 /// ```text
-/// <template-args> ::= I <template-arg>+ E
+/// <template-args> ::= I <template-arg>+ [Q <requires-clause expr>] E
 /// ```
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct TemplateArgs(Vec<TemplateArg>);
+pub struct TemplateArgs {
+    args: Vec<TemplateArg>,
+    requires_clause: ConstraintExpression,
+}
 
 impl Parse for TemplateArgs {
     fn parse<'a, 'b>(
@@ -5589,8 +5592,15 @@ impl Parse for TemplateArgs {
         let tail = consume(b"I", input)?;
 
         let (args, tail) = one_or_more::<TemplateArg>(ctx, subs, tail)?;
+        let (requires_clause, tail) = ConstraintExpression::parse(ctx, subs, tail)?;
         let tail = consume(b"E", tail)?;
-        Ok((TemplateArgs(args), tail))
+        Ok((
+            TemplateArgs {
+                args: args,
+                requires_clause: requires_clause,
+            },
+            tail,
+        ))
     }
 }
 
@@ -5612,15 +5622,19 @@ where
         write!(ctx, "<")?;
         ctx.push_demangle_node(DemangleNodeType::TemplateArgs);
         let mut need_comma = false;
-        for arg_index in 0..self.0.len() {
+        for arg_index in 0..self.args.len() {
             if need_comma {
                 write!(ctx, ", ")?;
             }
             if let Some(ref mut scope) = scope {
                 scope.in_arg = Some((arg_index, self));
             }
-            self.0[arg_index].demangle(ctx, scope)?;
+            self.args[arg_index].demangle(ctx, scope)?;
             need_comma = true;
+        }
+
+        if let Some(ref mut scope) = scope {
+            scope.in_arg = None;
         }
 
         // Ensure "> >" because old C++ sucks and libiberty (and its tests)
@@ -5643,7 +5657,7 @@ impl<'subs> ArgScope<'subs, 'subs> for TemplateArgs {
         &'subs self,
         idx: usize,
     ) -> Result<(&'subs TemplateArg, &'subs TemplateArgs)> {
-        self.0
+        self.args
             .get(idx)
             .ok_or(error::Error::BadTemplateArgReference)
             .map(|v| (v, self))
@@ -6699,6 +6713,30 @@ impl Expression {
         }
 
         Ok(())
+    }
+}
+
+/// `[Q <requires-clause expr>` appears in multiple places but is not actually
+/// defined as its own separate production by the spec. Due to the Rust type
+/// system it's convenient for us to handle the optionality inside a newtype,
+/// hence ConstraintExpression.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ConstraintExpression(Option<Box<Expression>>);
+
+impl Parse for ConstraintExpression {
+    fn parse<'a, 'b>(
+        ctx: &'a ParseContext,
+        subs: &'a mut SubstitutionTable,
+        input: IndexStr<'b>,
+    ) -> Result<(ConstraintExpression, IndexStr<'b>)> {
+        try_begin_parse!("ConstraintExpression", ctx, input);
+
+        if let Ok(tail) = consume(b"Q", input) {
+            let (expr, tail) = Expression::parse(ctx, subs, tail)?;
+            return Ok((ConstraintExpression(Some(Box::new(expr))), tail));
+        }
+
+        Ok((ConstraintExpression(None), input))
     }
 }
 
@@ -8502,15 +8540,16 @@ fn parse_number(base: u32, allow_signed: bool, mut input: IndexStr) -> Result<(i
 mod tests {
     use super::{
         AbiTag, AbiTags, ArrayType, BareFunctionType, BaseUnresolvedName, BuiltinType, CallOffset,
-        ClassEnumType, ClosureTypeName, CtorDtorName, CvQualifiers, DataMemberPrefix, Decltype,
-        DestructorName, Discriminator, Encoding, ExceptionSpec, ExprPrimary, Expression, FoldExpr,
-        FunctionParam, FunctionType, GlobalCtorDtor, Identifier, Initializer, LambdaSig, LocalName,
-        MangledName, MemberName, Name, NestedName, NonSubstitution, Number, NvOffset, OperatorName,
-        ParametricBuiltinType, Parse, ParseContext, PointerToMemberType, Prefix, PrefixHandle,
-        RefQualifier, ResourceName, SeqId, SimpleId, SimpleOperatorName, SourceName, SpecialName,
-        StandardBuiltinType, SubobjectExpr, Substitution, TemplateArg, TemplateArgs, TemplateParam,
-        TemplateParamDecl, TemplateTemplateParam, TemplateTemplateParamHandle, Type, TypeHandle,
-        UnnamedTypeName, UnqualifiedName, UnresolvedName, UnresolvedQualifierLevel, UnresolvedType,
+        ClassEnumType, ClosureTypeName, ConstraintExpression, CtorDtorName, CvQualifiers,
+        DataMemberPrefix, Decltype, DestructorName, Discriminator, Encoding, ExceptionSpec,
+        ExprPrimary, Expression, FoldExpr, FunctionParam, FunctionType, GlobalCtorDtor, Identifier,
+        Initializer, LambdaSig, LocalName, MangledName, MemberName, Name, NestedName,
+        NonSubstitution, Number, NvOffset, OperatorName, ParametricBuiltinType, Parse,
+        ParseContext, PointerToMemberType, Prefix, PrefixHandle, RefQualifier, ResourceName, SeqId,
+        SimpleId, SimpleOperatorName, SourceName, SpecialName, StandardBuiltinType, SubobjectExpr,
+        Substitution, TemplateArg, TemplateArgs, TemplateParam, TemplateParamDecl,
+        TemplateTemplateParam, TemplateTemplateParamHandle, Type, TypeHandle, UnnamedTypeName,
+        UnqualifiedName, UnresolvedName, UnresolvedQualifierLevel, UnresolvedType,
         UnresolvedTypeHandle, UnscopedName, UnscopedTemplateName, UnscopedTemplateNameHandle,
         VOffset, VectorType, WellKnownComponent,
     };
@@ -8981,11 +9020,14 @@ mod tests {
                     b"dlIcE..." => {
                         Name::UnscopedTemplate(
                             UnscopedTemplateNameHandle::BackReference(2),
-                            TemplateArgs(vec![
-                                TemplateArg::Type(
-                                    TypeHandle::Builtin(
-                                        BuiltinType::Standard(StandardBuiltinType::Char)))
-                            ])),
+                            TemplateArgs {
+                                args: vec![
+                                    TemplateArg::Type(
+                                        TypeHandle::Builtin(
+                                            BuiltinType::Standard(StandardBuiltinType::Char)))
+                                ],
+                                requires_clause: ConstraintExpression(None),
+                            }),
                         b"...",
                         [
                             Substitutable::UnscopedTemplateName(
@@ -9305,9 +9347,10 @@ mod tests {
                                         AbiTags::default()))),
                             Substitutable::Prefix(
                                 Prefix::Template(PrefixHandle::BackReference(1),
-                                                 TemplateArgs(vec![
-                                                     TemplateArg::ArgPack(vec![]),
-                                                 ])))
+                                                 TemplateArgs {
+                                                     args: vec![TemplateArg::ArgPack(vec![])],
+                                                     requires_clause: ConstraintExpression(None),
+                                                 })),
                         ]
                     }
                     b"T_..." => {
@@ -9449,9 +9492,10 @@ mod tests {
                             Substitutable::Type(
                                 Type::TemplateTemplate(
                                     TemplateTemplateParamHandle::BackReference(1),
-                                    TemplateArgs(vec![
-                                        TemplateArg::Type(TypeHandle::BackReference(0))
-                                    ]))),
+                                    TemplateArgs {
+                                        args: vec![TemplateArg::Type(TypeHandle::BackReference(0))],
+                                        requires_clause: ConstraintExpression(None),
+                                    })),
                         ]
                     }
                     b"DTtrE..." => {
@@ -9532,9 +9576,10 @@ mod tests {
                                         start: 2,
                                         end: 5,
                                     }),
-                                    Some(TemplateArgs(vec![
-                                        TemplateArg::Type(TypeHandle::BackReference(0))
-                                    ])),
+                                    Some(TemplateArgs {
+                                        args: vec![TemplateArg::Type(TypeHandle::BackReference(0))],
+                                        requires_clause: ConstraintExpression(None),
+                                    }),
                                     TypeHandle::BackReference(0)))
                         ]
                     }
@@ -9971,17 +10016,45 @@ mod tests {
             ] => {
                 Ok => {
                     b"IS_E..." => {
-                        TemplateArgs(vec![TemplateArg::Type(TypeHandle::BackReference(0))]),
+                        TemplateArgs {
+                            args: vec![TemplateArg::Type(TypeHandle::BackReference(0))],
+                            requires_clause: ConstraintExpression(None),
+                        },
                         b"...",
                         []
                     }
                     b"IS_S_S_S_E..." => {
-                        TemplateArgs(vec![
-                            TemplateArg::Type(TypeHandle::BackReference(0)),
-                            TemplateArg::Type(TypeHandle::BackReference(0)),
-                            TemplateArg::Type(TypeHandle::BackReference(0)),
-                            TemplateArg::Type(TypeHandle::BackReference(0)),
-                        ]),
+                        TemplateArgs {
+                            args: vec![
+                                TemplateArg::Type(TypeHandle::BackReference(0)),
+                                TemplateArg::Type(TypeHandle::BackReference(0)),
+                                TemplateArg::Type(TypeHandle::BackReference(0)),
+                                TemplateArg::Type(TypeHandle::BackReference(0)),
+                            ],
+                            requires_clause: ConstraintExpression(None),
+                        },
+                        b"...",
+                        []
+                    }
+                    b"IS_QeqstS_Li1EE..." => {
+                        TemplateArgs {
+                            args: vec![TemplateArg::Type(TypeHandle::BackReference(0))],
+                            requires_clause: ConstraintExpression(Some(Box::new(
+                                Expression::Binary(
+                                    OperatorName::Simple(SimpleOperatorName::Eq),
+                                    Box::new(Expression::SizeofType(TypeHandle::BackReference(0))),
+                                    Box::new(Expression::Primary(
+                                        ExprPrimary::Literal(
+                                            TypeHandle::Builtin(
+                                                BuiltinType::Standard(
+                                                    StandardBuiltinType::Int,
+                                                ),
+                                            ), 12, 13,
+                                        ),
+                                    )),
+                                ),
+                            ))),
+                        },
                         b"...",
                         []
                     }
@@ -10048,8 +10121,8 @@ mod tests {
                                                 end: 7
                                             }),
                                             Some(
-                                                TemplateArgs(
-                                                    vec![
+                                                TemplateArgs {
+                                                    args: vec![
                                                         TemplateArg::Type(
                                                             TypeHandle::Builtin(
                                                                 BuiltinType::Standard(
@@ -10057,8 +10130,9 @@ mod tests {
                                                                 )
                                                             )
                                                         )
-                                                    ]
-                                                )
+                                                    ],
+                                                    requires_clause: ConstraintExpression(None),
+                                                }
                                             )
                                         )
                                     )
@@ -10585,9 +10659,12 @@ mod tests {
                             MemberName(
                                 Name::UnscopedTemplate(
                                     UnscopedTemplateNameHandle::NonSubstitution(NonSubstitution(0)),
-                                    TemplateArgs(vec![
-                                        TemplateArg::Type(
-                                            TypeHandle::BackReference(1))])))),
+                                    TemplateArgs {
+                                        args: vec![
+                                            TemplateArg::Type(
+                                                TypeHandle::BackReference(1))],
+                                        requires_clause: ConstraintExpression(None),
+                                    }))),
                         b"...",
                         [
                             Substitutable::Type(
@@ -10891,9 +10968,10 @@ mod tests {
                         b"...",
                         [
                             Substitutable::UnresolvedType(
-                                UnresolvedType::Template(TemplateParam(0), Some(TemplateArgs(vec![
-                                    TemplateArg::Type(TypeHandle::BackReference(0))
-                                ])))),
+                                UnresolvedType::Template(TemplateParam(0), Some(TemplateArgs {
+                                    args: vec![TemplateArg::Type(TypeHandle::BackReference(0))],
+                                    requires_clause: ConstraintExpression(None),
+                                }))),
                         ]
                     }
                     b"DTtrE..." => {
@@ -10933,9 +11011,10 @@ mod tests {
                         UnresolvedQualifierLevel(SimpleId(SourceName(Identifier {
                             start: 1,
                             end: 4,
-                        }), Some(TemplateArgs(vec![
-                            TemplateArg::Type(TypeHandle::BackReference(0))
-                        ])))),
+                        }), Some(TemplateArgs {
+                            args: vec![TemplateArg::Type(TypeHandle::BackReference(0))],
+                            requires_clause: ConstraintExpression(None),
+                        }))),
                         b"...",
                         []
                     }
@@ -10967,9 +11046,10 @@ mod tests {
                         SimpleId(SourceName(Identifier {
                             start: 1,
                             end: 4,
-                        }), Some(TemplateArgs(vec![
-                            TemplateArg::Type(TypeHandle::BackReference(0))
-                        ]))),
+                        }), Some(TemplateArgs {
+                            args: vec![TemplateArg::Type(TypeHandle::BackReference(0))],
+                            requires_clause: ConstraintExpression(None),
+                        })),
                         b"...",
                         []
                     }
@@ -11004,9 +11084,10 @@ mod tests {
                     }
                     b"onnwIS_E..." => {
                         BaseUnresolvedName::Operator(OperatorName::Simple(SimpleOperatorName::New),
-                                                     Some(TemplateArgs(vec![
-                                                         TemplateArg::Type(TypeHandle::BackReference(0))
-                                                     ]))),
+                                                     Some(TemplateArgs {
+                                                         args: vec![TemplateArg::Type(TypeHandle::BackReference(0))],
+                                                         requires_clause: ConstraintExpression(None),
+                                                     })),
                         b"...",
                         []
                     }

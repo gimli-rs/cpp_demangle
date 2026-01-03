@@ -702,6 +702,11 @@ demangles!(
     "decltype(auto) std::__1::__apply_tuple_impl[abi:ne190107]<DB::SystemLogBase<DB::BlobStorageLogElement>::startup()::{lambda()#1}&, std::__1::tuple<>&, >(DB::SystemLogBase<DB::BlobStorageLogElement>::startup()::{lambda()#1}&, std::__1::tuple<>&, std::__1::__tuple_indices<()...>)"
 );
 
+demangles!(
+    _ZN2DB5Field6createIcEEvPKS1_m,
+    "void DB::Field::create<char>(DB::Field::create const*, unsigned long)"
+);
+
 // This symbol previously ran into some mutual recursion and unbounded growth of the substitution table.
 // See <https://github.com/gimli-rs/cpp_demangle/issues/277> and <https://github.com/getsentry/symbolic/issues/477>
 #[test]
