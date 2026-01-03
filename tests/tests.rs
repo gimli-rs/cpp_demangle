@@ -707,6 +707,9 @@ demangles!(
     "void DB::Field::create<char>(DB::Field::create const*, unsigned long)"
 );
 
+demangles!(_ZNK5coro15emptyawEv, "coro1::empty::operator co_await() const");
+demangles!(_ZNK3FoossERKS_, "Foo::operator<=>(Foo const&) const");
+
 // This symbol previously ran into some mutual recursion and unbounded growth of the substitution table.
 // See <https://github.com/gimli-rs/cpp_demangle/issues/277> and <https://github.com/getsentry/symbolic/issues/477>
 #[test]
