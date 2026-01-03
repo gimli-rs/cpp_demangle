@@ -1828,6 +1828,15 @@ impl Parse for UnscopedName {
             return Ok((UnscopedName::Std(name), tail));
         }
 
+        // NB: Because this is unscoped, we shouldn't see a MemberLikeFriend
+        // here. But UnqualifiedName::parse isn't smart enough to know that,
+        // so guard here. We could use UnqualifiedName::starts_with but that
+        // checks for a bunch of other cases too that we can just let the
+        // Parse impl try to bite on.
+        if input.peek() == Some(b'F') {
+            return Err(error::Error::UnexpectedText);
+        }
+
         let (name, tail) = UnqualifiedName::parse(ctx, subs, input)?;
         Ok((UnscopedName::Unqualified(name), tail))
     }
@@ -2335,7 +2344,7 @@ impl Parse for PrefixHandle {
                     current = Some(save(subs, prefix, tail_tail));
                     tail = tail_tail;
                 }
-                Some(c) if UnqualifiedName::starts_with(c, &tail) => {
+                Some(c) if UnqualifiedName::starts_with(c, current.is_none(), &tail) => {
                     // Either
                     //
                     //     <prefix> ::= <unqualified-name>
@@ -2352,7 +2361,7 @@ impl Parse for PrefixHandle {
                             None => Prefix::Unqualified(name),
                             Some(current) => {
                                 let name = match name {
-                                    UnqualifiedName::Source(name, _) => name,
+                                    UnqualifiedName::Source(name, ..) => name,
                                     UnqualifiedName::LocalSourceName(name, ..) => name,
                                     _ => return Err(error::Error::UnexpectedText),
                                 };
@@ -2513,12 +2522,24 @@ impl PrefixHandle {
     }
 }
 
+/// In certain circumstances a friend function is treated like a member function
+/// for name mangling purposes. See [temp.friend]/9. When that happens, it's
+/// distinguished from a true member function by this flag.
+#[derive(Default, Clone, Copy, Debug, PartialEq, Eq)]
+pub enum MemberLikeFriend {
+    /// This is a normal definition.
+    #[default]
+    NotFriend,
+    /// This is a special "member-like friend" definition.
+    Friend,
+}
+
 /// The `<unqualified-name>` production.
 ///
 /// ```text
 /// <unqualified-name> ::= [on] <operator-name> [<abi-tags>]
 ///                    ::= <ctor-dtor-name> [<abi-tags>]
-///                    ::= <source-name> [<abi-tags>]
+///                    ::= F? <source-name> [<abi-tags>]
 ///                    ::= <local-source-name> [<abi-tags>]
 ///                    ::= <unnamed-type-name> [<abi-tags>]
 ///                    ::= <closure-type-name> [<abi-tags>]
@@ -2534,7 +2555,7 @@ pub enum UnqualifiedName {
     /// A constructor or destructor name.
     CtorDtor(CtorDtorName, AbiTags),
     /// A source name.
-    Source(SourceName, AbiTags),
+    Source(SourceName, MemberLikeFriend, AbiTags),
     /// A local source name.
     LocalSourceName(SourceName, Option<Discriminator>, AbiTags),
     /// A generated name for an unnamed type.
@@ -2581,7 +2602,20 @@ impl Parse for UnqualifiedName {
 
         if let Ok((source, tail)) = try_recurse!(SourceName::parse(ctx, subs, input)) {
             let (abi_tags, tail) = AbiTags::parse(ctx, subs, tail)?;
-            return Ok((UnqualifiedName::Source(source, abi_tags), tail));
+            return Ok((
+                UnqualifiedName::Source(source, MemberLikeFriend::NotFriend, abi_tags),
+                tail,
+            ));
+        }
+
+        if let Ok(tail) = consume(b"F", input) {
+            if let Ok((source, tail)) = try_recurse!(SourceName::parse(ctx, subs, tail)) {
+                let (abi_tags, tail) = AbiTags::parse(ctx, subs, tail)?;
+                return Ok((
+                    UnqualifiedName::Source(source, MemberLikeFriend::Friend, abi_tags),
+                    tail,
+                ));
+            }
         }
 
         if let Ok((closure, tail)) = try_recurse!(ClosureTypeName::parse(ctx, subs, input)) {
@@ -2617,8 +2651,14 @@ where
                 ctor_dtor.demangle(ctx, scope)?;
                 abi_tags.demangle(ctx, scope)
             }
-            UnqualifiedName::Source(ref name, ref abi_tags)
-            | UnqualifiedName::LocalSourceName(ref name, _, ref abi_tags) => {
+            UnqualifiedName::Source(ref name, member_like_friend, ref abi_tags) => {
+                if member_like_friend == MemberLikeFriend::Friend {
+                    write!(ctx, "friend ")?;
+                }
+                name.demangle(ctx, scope)?;
+                abi_tags.demangle(ctx, scope)
+            }
+            UnqualifiedName::LocalSourceName(ref name, _, ref abi_tags) => {
                 name.demangle(ctx, scope)?;
                 abi_tags.demangle(ctx, scope)
             }
@@ -2642,7 +2682,7 @@ impl<'a> GetLeafName<'a> for UnqualifiedName {
             UnqualifiedName::Operator(..) | UnqualifiedName::CtorDtor(..) => None,
             UnqualifiedName::UnnamedType(ref name, _) => Some(LeafName::UnnamedType(name)),
             UnqualifiedName::ClosureType(ref closure, _) => closure.get_leaf_name(subs),
-            UnqualifiedName::Source(ref name, _)
+            UnqualifiedName::Source(ref name, ..)
             | UnqualifiedName::LocalSourceName(ref name, ..) => Some(LeafName::SourceName(name)),
         }
     }
@@ -2664,8 +2704,9 @@ impl IsCtorDtorConversion for UnqualifiedName {
 
 impl UnqualifiedName {
     #[inline]
-    fn starts_with(byte: u8, input: &IndexStr) -> bool {
+    fn starts_with(byte: u8, first: bool, input: &IndexStr) -> bool {
         byte == b'L'
+            || (byte == b'F' && !first)
             || OperatorName::starts_with(byte)
             || CtorDtorName::starts_with(byte)
             || SourceName::starts_with(byte)
@@ -8782,6 +8823,7 @@ mod tests {
                                             start: 3,
                                             end: 6,
                                         }),
+                                        Default::default(),
                                         AbiTags::default())))), vec![]),
                     b"..."
                 }
@@ -8799,6 +8841,7 @@ mod tests {
                                                             start: 14,
                                                             end: 17,
                                                         }),
+                                                    Default::default(),
                                                     AbiTags::default())))), vec![])))),
                     b"..."
                 }
@@ -8827,6 +8870,7 @@ mod tests {
                                             start: 1,
                                             end: 4,
                                         }),
+                                        Default::default(),
                                         AbiTags::default()))),
                             BareFunctionType(vec![
                                 TypeHandle::Builtin(BuiltinType::Standard(StandardBuiltinType::Int))
@@ -8843,6 +8887,7 @@ mod tests {
                                             start: 1,
                                             end: 4,
                                         }),
+                                        Default::default(),
                                         AbiTags::default())))),
                         b"...",
                         []
@@ -8857,6 +8902,7 @@ mod tests {
                                                 start: 3,
                                                 end: 6,
                                             }),
+                                            Default::default(),
                                             AbiTags::default()))))),
                         b"...",
                         []
@@ -8887,6 +8933,7 @@ mod tests {
                                                         start: 6,
                                                         end: 9,
                                                     }),
+                                                Default::default(),
                                                 AbiTags::default())))), vec![]))),
                     b"..."
                 }
@@ -8903,6 +8950,7 @@ mod tests {
                                                         start: 6,
                                                         end: 9,
                                                     }),
+                                                Default::default(),
                                                 AbiTags::default())))), vec![]))),
                     b"..."
                 }
@@ -8919,6 +8967,7 @@ mod tests {
                                                         start: 6,
                                                         end: 9,
                                                     }),
+                                                Default::default(),
                                                 AbiTags::default())))), vec![]))),
                     b"..."
                 }
@@ -8935,6 +8984,7 @@ mod tests {
                                                         start: 6,
                                                         end: 9,
                                                     }),
+                                                Default::default(),
                                                 AbiTags::default())))), vec![]))),
                     b"..."
                 }
@@ -8951,6 +9001,7 @@ mod tests {
                                                         start: 6,
                                                         end: 9,
                                                     }),
+                                                Default::default(),
                                                 AbiTags::default())))), vec![]))),
                     b"..."
                 }
@@ -8967,6 +9018,7 @@ mod tests {
                                                         start: 6,
                                                         end: 9,
                                                     }),
+                                                Default::default(),
                                                 AbiTags::default())))), vec![]))),
                     b"..."
                 }
@@ -9000,10 +9052,13 @@ mod tests {
                         Name::Nested(NestedName::Unqualified(CvQualifiers::default(),
                                                              None,
                                                              Some(PrefixHandle::BackReference(1)),
-                                                             UnqualifiedName::Source(SourceName(Identifier {
-                                                                 start: 5,
-                                                                 end: 8,
-                                                             }), AbiTags::default()))),
+                                                             UnqualifiedName::Source(
+                                                                 SourceName(Identifier {
+                                                                     start: 5,
+                                                                     end: 8,
+                                                                 }),
+                                                                 Default::default(),
+                                                                 AbiTags::default()))),
                         b"...",
                         []
                     }
@@ -9015,6 +9070,7 @@ mod tests {
                                         start: 1,
                                         end: 4,
                                     }),
+                                    Default::default(),
                                     AbiTags::default()))),
                         b"...",
                         []
@@ -9052,6 +9108,7 @@ mod tests {
                                                     start: 2,
                                                     end: 5,
                                                 }),
+                                                Default::default(),
                                                 AbiTags::default()))))),
                                 None,
                                 None)),
@@ -9135,6 +9192,7 @@ mod tests {
                                     start: 6,
                                     end: 9,
                                 }),
+                                Default::default(),
                                 AbiTags::default())),
                         b"...",
                         []
@@ -9152,7 +9210,9 @@ mod tests {
                                 SourceName(Identifier {
                                     start: 5,
                                     end: 8,
-                                }), AbiTags::default())),
+                                }),
+                                Default::default(),
+                                AbiTags::default())),
                         b"...",
                         []
                     }
@@ -9169,7 +9229,9 @@ mod tests {
                                 SourceName(Identifier {
                                     start: 4,
                                     end: 7,
-                                }), AbiTags::default())),
+                                }),
+                                Default::default(),
+                                AbiTags::default())),
                         b"...",
                         []
                     }
@@ -9187,6 +9249,7 @@ mod tests {
                                     start: 3,
                                     end: 4,
                                 }),
+                                Default::default(),
                                 AbiTags::default())),
                         b"...",
                         []
@@ -9210,6 +9273,7 @@ mod tests {
                                             start: 6,
                                             end: 9,
                                         }),
+                                        Default::default(),
                                         AbiTags::default()))),
                         ]
                     }
@@ -9232,6 +9296,7 @@ mod tests {
                                             start: 5,
                                             end: 8,
                                         }),
+                                        Default::default(),
                                         AbiTags::default()))),
                         ]
                     }
@@ -9254,6 +9319,7 @@ mod tests {
                                             start: 4,
                                             end: 7,
                                         }),
+                                        Default::default(),
                                         AbiTags::default()))),
                         ]
                     }
@@ -9309,6 +9375,7 @@ mod tests {
                                             start: 1,
                                             end: 4,
                                         }),
+                                        Default::default(),
                                         AbiTags::default())))
                         ]
                     }
@@ -9323,7 +9390,9 @@ mod tests {
                                             start: 1,
                                             end: 4,
                                         }),
-                                    AbiTags::default()))),
+                                        Default::default(),
+                                        AbiTags::default()
+                                    ))),
                             Substitutable::Prefix(
                                 Prefix::Nested(
                                     PrefixHandle::BackReference(1),
@@ -9332,7 +9401,9 @@ mod tests {
                                             start: 5,
                                             end: 8,
                                         }),
-                                    AbiTags::default()))),
+                                        Default::default(),
+                                        AbiTags::default()
+                                    ))),
                         ]
                     }
                     b"3fooIJEE..." => {
@@ -9346,6 +9417,7 @@ mod tests {
                                             start: 1,
                                             end: 4,
                                         }),
+                                        Default::default(),
                                         AbiTags::default()))),
                             Substitutable::Prefix(
                                 Prefix::Template(PrefixHandle::BackReference(1),
@@ -9382,6 +9454,7 @@ mod tests {
                                             start: 1,
                                             end: 4,
                                         }),
+                                        Default::default(),
                                         AbiTags::default()))),
                             Substitutable::Prefix(
                                 Prefix::DataMember(
@@ -9410,7 +9483,9 @@ mod tests {
                                             start: 1,
                                             end: 4,
                                         }),
-                                    AbiTags::default()))),
+                                        Default::default(),
+                                        AbiTags::default()
+                                    ))),
                         ]
                     }
                 }
@@ -9607,6 +9682,7 @@ mod tests {
                                                         start: 1,
                                                         end: 4,
                                                     }),
+                                                    Default::default(),
                                                     AbiTags::default()))))))
                         ]
                     }
@@ -9816,6 +9892,7 @@ mod tests {
                                         start: 1,
                                         end: 4,
                                     }),
+                                    Default::default(),
                                     AbiTags::default())))),
                     b"..."
                 }
@@ -9828,6 +9905,7 @@ mod tests {
                                         start: 3,
                                         end: 6,
                                     }),
+                                    Default::default(),
                                     AbiTags::default())))),
                     b"..."
                 }
@@ -9840,6 +9918,7 @@ mod tests {
                                         start: 3,
                                         end: 6,
                                     }),
+                                    Default::default(),
                                     AbiTags::default())))),
                     b"..."
                 }
@@ -9852,7 +9931,9 @@ mod tests {
                                         start: 3,
                                         end: 6,
                                     }),
-                                AbiTags::default())))),
+                                    Default::default(),
+                                    AbiTags::default()
+                                )))),
                     b"..."
                 }
             }
@@ -10635,7 +10716,9 @@ mod tests {
                                                     start: 5,
                                                     end: 8,
                                                 }),
-                                            AbiTags::default()))))),
+                                            Default::default(),
+                                            AbiTags::default()
+                                        ))))),
                         b"...",
                         []
                     }
@@ -10651,7 +10734,9 @@ mod tests {
                                                     start: 5,
                                                     end: 8,
                                                 }),
-                                            AbiTags::default()))))),
+                                            Default::default(),
+                                            AbiTags::default()
+                                        ))))),
                         b"...",
                         []
                     }
@@ -10680,7 +10765,9 @@ mod tests {
                                                             start: 9,
                                                             end: 12
                                                         }),
-                                                    AbiTags::default()))))))
+                                                    Default::default(),
+                                                    AbiTags::default()
+                                                ))))))
                         ]
                     }
                     //               ::= ds <expression> <expression>                 # expr.*expr
@@ -10781,7 +10868,10 @@ mod tests {
                                                         start: 4,
                                                         end: 7,
                                                     }),
-                                                AbiTags::default())))), vec![]))),
+                                                    Default::default(),
+                                                    AbiTags::default()
+                                                )))),
+                                    vec![]))),
                         b"...",
                         []
                     }
@@ -10804,7 +10894,9 @@ mod tests {
                                                     start: 10,
                                                     end: 14,
                                                 }),
-                                                AbiTags::default()))
+                                                Default::default(),
+                                                AbiTags::default()
+                                            ))
                                      )
                                 )
                             )),
@@ -11171,7 +11263,10 @@ mod tests {
                                                     start: 4,
                                                     end: 7,
                                                 }),
-                                                AbiTags::default())))), vec![])),
+                                                Default::default(),
+                                                AbiTags::default()
+                                            )))),
+                                vec![])),
                         b"...",
                         []
                     }
@@ -11231,6 +11326,7 @@ mod tests {
                                             start: 2,
                                             end: 5,
                                         }),
+                                        Default::default(),
                                         AbiTags::default()))))),
                         Some(Box::new(Name::Unscoped(
                             UnscopedName::Unqualified(
@@ -11239,6 +11335,7 @@ mod tests {
                                         start: 7,
                                         end: 10,
                                     }),
+                                    Default::default(),
                                     AbiTags::default()))))),
                         Some(Discriminator(0))),
                     b"..."
@@ -11253,6 +11350,7 @@ mod tests {
                                             start: 2,
                                             end: 5,
                                         }),
+                                        Default::default(),
                                         AbiTags::default()))))),
                         Some(Box::new(Name::Unscoped(
                             UnscopedName::Unqualified(
@@ -11261,6 +11359,7 @@ mod tests {
                                         start: 7,
                                         end: 10,
                                     }),
+                                    Default::default(),
                                     AbiTags::default()))))),
                         None),
                     b"..."
@@ -11275,7 +11374,9 @@ mod tests {
                                             start: 2,
                                             end: 5,
                                         }),
-                                    AbiTags::default()))))),
+                                        Default::default(),
+                                        AbiTags::default()
+                                    ))))),
                         None,
                         Some(Discriminator(0))),
                     b"..."
@@ -11290,7 +11391,9 @@ mod tests {
                                             start: 2,
                                             end: 5,
                                         }),
-                                    AbiTags::default()))))),
+                                        Default::default(),
+                                        AbiTags::default()
+                                    ))))),
                         None,
                         None),
                     b"..."
@@ -11305,7 +11408,9 @@ mod tests {
                                             start: 2,
                                             end: 5,
                                         }),
-                                    AbiTags::default()))))),
+                                        Default::default(),
+                                        AbiTags::default()
+                                    ))))),
                         Some(1),
                         Box::new(Name::Unscoped(
                             UnscopedName::Unqualified(
@@ -11314,7 +11419,9 @@ mod tests {
                                         start: 10,
                                         end: 13,
                                     }),
-                                    AbiTags::default()))))),
+                                    Default::default(),
+                                    AbiTags::default()
+                                ))))),
                     b"..."
                 }
                 b"Z3abcEd_3abc..." => {
@@ -11327,7 +11434,9 @@ mod tests {
                                             start: 2,
                                             end: 5,
                                         }),
-                                        AbiTags::default()))))),
+                                        Default::default(),
+                                        AbiTags::default()
+                                    ))))),
                         None,
                         Box::new(Name::Unscoped(
                             UnscopedName::Unqualified(
@@ -11335,7 +11444,10 @@ mod tests {
                                     SourceName(Identifier {
                                         start: 9,
                                         end: 12,
-                                    }), AbiTags::default()))))),
+                                    }),
+                                    Default::default(),
+                                    AbiTags::default()
+                                ))))),
                     b"..."
                 }
             }
@@ -11507,7 +11619,10 @@ mod tests {
                                         SourceName(Identifier {
                                             start: 9,
                                             end: 12,
-                                        }), AbiTags::default())))))),
+                                        }),
+                                        Default::default(),
+                                        AbiTags::default()
+                                    )))))),
                     b"..."
                 }
                 b"Tcv42_36_v42_36_3abc..." => {
@@ -11521,7 +11636,10 @@ mod tests {
                                         SourceName(Identifier {
                                             start: 17,
                                             end: 20,
-                                        }), AbiTags::default())))))),
+                                        }),
+                                        Default::default(),
+                                        AbiTags::default()
+                                    )))))),
                     b"..."
                 }
                 b"GV3abc..." => {
@@ -11532,7 +11650,10 @@ mod tests {
                                     SourceName(Identifier {
                                         start: 3,
                                         end: 6,
-                                    }), AbiTags::default())))),
+                                    }),
+                                    Default::default(),
+                                    AbiTags::default()
+                                )))),
                     b"..."
                 }
                 b"GR3abc_..." => {
@@ -11544,7 +11665,9 @@ mod tests {
                                         start: 3,
                                         end: 6,
                                     }),
-                                    AbiTags::default()))),
+                                    Default::default(),
+                                    AbiTags::default()
+                                ))),
                         0),
                     b"..."
                 }
@@ -11557,7 +11680,9 @@ mod tests {
                                         start: 3,
                                         end: 6,
                                     }),
-                                    AbiTags::default()))),
+                                    Default::default(),
+                                    AbiTags::default()
+                                ))),
                         1),
                     b"..."
                 }
@@ -11587,7 +11712,9 @@ mod tests {
                             UnscopedName::Unqualified(
                                 UnqualifiedName::Source(
                                     SourceName(Identifier { start: 3, end: 7 }),
-                                AbiTags::default())))),
+                                    Default::default(),
+                                    AbiTags::default()
+                                )))),
                     b"..."
                 }
                 b"TW4name..." => {
@@ -11596,7 +11723,9 @@ mod tests {
                             UnscopedName::Unqualified(
                                 UnqualifiedName::Source(
                                     SourceName(Identifier { start: 3, end: 7 }),
-                                AbiTags::default())))),
+                                    Default::default(),
+                                    AbiTags::default()
+                                )))),
                     b"..."
                 }
             }
@@ -11876,23 +12005,31 @@ mod tests {
         assert_parse!(UnscopedName {
             Ok => {
                 b"St5hello..." => {
-                    UnscopedName::Std(UnqualifiedName::Source(SourceName(Identifier {
-                        start: 3,
-                        end: 8,
-                    }),
-                    AbiTags::default())),
+                    UnscopedName::Std(UnqualifiedName::Source(
+                        SourceName(Identifier {
+                            start: 3,
+                            end: 8,
+                        }),
+                        Default::default(),
+                        AbiTags::default()
+                    )),
                     b"..."
                 }
                 b"5hello..." => {
-                    UnscopedName::Unqualified(UnqualifiedName::Source(SourceName(Identifier {
-                        start: 1,
-                        end: 6,
-                    }), AbiTags::default())),
+                    UnscopedName::Unqualified(UnqualifiedName::Source(
+                        SourceName(Identifier {
+                            start: 1,
+                            end: 6,
+                        }),
+                        Default::default(),
+                        AbiTags::default()
+                    )),
                     b"..."
                 }
             }
             Err => {
                 b"St..." => Error::UnexpectedText,
+                b"F3Foo..." => Error::UnexpectedText,
                 b"..." => Error::UnexpectedText,
                 b"" => Error::UnexpectedEnd,
             }
@@ -11903,7 +12040,7 @@ mod tests {
     fn parse_unqualified_name() {
         // <unqualified-name> ::= [on] <operator-name> [<abi-tags>]
         //                    ::= <ctor-dtor-name> [<abi-tags>]
-        //                    ::= <source-name> [<abi-tags>]
+        //                    ::= F? <source-name> [<abi-tags>]
         //                    ::= <local-source-name> [<abi-tags>]
         //                    ::= <unnamed-type-name> [<abi-tags>]
         //                    ::= <closure-type-name> [<abi-tags>]
@@ -11922,10 +12059,14 @@ mod tests {
                     b".."
                 }
                 b"10abcdefghij..." => {
-                    UnqualifiedName::Source(SourceName(Identifier {
-                        start: 2,
-                        end: 12,
-                    }), AbiTags::default()),
+                    UnqualifiedName::Source(
+                        SourceName(Identifier {
+                            start: 2,
+                            end: 12,
+                        }),
+                        Default::default(),
+                        AbiTags::default()
+                    ),
                     b"..."
                 }
                 b"UllE_..." => {
@@ -12000,6 +12141,7 @@ mod tests {
                             start: 2,
                             end: 12,
                         }),
+                        Default::default(),
                         AbiTags(vec![
                             AbiTag(
                                 SourceName(
@@ -12446,6 +12588,7 @@ mod tests {
                                                                 end: 10,
                                                             }
                                                         ),
+                                                        Default::default(),
                                                         AbiTags::default()
                                                     )
                                                 )
