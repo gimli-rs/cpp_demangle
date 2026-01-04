@@ -712,6 +712,10 @@ demangles!(
     "coro1::empty::operator co_await() const"
 );
 demangles!(_ZNK3FoossERKS_, "Foo::operator<=>(Foo const&) const");
+demangles!(
+    _ZN5test21AIiEF1fEzQ4TrueIT_E,
+    "test2::A<int>::friend f(...)"
+);
 
 // This symbol previously ran into some mutual recursion and unbounded growth of the substitution table.
 // See <https://github.com/gimli-rs/cpp_demangle/issues/277> and <https://github.com/getsentry/symbolic/issues/477>

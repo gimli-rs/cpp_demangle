@@ -1434,14 +1434,14 @@ where
 /// The `<encoding>` production.
 ///
 /// ```text
-/// <encoding> ::= <function name> <bare-function-type>
+/// <encoding> ::= <function name> <bare-function-type> [Q <requires-clause expr>]
 ///            ::= <data name>
 ///            ::= <special-name>
 /// ```
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Encoding {
     /// An encoded function.
-    Function(Name, BareFunctionType),
+    Function(Name, BareFunctionType, ConstraintExpression),
 
     /// An encoded static variable.
     Data(Name),
@@ -1460,7 +1460,8 @@ impl Parse for Encoding {
 
         if let Ok((name, tail)) = try_recurse!(Name::parse(ctx, subs, input)) {
             if let Ok((ty, tail)) = try_recurse!(BareFunctionType::parse(ctx, subs, tail)) {
-                return Ok((Encoding::Function(name, ty), tail));
+                let (requires_clause, tail) = ConstraintExpression::parse(ctx, subs, tail)?;
+                return Ok((Encoding::Function(name, ty, requires_clause), tail));
             } else {
                 return Ok((Encoding::Data(name), tail));
             }
@@ -1484,7 +1485,7 @@ where
         inner_barrier!(ctx);
 
         match *self {
-            Encoding::Function(ref name, ref fun_ty) => {
+            Encoding::Function(ref name, ref fun_ty, _) => {
                 // Even if this function takes no args and doesn't have a return
                 // value (see below), it will have the void parameter.
                 debug_assert!(!fun_ty.0.is_empty());
@@ -1555,7 +1556,7 @@ where
         ctx: &'ctx mut DemangleContext<'subs, W>,
         scope: Option<ArgScopeStack<'prev, 'subs>>,
     ) -> fmt::Result {
-        if let Encoding::Function(ref name, ref fun_ty) = *self {
+        if let Encoding::Function(ref name, ref fun_ty, _) = *self {
             let (scope, function_args) =
                 if let Some(template_args) = name.get_template_args(ctx.subs) {
                     let scope = scope.push(template_args);
@@ -6763,7 +6764,7 @@ impl Expression {
 /// defined as its own separate production by the spec. Due to the Rust type
 /// system it's convenient for us to handle the optionality inside a newtype,
 /// hence ConstraintExpression.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Default, Clone, Debug, PartialEq, Eq)]
 pub struct ConstraintExpression(Option<Box<Expression>>);
 
 impl Parse for ConstraintExpression {
@@ -8874,7 +8875,9 @@ mod tests {
                                         AbiTags::default()))),
                             BareFunctionType(vec![
                                 TypeHandle::Builtin(BuiltinType::Standard(StandardBuiltinType::Int))
-                            ])),
+                            ]),
+                            Default::default(),
+                        ),
                         b"...",
                         []
                     }
