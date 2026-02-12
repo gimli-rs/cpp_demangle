@@ -336,6 +336,8 @@ pub enum DemangleNodeType {
     NestedName,
     /// Entering a <special-name> production that is a vtable.
     VirtualTable,
+    /// Entering a <clone-suffix> production.
+    CloneSuffix,
     /// Additional values may be added in the future. Use a
     /// _ pattern for compatibility.
     __NonExhaustive,

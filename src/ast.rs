@@ -1610,12 +1610,18 @@ where
         scope: Option<ArgScopeStack<'prev, 'subs>>,
     ) -> fmt::Result {
         let ctx = try_begin_demangle!(self, ctx, scope);
+
+        ctx.push_demangle_node(DemangleNodeType::CloneSuffix);
+
         write!(ctx, " [clone")?;
         self.0.demangle(ctx, scope)?;
         for nonnegative in &self.1 {
             write!(ctx, ".{}", nonnegative)?;
         }
         write!(ctx, "]")?;
+
+        ctx.pop_demangle_node();
+
         Ok(())
     }
 }
