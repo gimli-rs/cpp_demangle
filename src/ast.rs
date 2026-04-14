@@ -3664,6 +3664,13 @@ pub enum Type {
     /// A pack expansion.
     PackExpansion(TypeHandle),
 
+    /// Clang-only placeholder emitted for unmangleable substitution-pack data.
+    ///
+    /// This is not part of the Itanium ABI grammar; Clang emits it verbatim in
+    /// a few fallback `FIXME` code paths. We keep parsing by treating it as
+    /// ignorable noise so surrounding structure can still demangle.
+    ClangSubstPackNoise,
+
     /// Builtin type eligible for substitutions, e.g. vendor extended type or _BitInt(N).
     /// Note: most builtin types are excluded from substitutions, and we store them directly
     /// in TypeHandle without creating a Type.
@@ -3740,6 +3747,23 @@ impl Parse for TypeHandle {
 
             let handle = TypeHandle::Builtin(builtin);
             return Ok((handle, tail));
+        }
+
+        // Non-standard Clang extensions seen in the wild:
+        //   _SUBSTPACK_
+        //   _SUBSTBUILTINPACK_
+        //
+        // These are emitted as fallback placeholders for pack substitutions in
+        // Clang's Itanium mangler (with FIXME comments in Clang source). They
+        // are not part of the Itanium grammar, so we parse them as ignorable
+        // noise to preserve demangling progress for real-world symbols.
+        if let Ok(tail) = consume(b"_SUBSTPACK_", input) {
+            let ty = Type::ClangSubstPackNoise;
+            return insert_and_return_handle(ty, subs, tail);
+        }
+        if let Ok(tail) = consume(b"_SUBSTBUILTINPACK_", input) {
+            let ty = Type::ClangSubstPackNoise;
+            return insert_and_return_handle(ty, subs, tail);
         }
 
         // ::= <qualified-type>
@@ -3981,6 +4005,7 @@ where
                 }
                 Ok(())
             }
+            Type::ClangSubstPackNoise => Ok(()),
             Type::Builtin(ref builtin) => builtin.demangle(ctx, scope),
         }
     }
@@ -6063,6 +6088,13 @@ pub enum Expression {
     /// `throw` with no operand
     Rethrow,
 
+    /// Clang-only placeholder emitted for unmangleable substitution-pack data.
+    ///
+    /// This marker is non-standard and may appear where an expression is
+    /// expected (for example, `X_SUBSTPACK_E`). Treat it as ignorable noise so
+    /// parsing can continue.
+    ClangSubstPackNoise,
+
     /// `f(p)`, `N::f(p)`, `::f(p)`, freestanding dependent name (e.g., `T::x`),
     /// objectless nonstatic member reference.
     UnresolvedName(UnresolvedName),
@@ -6078,6 +6110,16 @@ impl Parse for Expression {
         input: IndexStr<'b>,
     ) -> Result<(Expression, IndexStr<'b>)> {
         try_begin_parse!("Expression", ctx, input);
+
+        // Non-standard Clang extension markers for unmangleable
+        // substitution-pack expressions. Keep parsing by accepting them as
+        // ignorable noise.
+        if let Ok(tail) = consume(b"_SUBSTPACK_", input) {
+            return Ok((Expression::ClangSubstPackNoise, tail));
+        }
+        if let Ok(tail) = consume(b"_SUBSTBUILTINPACK_", input) {
+            return Ok((Expression::ClangSubstPackNoise, tail));
+        }
 
         if let Ok(tail) = consume(b"pp_", input) {
             let (expr, tail) = Expression::parse(ctx, subs, tail)?;
@@ -6726,6 +6768,7 @@ where
                 write!(ctx, "throw")?;
                 Ok(())
             }
+            Expression::ClangSubstPackNoise => Ok(()),
             Expression::UnresolvedName(ref name) => name.demangle(ctx, scope),
             Expression::Primary(ref expr) => expr.demangle(ctx, scope),
         }
@@ -8601,6 +8644,7 @@ mod tests {
     use crate::error::Error;
     use crate::index_str::IndexStr;
     use crate::subs::{Substitutable, SubstitutionTable};
+    use crate::Symbol;
     use alloc::boxed::Box;
     use alloc::string::String;
     use core::fmt::Debug;
@@ -10286,6 +10330,65 @@ mod tests {
                 }
             }
         });
+    }
+
+    #[test]
+    fn parse_realworld_substpack_full_mangled_name_probe() {
+        let mut subs = SubstitutionTable::new();
+        let ctx = ParseContext::new(Default::default());
+        let input = IndexStr::new(
+            b"_ZN2UE4Core7Private5Tuple10TTupleBaseI16TIntegerSequenceIjJLj0ELj1EEEJ7FString19FUProjectDictionaryEEC2IJRKS6_S7_ETnPDTcl21ConceptCheckingHelperspcvNS2_17TTupleBaseElementI_SUBSTPACK_X_SUBSTPACK_ELj2EEE_LNS2_22EForwardingConstructorE0Ecl7DeclValIOT_EEEEELPv0EEESF_DpSH_",
+        );
+
+        match MangledName::parse(&ctx, &mut subs, input) {
+            Ok((_name, tail)) => assert!(
+                tail.is_empty(),
+                "substpack full parse left tail: {:?}",
+                String::from_utf8_lossy(tail.as_ref())
+            ),
+            Err(err) => panic!("failed substpack full mangled name: {:?}", err),
+        }
+    }
+
+    #[test]
+    fn demangle_realworld_substpack_probe() {
+        let mangled = b"_ZN2UE4Core7Private5Tuple10TTupleBaseI16TIntegerSequenceIjJLj0ELj1EEEJ7FString19FUProjectDictionaryEEC2IJRKS6_S7_ETnPDTcl21ConceptCheckingHelperspcvNS2_17TTupleBaseElementI_SUBSTPACK_X_SUBSTPACK_ELj2EEE_LNS2_22EForwardingConstructorE0Ecl7DeclValIOT_EEEEELPv0EEESF_DpSH_";
+        let sym = Symbol::new(&mangled[..]).expect("symbol parse");
+        match sym.demangle() {
+            Ok(_) => {}
+            Err(err) => panic!("failed substpack demangle: {:?}", err),
+        }
+    }
+
+    #[test]
+    fn parse_clang_substpack_noise_tokens_directly() {
+        let ctx = ParseContext::new(Default::default());
+
+        let mut subs = SubstitutionTable::new();
+        let (ty, tail) = TypeHandle::parse(&ctx, &mut subs, IndexStr::new(b"_SUBSTPACK_..."))
+            .expect("type _SUBSTPACK_ should parse");
+        assert!(matches!(subs.get_type(&ty), Some(Type::ClangSubstPackNoise)));
+        assert_eq!(tail.as_ref(), b"...");
+
+        let mut subs = SubstitutionTable::new();
+        let (ty, tail) =
+            TypeHandle::parse(&ctx, &mut subs, IndexStr::new(b"_SUBSTBUILTINPACK_..."))
+                .expect("type _SUBSTBUILTINPACK_ should parse");
+        assert!(matches!(subs.get_type(&ty), Some(Type::ClangSubstPackNoise)));
+        assert_eq!(tail.as_ref(), b"...");
+
+        let mut subs = SubstitutionTable::new();
+        let (expr, tail) = Expression::parse(&ctx, &mut subs, IndexStr::new(b"_SUBSTPACK_..."))
+            .expect("expression _SUBSTPACK_ should parse");
+        assert!(matches!(expr, Expression::ClangSubstPackNoise));
+        assert_eq!(tail.as_ref(), b"...");
+
+        let mut subs = SubstitutionTable::new();
+        let (expr, tail) =
+            Expression::parse(&ctx, &mut subs, IndexStr::new(b"_SUBSTBUILTINPACK_..."))
+                .expect("expression _SUBSTBUILTINPACK_ should parse");
+        assert!(matches!(expr, Expression::ClangSubstPackNoise));
+        assert_eq!(tail.as_ref(), b"...");
     }
 
     #[test]
