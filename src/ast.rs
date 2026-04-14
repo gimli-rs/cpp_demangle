@@ -1723,6 +1723,25 @@ impl Parse for Name {
         }
 
         if let Ok((name, tail)) = try_recurse!(UnscopedName::parse(ctx, subs, input)) {
+            if let UnscopedName::Unqualified(UnqualifiedName::LocalSourceName(
+                source,
+                Some(args),
+                discr,
+                abi_tags,
+            )) = name
+            {
+                // Compatibility local-source names may carry template-args
+                // directly (`L<source-name><template-args>`). Reinterpret
+                // that shape as an unscoped-template-name so substitution
+                // numbering matches real-world compiler output.
+                let base = UnscopedName::Unqualified(UnqualifiedName::LocalSourceName(
+                    source, None, discr, abi_tags,
+                ));
+                let idx = subs.insert(Substitutable::UnscopedTemplateName(UnscopedTemplateName(base)));
+                let handle = UnscopedTemplateNameHandle::BackReference(idx);
+                return Ok((Name::UnscopedTemplate(handle, args), tail));
+            }
+
             if tail.peek() == Some(b'I') {
                 let name = UnscopedTemplateName(name);
                 let idx = subs.insert(Substitutable::UnscopedTemplateName(name));
@@ -10241,6 +10260,32 @@ mod tests {
                 "failed makesharedbufferviewwithouter demangle: {:?}",
                 err
             ),
+        }
+    }
+
+    #[test]
+    fn parse_realworld_findbounds_full_mangled_name_probe() {
+        let mut subs = SubstitutionTable::new();
+        let ctx = ParseContext::new(Default::default());
+        let input = IndexStr::new(b"_ZL10FindBoundsIfEvRT_S1_S0_S0_fS0_S0_fb");
+
+        match MangledName::parse(&ctx, &mut subs, input) {
+            Ok((_name, tail)) => assert!(
+                tail.is_empty(),
+                "findbounds full parse left tail: {:?}",
+                String::from_utf8_lossy(tail.as_ref())
+            ),
+            Err(err) => panic!("failed findbounds full mangled name: {:?}", err),
+        }
+    }
+
+    #[test]
+    fn demangle_realworld_findbounds_probe() {
+        let mangled = b"_ZL10FindBoundsIfEvRT_S1_S0_S0_fS0_S0_fb";
+        let sym = Symbol::new(&mangled[..]).expect("symbol parse");
+        match sym.demangle() {
+            Ok(_) => {}
+            Err(err) => panic!("failed findbounds demangle: {:?}", err),
         }
     }
 
