@@ -2410,17 +2410,22 @@ impl Parse for PrefixHandle {
                         // Keep substitution ordering stable for local source
                         // names with template-args that are followed by `M`
                         // data-member prefixes.
-                        let current = if matches!(
+                        let normalized_current = if matches!(
                             name,
                             UnqualifiedName::LocalSourceName(_, Some(_), ..)
                         ) {
-                            let nested = Prefix::Nested(current.unwrap(), name.clone());
-                            Some(save(subs, nested, tail_tail))
+                            match current.take() {
+                                Some(handle) => {
+                                    let nested = Prefix::Nested(handle, name.clone());
+                                    Some(save(subs, nested, tail_tail))
+                                }
+                                None => None,
+                            }
                         } else {
-                            current
+                            current.take()
                         };
 
-                        let prefix = match current {
+                        let prefix = match normalized_current {
                             None => Prefix::Unqualified(name),
                             Some(handle) => Prefix::Nested(handle, name),
                         };
@@ -10286,6 +10291,35 @@ mod tests {
         match sym.demangle() {
             Ok(_) => {}
             Err(err) => panic!("failed findbounds demangle: {:?}", err),
+        }
+    }
+
+    #[test]
+    fn parse_realworld_serialize_uint_delta_full_mangled_name_probe() {
+        let mut subs = SubstitutionTable::new();
+        let ctx = ParseContext::new(Default::default());
+        let input = IndexStr::new(
+            b"_ZN2UE3Net7PrivateL22SerializeUintDeltaImplIyEEvRNS0_19FNetBitStreamWriterET_S5_PKhjh",
+        );
+
+        match MangledName::parse(&ctx, &mut subs, input) {
+            Ok((_name, tail)) => assert!(
+                tail.is_empty(),
+                "serialize uint delta full parse left tail: {:?}",
+                String::from_utf8_lossy(tail.as_ref())
+            ),
+            Err(err) => panic!("failed serialize uint delta full mangled name: {:?}", err),
+        }
+    }
+
+    #[test]
+    fn demangle_realworld_serialize_uint_delta_probe() {
+        let mangled =
+            b"_ZN2UE3Net7PrivateL22SerializeUintDeltaImplIyEEvRNS0_19FNetBitStreamWriterET_S5_PKhjh";
+        let sym = Symbol::new(&mangled[..]).expect("symbol parse");
+        match sym.demangle() {
+            Ok(_) => {}
+            Err(err) => panic!("failed serialize uint delta demangle: {:?}", err),
         }
     }
 
