@@ -2372,6 +2372,19 @@ impl Parse for PrefixHandle {
                         current = Some(save(subs, prefix, tail_tail));
                         tail = consume(b"M", tail_tail).unwrap();
                     } else {
+                        // Keep substitution ordering stable for local source
+                        // names with template-args that are followed by `M`
+                        // data-member prefixes.
+                        let current = if matches!(
+                            name,
+                            UnqualifiedName::LocalSourceName(_, Some(_), ..)
+                        ) {
+                            let nested = Prefix::Nested(current.unwrap(), name.clone());
+                            Some(save(subs, nested, tail_tail))
+                        } else {
+                            current
+                        };
+
                         let prefix = match current {
                             None => Prefix::Unqualified(name),
                             Some(handle) => Prefix::Nested(handle, name),
@@ -2548,6 +2561,7 @@ pub enum MemberLikeFriend {
 /// # I think this is from an older version of the standard. It isn't in the
 /// # current version, but all the other demanglers support it, so we will too.
 /// <local-source-name> ::= L <source-name> [<discriminator>]
+///                     ::= L <source-name> <template-args> [<discriminator>]
 /// ```
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum UnqualifiedName {
@@ -2557,8 +2571,8 @@ pub enum UnqualifiedName {
     CtorDtor(CtorDtorName, AbiTags),
     /// A source name.
     Source(SourceName, MemberLikeFriend, AbiTags),
-    /// A local source name.
-    LocalSourceName(SourceName, Option<Discriminator>, AbiTags),
+    /// A local source name, with optional template args and discriminator.
+    LocalSourceName(SourceName, Option<TemplateArgs>, Option<Discriminator>, AbiTags),
     /// A generated name for an unnamed type.
     UnnamedType(UnnamedTypeName, AbiTags),
     /// A closure type name
@@ -2588,6 +2602,12 @@ impl Parse for UnqualifiedName {
 
         if let Ok(tail) = consume(b"L", input) {
             let (name, tail) = SourceName::parse(ctx, subs, tail)?;
+            let (template_args, tail) =
+                if let Ok((args, tail)) = try_recurse!(TemplateArgs::parse(ctx, subs, tail)) {
+                    (Some(args), tail)
+                } else {
+                    (None, tail)
+                };
             let (discr, tail) =
                 if let Ok((d, t)) = try_recurse!(Discriminator::parse(ctx, subs, tail)) {
                     (Some(d), t)
@@ -2596,7 +2616,7 @@ impl Parse for UnqualifiedName {
                 };
             let (abi_tags, tail) = AbiTags::parse(ctx, subs, tail)?;
             return Ok((
-                UnqualifiedName::LocalSourceName(name, discr, abi_tags),
+                UnqualifiedName::LocalSourceName(name, template_args, discr, abi_tags),
                 tail,
             ));
         }
@@ -2659,8 +2679,11 @@ where
                 name.demangle(ctx, scope)?;
                 abi_tags.demangle(ctx, scope)
             }
-            UnqualifiedName::LocalSourceName(ref name, _, ref abi_tags) => {
+            UnqualifiedName::LocalSourceName(ref name, ref template_args, _, ref abi_tags) => {
                 name.demangle(ctx, scope)?;
+                if let Some(ref template_args) = *template_args {
+                    template_args.demangle(ctx, scope)?;
+                }
                 abi_tags.demangle(ctx, scope)
             }
             UnqualifiedName::UnnamedType(ref unnamed, ref abi_tags) => {
@@ -12094,7 +12117,25 @@ mod tests {
                             start: 2,
                             end: 5
                         }),
+                        None,
                         Some(Discriminator(0)),
+                        AbiTags::default(),
+                    ),
+                    "..."
+                }
+                b"L3fooIiE..." => {
+                    UnqualifiedName::LocalSourceName(
+                        SourceName(Identifier {
+                            start: 2,
+                            end: 5
+                        }),
+                        Some(TemplateArgs {
+                            args: vec![TemplateArg::Type(TypeHandle::Builtin(
+                                BuiltinType::Standard(StandardBuiltinType::Int)
+                            ))],
+                            requires_clause: ConstraintExpression(None),
+                        }),
+                        None,
                         AbiTags::default(),
                     ),
                     "..."
@@ -12105,6 +12146,7 @@ mod tests {
                             start: 2,
                             end: 5
                         }),
+                        None,
                         None,
                         AbiTags::default(),
                     ),
@@ -12216,6 +12258,7 @@ mod tests {
                             start: 2,
                             end: 5
                         }),
+                        None,
                         Some(Discriminator(0)),
                         AbiTags(vec![AbiTag(
                             SourceName(
@@ -12234,6 +12277,7 @@ mod tests {
                             start: 2,
                             end: 5
                         }),
+                        None,
                         None,
                         AbiTags(vec![
                             AbiTag(
