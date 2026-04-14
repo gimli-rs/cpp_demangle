@@ -3742,6 +3742,20 @@ impl Parse for TypeHandle {
             return Ok((handle, tail));
         }
 
+        // C++20 placeholder type template-parameter declaration. This appears
+        // in contexts such as generic lambda signatures; parse it as `auto`
+        // so the stream remains well-formed.
+        //
+        // Like other template-parameter declaration qualifiers, this is
+        // treated as mangling syntax support and not represented as a distinct
+        // renderable AST construct.
+        if let Ok(tail) = consume(b"Ty", input) {
+            return Ok((
+                TypeHandle::Builtin(BuiltinType::Standard(StandardBuiltinType::Auto)),
+                tail,
+            ));
+        }
+
         // ::= <qualified-type>
         // We don't have a separate type for the <qualified-type> production.
         // Process these all up front, so that any ambiguity that might exist
@@ -5747,6 +5761,56 @@ impl Parse for TemplateArg {
     ) -> Result<(TemplateArg, IndexStr<'b>)> {
         try_begin_parse!("TemplateArg", ctx, input);
 
+        // Parse C++20 template-parameter declarations that can prefix an
+        // actual template argument, such as:
+        // - `Tn <type>`
+        // - `Tk <name>`
+        // - `Tt <template-param-decl>+ E`
+        // - `Tp <template-param-decl>`
+        // - `Ty`
+        //
+        // We parse these qualifiers structurally for stream correctness, then
+        // continue with the following actual `<template-arg>`.
+        //
+        // These are parse-only mangling qualifiers: we intentionally do not
+        // preserve them as dedicated AST nodes for demangled rendering.
+        fn parse_template_param_decl<'a, 'b>(
+            ctx: &'a ParseContext,
+            subs: &'a mut SubstitutionTable,
+            input: IndexStr<'b>,
+        ) -> Result<IndexStr<'b>> {
+            if let Ok(tail) = consume(b"Ty", input) {
+                return Ok(tail);
+            }
+
+            if let Ok(tail) = consume(b"Tn", input) {
+                let (_, tail) = TypeHandle::parse(ctx, subs, tail)?;
+                return Ok(tail);
+            }
+
+            if let Ok(tail) = consume(b"Tk", input) {
+                let (_, tail) = Name::parse(ctx, subs, tail)?;
+                return Ok(tail);
+            }
+
+            if let Ok(tail) = consume(b"Tp", input) {
+                return parse_template_param_decl(ctx, subs, tail);
+            }
+
+            if let Ok(mut tail) = consume(b"Tt", input) {
+                loop {
+                    if let Ok(next) = consume(b"E", tail) {
+                        tail = next;
+                        break;
+                    }
+                    tail = parse_template_param_decl(ctx, subs, tail)?;
+                }
+                return Ok(tail);
+            }
+
+            Err(error::Error::UnexpectedText)
+        }
+
         if let Ok(tail) = consume(b"X", input) {
             let (expr, tail) = Expression::parse(ctx, subs, tail)?;
             let tail = consume(b"E", tail)?;
@@ -5755,6 +5819,35 @@ impl Parse for TemplateArg {
 
         if let Ok((expr, tail)) = try_recurse!(ExprPrimary::parse(ctx, subs, input)) {
             return Ok((TemplateArg::SimpleExpression(expr), tail));
+        }
+
+        // C++20: a template-arg can also be prefixed by a constrained type
+        // template-parameter declaration (`Tk <name>`). Parse this qualifier
+        // structurally and continue with the following actual template-arg.
+        if let Ok(tail) = consume(b"Tk", input) {
+            let (_, tail) = Name::parse(ctx, subs, tail)?;
+            return TemplateArg::parse(ctx, subs, tail);
+        }
+
+        if let Ok(tail) = consume(b"Tt", input) {
+            let mut tail = tail;
+            loop {
+                if let Ok(next) = consume(b"E", tail) {
+                    tail = next;
+                    break;
+                }
+                tail = parse_template_param_decl(ctx, subs, tail)?;
+            }
+            return TemplateArg::parse(ctx, subs, tail);
+        }
+
+        if let Ok(tail) = consume(b"Tp", input) {
+            let tail = parse_template_param_decl(ctx, subs, tail)?;
+            return TemplateArg::parse(ctx, subs, tail);
+        }
+
+        if let Ok(tail) = consume(b"Ty", input) {
+            return TemplateArg::parse(ctx, subs, tail);
         }
 
         if let Ok((ty, tail)) = try_recurse!(TypeHandle::parse(ctx, subs, input)) {
@@ -10154,6 +10247,66 @@ mod tests {
                 }
             }
         });
+    }
+
+    #[test]
+    fn parse_realworld_tfunctionrefcaller_full_mangled_name_probe() {
+        let mut subs = SubstitutionTable::new();
+        let ctx = ParseContext::new(Default::default());
+        let input = IndexStr::new(
+            b"_ZN2UE4Core7Private8Function18TFunctionRefCallerIZN26IEditorDataStorageProvider9AddColumnITkNS_6Editor11DataStorage15TDataColumnTypeE24FTypedElementLabelColumnEEvyOT_EUlPvRK13UScriptStructE_vJSB_SE_EE4CallESB_RSB_SE_",
+        );
+
+        match MangledName::parse(&ctx, &mut subs, input) {
+            Ok((_name, tail)) => assert!(
+                tail.is_empty(),
+                "tfunctionrefcaller full parse left tail: {:?}",
+                String::from_utf8_lossy(tail.as_ref())
+            ),
+            Err(err) => panic!("failed tfunctionrefcaller full mangled name: {:?}", err),
+        }
+    }
+
+    #[test]
+    fn parse_realworld_fmesh_deletevertexinstance_full_mangled_name_probe() {
+        let mut subs = SubstitutionTable::new();
+        let ctx = ParseContext::new(Default::default());
+        let input = IndexStr::new(
+            b"_ZN16FMeshDescription29DeleteVertexInstance_InternalITtTpTyE6TArrayEEv17FVertexInstanceIDPT_IJ9FVertexIDEE",
+        );
+
+        match MangledName::parse(&ctx, &mut subs, input) {
+            Ok((_name, tail)) => assert!(
+                tail.is_empty(),
+                "fmesh deletevertexinstance full parse left tail: {:?}",
+                String::from_utf8_lossy(tail.as_ref())
+            ),
+            Err(err) => panic!(
+                "failed fmesh deletevertexinstance full mangled name: {:?}",
+                err
+            ),
+        }
+    }
+
+    #[test]
+    fn parse_realworld_pcg_callbackwithrighttype_full_mangled_name_probe() {
+        let mut subs = SubstitutionTable::new();
+        let ctx = ParseContext::new(Default::default());
+        let input = IndexStr::new(
+            b"_ZN20PCGMetadataAttribute21CallbackWithRightTypeIZN18PCGPropertyHelpers35ExtractAttributeSetAsArrayOfStructsI26FPCGSelectGrammarCriterionEE6TArrayIT_22TSizedDefaultAllocatorILi32EEEPK13UPCGParamDataPK4TMapI5FName6TTupleIJSD_bEE20FDefaultSetAllocator27TDefaultMapHashableKeyFuncsISD_SF_Lb0EEEP11FPCGContextEUlTyS5_E_JEEEDctS5_DpOT0_",
+        );
+
+        match MangledName::parse(&ctx, &mut subs, input) {
+            Ok((_name, tail)) => assert!(
+                tail.is_empty(),
+                "pcg callbackwithrighttype full parse left tail: {:?}",
+                String::from_utf8_lossy(tail.as_ref())
+            ),
+            Err(err) => panic!(
+                "failed pcg callbackwithrighttype full mangled name: {:?}",
+                err
+            ),
+        }
     }
 
     #[test]
