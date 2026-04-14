@@ -2197,11 +2197,12 @@ impl GetTemplateArgs for NestedName {
             | NestedName::TemplateExplicitObject(ref prefix, _) => prefix.get_template_args(subs),
             // For nested unqualified names, the trailing unqualified component
             // (for example local-source-name `L...I...E`) may carry the active
-            // template arguments; prefer those before falling back to prefix.
+            // template arguments.
             NestedName::Unqualified(_, _, ref prefix, ref name)
-            | NestedName::UnqualifiedExplicitObject(ref prefix, ref name, _) => name
-                .get_template_args(subs)
-                .or_else(|| prefix.as_ref().and_then(|p| p.get_template_args(subs))),
+            | NestedName::UnqualifiedExplicitObject(ref prefix, ref name, _) => {
+                let _ = prefix;
+                name.get_template_args(subs)
+            }
         }
     }
 }
