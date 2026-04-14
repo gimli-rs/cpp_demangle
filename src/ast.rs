@@ -2176,7 +2176,13 @@ impl GetTemplateArgs for NestedName {
         match *self {
             NestedName::Template(_, _, ref prefix)
             | NestedName::TemplateExplicitObject(ref prefix, _) => prefix.get_template_args(subs),
-            _ => None,
+            // For nested unqualified names, the trailing unqualified component
+            // (for example local-source-name `L...I...E`) may carry the active
+            // template arguments; prefer those before falling back to prefix.
+            NestedName::Unqualified(_, _, ref prefix, ref name)
+            | NestedName::UnqualifiedExplicitObject(ref prefix, ref name, _) => name
+                .get_template_args(subs)
+                .or_else(|| prefix.as_ref().and_then(|p| p.get_template_args(subs))),
         }
     }
 }
@@ -10246,6 +10252,19 @@ mod tests {
             Ok(_) => {}
             Err(err) => panic!(
                 "failed objparser parsematerialproperty demangle: {:?}",
+                err
+            ),
+        }
+    }
+
+    #[test]
+    fn demangle_realworld_foreachimpl_dispatch_probe() {
+        let mangled = b"_ZN11ForEachImplL8DispatchI10FPolygonID24FFixAttributesSizeHelperIS1_ELj0EEEv5FNameT0_P26FMeshAttributeArraySetBase";
+        let sym = Symbol::new(&mangled[..]).expect("symbol parse");
+        match sym.demangle() {
+            Ok(_) => {}
+            Err(err) => panic!(
+                "failed foreachimpl dispatch demangle: {:?}",
                 err
             ),
         }
