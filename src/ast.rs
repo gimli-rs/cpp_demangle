@@ -4005,7 +4005,7 @@ where
                 }
                 Ok(())
             }
-            Type::ClangSubstPackNoise => Ok(()),
+            Type::ClangSubstPackNoise => write!(ctx, "{{clang-subst-pack-noise}}"),
             Type::Builtin(ref builtin) => builtin.demangle(ctx, scope),
         }
     }
@@ -6768,7 +6768,7 @@ where
                 write!(ctx, "throw")?;
                 Ok(())
             }
-            Expression::ClangSubstPackNoise => Ok(()),
+            Expression::ClangSubstPackNoise => write!(ctx, "{{clang-subst-pack-noise}}"),
             Expression::UnresolvedName(ref name) => name.demangle(ctx, scope),
             Expression::Primary(ref expr) => expr.demangle(ctx, scope),
         }
