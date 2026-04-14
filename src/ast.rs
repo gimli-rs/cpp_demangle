@@ -1775,7 +1775,7 @@ impl GetTemplateArgs for Name {
             Name::UnscopedTemplate(_, ref args) => Some(args),
             Name::Nested(ref nested) => nested.get_template_args(subs),
             Name::Local(ref local) => local.get_template_args(subs),
-            Name::Unscoped(_) => None,
+            Name::Unscoped(ref unscoped) => unscoped.get_template_args(subs),
         }
     }
 }
@@ -1869,6 +1869,16 @@ impl<'a> GetLeafName<'a> for UnscopedName {
         match *self {
             UnscopedName::Unqualified(ref name) | UnscopedName::Std(ref name) => {
                 name.get_leaf_name(subs)
+            }
+        }
+    }
+}
+
+impl GetTemplateArgs for UnscopedName {
+    fn get_template_args<'a>(&'a self, subs: &'a SubstitutionTable) -> Option<&'a TemplateArgs> {
+        match *self {
+            UnscopedName::Unqualified(ref name) | UnscopedName::Std(ref name) => {
+                name.get_template_args(subs)
             }
         }
     }
@@ -2682,6 +2692,7 @@ where
             UnqualifiedName::LocalSourceName(ref name, ref template_args, _, ref abi_tags) => {
                 name.demangle(ctx, scope)?;
                 if let Some(ref template_args) = *template_args {
+                    let scope = scope.push(template_args);
                     template_args.demangle(ctx, scope)?;
                 }
                 abi_tags.demangle(ctx, scope)
@@ -2722,6 +2733,19 @@ impl IsCtorDtorConversion for UnqualifiedName {
             | UnqualifiedName::LocalSourceName(..)
             | UnqualifiedName::UnnamedType(..)
             | UnqualifiedName::ClosureType(..) => false,
+        }
+    }
+}
+
+impl GetTemplateArgs for UnqualifiedName {
+    fn get_template_args<'a>(&'a self, _: &'a SubstitutionTable) -> Option<&'a TemplateArgs> {
+        match *self {
+            UnqualifiedName::LocalSourceName(_, ref template_args, ..) => template_args.as_ref(),
+            UnqualifiedName::Operator(..)
+            | UnqualifiedName::CtorDtor(..)
+            | UnqualifiedName::Source(..)
+            | UnqualifiedName::UnnamedType(..)
+            | UnqualifiedName::ClosureType(..) => None,
         }
     }
 }
@@ -8624,6 +8648,7 @@ mod tests {
     use crate::error::Error;
     use crate::index_str::IndexStr;
     use crate::subs::{Substitutable, SubstitutionTable};
+    use crate::Symbol;
     use alloc::boxed::Box;
     use alloc::string::String;
     use core::fmt::Debug;
@@ -10177,6 +10202,53 @@ mod tests {
                 }
             }
         });
+    }
+
+    #[test]
+    fn parse_realworld_makesharedbufferviewwithouter_full_mangled_name_probe() {
+        let mut subs = SubstitutionTable::new();
+        let ctx = ParseContext::new(Default::default());
+        let input = IndexStr::new(
+            b"_ZL29MakeSharedBufferViewWithOuterIRK13FSharedBufferTnPDTcvS0_cl7DeclValIT_EEELPS0_0EES0_11TMemoryViewIKvEOS3_",
+        );
+
+        match MangledName::parse(&ctx, &mut subs, input) {
+            Ok((_name, tail)) => assert!(
+                tail.is_empty(),
+                "makesharedbufferviewwithouter full parse left tail: {:?}",
+                String::from_utf8_lossy(tail.as_ref())
+            ),
+            Err(err) => panic!(
+                "failed makesharedbufferviewwithouter full mangled name: {:?}",
+                err
+            ),
+        }
+    }
+
+    #[test]
+    fn demangle_realworld_makesharedbufferviewwithouter_probe() {
+        let mangled = b"_ZL29MakeSharedBufferViewWithOuterIRK13FSharedBufferTnPDTcvS0_cl7DeclValIT_EEELPS0_0EES0_11TMemoryViewIKvEOS3_";
+        let sym = Symbol::new(&mangled[..]).expect("symbol parse");
+        match sym.demangle() {
+            Ok(_) => {}
+            Err(err) => panic!(
+                "failed makesharedbufferviewwithouter demangle: {:?}",
+                err
+            ),
+        }
+    }
+
+    #[test]
+    fn demangle_realworld_objparser_parsematerialproperty_probe() {
+        let mangled = b"_ZN2UE11Interchange14ObjParserUtilsL21ParseMaterialPropertyIiTnMN8FObjData13FMaterialDataET_XadL_ZNS4_17IlluminationModelEEEEEbRS3_11TStringViewIDsE";
+        let sym = Symbol::new(&mangled[..]).expect("symbol parse");
+        match sym.demangle() {
+            Ok(_) => {}
+            Err(err) => panic!(
+                "failed objparser parsematerialproperty demangle: {:?}",
+                err
+            ),
+        }
     }
 
     #[test]
