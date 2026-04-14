@@ -351,6 +351,11 @@ trait ArgScope<'me, 'ctx>: fmt::Debug {
     /// Get the current scope's leaf name.
     fn leaf_name(&'me self) -> Result<LeafName<'ctx>>;
 
+    #[inline]
+    fn template_args(&'me self) -> Option<&'ctx TemplateArgs> {
+        None
+    }
+
     /// Get the current scope's `index`th template argument.
     fn get_template_arg(&'me self, index: usize)
         -> Result<(&'ctx TemplateArg, &'ctx TemplateArgs)>;
@@ -390,6 +395,12 @@ trait ArgScopeStackExt<'prev, 'subs>: Copy {
         &'prev self,
         item: &'subs dyn ArgScope<'subs, 'subs>,
     ) -> Option<ArgScopeStack<'prev, 'subs>>;
+
+    fn get_template_arg_by_level(
+        &'prev self,
+        level_from_current: Option<usize>,
+        idx: usize,
+    ) -> Result<(&'subs TemplateArg, &'subs TemplateArgs)>;
 }
 
 impl<'prev, 'subs> ArgScopeStackExt<'prev, 'subs> for Option<ArgScopeStack<'prev, 'subs>> {
@@ -403,6 +414,45 @@ impl<'prev, 'subs> ArgScopeStackExt<'prev, 'subs> for Option<ArgScopeStack<'prev
             in_arg: None,
             item: item,
         })
+    }
+
+    fn get_template_arg_by_level(
+        &'prev self,
+        level_from_current: Option<usize>,
+        idx: usize,
+    ) -> Result<(&'subs TemplateArg, &'subs TemplateArgs)> {
+        let target_level = level_from_current.unwrap_or(0);
+
+        let mut scope = self.as_ref();
+        let mut template_level = 0usize;
+
+        while let Some(s) = scope {
+            if let Some(template_args) = s.item.template_args() {
+                let _ = template_args;
+
+                if template_level == target_level {
+                    if let Ok((arg, args)) = s.item.get_template_arg(idx) {
+                        if let Some((in_idx, in_args)) = s.in_arg {
+                            if args as *const TemplateArgs == in_args as *const TemplateArgs
+                                && in_idx <= idx
+                            {
+                                scope = s.prev;
+                                template_level += 1;
+                                continue;
+                            }
+                        }
+                        return Ok((arg, args));
+                    }
+                    return Err(error::Error::BadTemplateArgReference);
+                }
+
+                template_level += 1;
+            }
+
+            scope = s.prev;
+        }
+
+        Err(error::Error::BadTemplateArgReference)
     }
 }
 
@@ -5362,6 +5412,43 @@ where
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct TemplateParam(usize);
 
+impl TemplateParam {
+    const EXPLICIT_LEVEL_FLAG: usize = 1usize << (usize::BITS as usize - 1);
+    const INDEX_BITS: usize = (usize::BITS as usize - 1) / 2;
+    const INDEX_MASK: usize = (1usize << Self::INDEX_BITS) - 1;
+
+    #[inline]
+    fn implicit(index: usize) -> TemplateParam {
+        TemplateParam(index)
+    }
+
+    #[inline]
+    fn explicit(level_from_current: usize, index: usize) -> TemplateParam {
+        debug_assert!(level_from_current <= Self::INDEX_MASK);
+        debug_assert!(index <= Self::INDEX_MASK);
+        let encoded = Self::EXPLICIT_LEVEL_FLAG | (level_from_current << Self::INDEX_BITS) | index;
+        TemplateParam(encoded)
+    }
+
+    #[inline]
+    fn level_from_current(&self) -> Option<usize> {
+        if (self.0 & Self::EXPLICIT_LEVEL_FLAG) == 0 {
+            None
+        } else {
+            Some((self.0 >> Self::INDEX_BITS) & Self::INDEX_MASK)
+        }
+    }
+
+    #[inline]
+    fn index(&self) -> usize {
+        if (self.0 & Self::EXPLICIT_LEVEL_FLAG) == 0 {
+            self.0
+        } else {
+            self.0 & Self::INDEX_MASK
+        }
+    }
+}
+
 impl Parse for TemplateParam {
     fn parse<'a, 'b>(
         ctx: &'a ParseContext,
@@ -5371,12 +5458,30 @@ impl Parse for TemplateParam {
         try_begin_parse!("TemplateParam", ctx, input);
 
         let input = consume(b"T", input)?;
+
+        if let Ok(input) = consume(b"L", input) {
+            // C++20 can qualify template parameters with an explicit template
+            // nesting level (`TL<level-1>_..._`). Level 0 means current
+            // (innermost) template parameter scope.
+            let (level, input) = parse_number(10, false, input)?;
+            let input = consume(b"_", input)?;
+            let (number, input) = match parse_number(10, false, input) {
+                Ok((number, input)) => ((number + 1) as _, input),
+                Err(_) => (0, input),
+            };
+            let input = consume(b"_", input)?;
+            if level == 0 {
+                return Ok((TemplateParam::implicit(number), input));
+            }
+            return Ok((TemplateParam::explicit(level as usize, number), input));
+        }
+
         let (number, input) = match parse_number(10, false, input) {
             Ok((number, input)) => ((number + 1) as _, input),
             Err(_) => (0, input),
         };
         let input = consume(b"_", input)?;
-        Ok((TemplateParam(number), input))
+        Ok((TemplateParam::implicit(number), input))
     }
 }
 
@@ -5394,7 +5499,7 @@ where
         ctx.push_demangle_node(DemangleNodeType::TemplateParam);
         let ret = if ctx.is_lambda_arg {
             // To match libiberty, template references are converted to `auto`.
-            write!(ctx, "auto:{}", self.0 + 1)
+            write!(ctx, "auto:{}", self.index() + 1)
         } else {
             let arg = self.resolve(scope)?;
             arg.demangle(ctx, scope)
@@ -5409,8 +5514,14 @@ impl TemplateParam {
         &'subs self,
         scope: Option<ArgScopeStack<'prev, 'subs>>,
     ) -> ::core::result::Result<&'subs TemplateArg, fmt::Error> {
-        scope
-            .get_template_arg(self.0)
+        let resolved = if let Some(level_from_current) = self.level_from_current() {
+            scope.get_template_arg_by_level(Some(level_from_current), self.index())
+        } else {
+            // Preserve legacy semantics for implicit template params.
+            scope.get_template_arg(self.index())
+        };
+
+        resolved
             .map_err(|e| {
                 log!("Error obtaining template argument: {}", e);
                 fmt::Error
@@ -5695,6 +5806,10 @@ where
 impl<'subs> ArgScope<'subs, 'subs> for TemplateArgs {
     fn leaf_name(&'subs self) -> Result<LeafName<'subs>> {
         Err(error::Error::BadLeafNameReference)
+    }
+
+    fn template_args(&'subs self) -> Option<&'subs TemplateArgs> {
+        Some(self)
     }
 
     fn get_template_arg(
@@ -11989,6 +12104,14 @@ mod tests {
                 }
                 b"T3_..." => {
                     TemplateParam(4),
+                    b"..."
+                }
+                b"TL0__..." => {
+                    TemplateParam(0),
+                    b"..."
+                }
+                b"TL1_3_..." => {
+                    TemplateParam::explicit(1, 4),
                     b"..."
                 }
             }
