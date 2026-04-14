@@ -602,6 +602,9 @@ where
     // We are currently demangling a template-prefix in a nested-name.
     is_template_prefix_in_nested_name: bool,
 
+    // We are currently demangling a requires-clause expression.
+    is_requires_clause: bool,
+
     //  `PackExpansion`'s should only print '...', only when there is no template
     //  argument pack.
     is_template_argument_pack: bool,
@@ -667,6 +670,7 @@ where
             is_lambda_arg: false,
             is_template_prefix: false,
             is_template_prefix_in_nested_name: false,
+            is_requires_clause: false,
             is_template_argument_pack: false,
             is_explicit_obj_param: false,
             show_params: !options.no_params,
@@ -5500,6 +5504,9 @@ where
         let ret = if ctx.is_lambda_arg {
             // To match libiberty, template references are converted to `auto`.
             write!(ctx, "auto:{}", self.index() + 1)
+        } else if ctx.is_requires_clause {
+            // Keep symbolic template parameters inside requires clauses.
+            write!(ctx, "T{}", self.index() + 1)
         } else {
             let arg = self.resolve(scope)?;
             arg.demangle(ctx, scope)
@@ -5791,6 +5798,12 @@ where
         if let Some(ref mut scope) = scope {
             scope.in_arg = None;
         }
+
+        let saved_max_recursion = ctx.max_recursion;
+        ctx.max_recursion = core::cmp::max(saved_max_recursion, 256);
+        let ret = self.requires_clause.demangle(ctx, scope);
+        ctx.max_recursion = saved_max_recursion;
+        ret?;
 
         // Ensure "> >" because old C++ sucks and libiberty (and its tests)
         // supports old C++.
@@ -6896,6 +6909,30 @@ impl Parse for ConstraintExpression {
         }
 
         Ok((ConstraintExpression(None), input))
+    }
+}
+
+impl<'subs, W> Demangle<'subs, W> for ConstraintExpression
+where
+    W: 'subs + DemangleWrite,
+{
+    fn demangle<'prev, 'ctx>(
+        &'subs self,
+        ctx: &'ctx mut DemangleContext<'subs, W>,
+        scope: Option<ArgScopeStack<'prev, 'subs>>,
+    ) -> fmt::Result {
+        let ctx = try_begin_demangle!(self, ctx, scope);
+
+        if let ConstraintExpression(Some(ref expr)) = *self {
+            write!(ctx, " requires ")?;
+            let saved = ctx.is_requires_clause;
+            ctx.is_requires_clause = true;
+            let ret = expr.demangle(ctx, scope);
+            ctx.is_requires_clause = saved;
+            return ret;
+        }
+
+        Ok(())
     }
 }
 
@@ -8700,13 +8737,14 @@ mod tests {
     use super::{
         AbiTag, AbiTags, ArrayType, BareFunctionType, BaseUnresolvedName, BuiltinType, CallOffset,
         ClassEnumType, ClosureTypeName, ConstraintExpression, CtorDtorName, CvQualifiers,
-        DataMemberPrefix, Decltype, DestructorName, Discriminator, Encoding, ExceptionSpec,
-        ExprPrimary, Expression, FoldExpr, FunctionParam, FunctionType, GlobalCtorDtor, Identifier,
-        Initializer, LambdaSig, LocalName, MangledName, MemberName, Name, NestedName,
-        NonSubstitution, Number, NvOffset, OperatorName, ParametricBuiltinType, Parse,
-        ParseContext, PointerToMemberType, Prefix, PrefixHandle, RefQualifier, ResourceName, SeqId,
-        SimpleId, SimpleOperatorName, SourceName, SpecialName, StandardBuiltinType, SubobjectExpr,
-        Substitution, TemplateArg, TemplateArgs, TemplateParam, TemplateParamDecl,
+        DataMemberPrefix, Decltype, Demangle, DemangleContext, DemangleOptions, DestructorName,
+        Discriminator, Encoding, ExceptionSpec, ExprPrimary, Expression, FoldExpr, FunctionParam,
+        FunctionType, GlobalCtorDtor, Identifier, Initializer, LambdaSig, LocalName, MangledName,
+        MemberName, Name, NestedName, NonSubstitution, Number, NvOffset, OperatorName,
+        ParametricBuiltinType, Parse, ParseContext, PointerToMemberType, Prefix, PrefixHandle,
+        RefQualifier, ResourceName, SeqId, SimpleId, SimpleOperatorName, SourceName, SpecialName,
+        StandardBuiltinType, SubobjectExpr, Substitution, TemplateArg, TemplateArgs, TemplateParam,
+        TemplateParamDecl,
         TemplateTemplateParam, TemplateTemplateParamHandle, Type, TypeHandle, UnnamedTypeName,
         UnqualifiedName, UnresolvedName, UnresolvedQualifierLevel, UnresolvedType,
         UnresolvedTypeHandle, UnscopedName, UnscopedTemplateName, UnscopedTemplateNameHandle,
@@ -8716,6 +8754,7 @@ mod tests {
     use crate::error::Error;
     use crate::index_str::IndexStr;
     use crate::subs::{Substitutable, SubstitutionTable};
+    use crate::Symbol;
     use alloc::boxed::Box;
     use alloc::string::String;
     use core::fmt::Debug;
@@ -10269,6 +10308,40 @@ mod tests {
                 }
             }
         });
+    }
+
+    #[test]
+    fn demangle_template_args_renders_requires_clause() {
+        let parse_ctx = ParseContext::new(Default::default());
+        let mut subs = SubstitutionTable::new();
+        let input = b"IiQtrE";
+        let (template_args, tail) = TemplateArgs::parse(&parse_ctx, &mut subs, IndexStr::new(input))
+            .expect("template args with requires-clause should parse");
+        assert!(tail.is_empty(), "unexpected parse tail");
+
+        let mut out = String::new();
+        let mut demangle_ctx = DemangleContext::new(&subs, input, DemangleOptions::default(), &mut out);
+        template_args
+            .demangle(&mut demangle_ctx, None)
+            .expect("requires-clause demangle should succeed");
+
+        assert!(
+            out.contains("requires"),
+            "demangled template args should render requires clause: {}",
+            out
+        );
+    }
+
+    #[test]
+    fn demangle_realworld_tfunction_requires_clause_probe() {
+        let mangled = b"_ZN9TFunctionIFvR21FMassExecutionContextEEC2IZN22UMassTestProcessorBaseC1EvE3$_0Qaantntaantsr12TIsTFunctionINSt3__15decayITL0__E4typeEEE5Valuesr3stdE16is_invocable_r_vIT_SB_DpT0_Esr2UE4Core7PrivateE19BoolIdentityConceptILb1EEEEOSC_";
+        let sym = Symbol::new(&mangled[..]).expect("symbol parse");
+        let demangled = sym.demangle().expect("requires-clause demangle should succeed");
+        assert!(
+            demangled.contains("requires"),
+            "expected requires clause in demangled output: {}",
+            demangled
+        );
     }
 
     #[test]
