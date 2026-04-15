@@ -5802,19 +5802,25 @@ impl Parse for TemplateArg {
             }
 
             if let Ok(tail) = consume(b"Tt", input) {
-                // `Tt` requires one-or-more `<template-param-decl>` entries.
-                let mut tail = parse_template_param_decl(ctx, subs, tail)?;
-                loop {
-                    if let Ok(next) = consume(b"E", tail) {
-                        tail = next;
-                        break;
-                    }
-                    tail = parse_template_param_decl(ctx, subs, tail)?;
-                }
-                return Ok(tail);
+                return parse_tt_param_decl_list(ctx, subs, tail);
             }
 
             Err(error::Error::UnexpectedText)
+        }
+
+        fn parse_tt_param_decl_list<'a, 'b>(
+            ctx: &'a ParseContext,
+            subs: &'a mut SubstitutionTable,
+            input: IndexStr<'b>,
+        ) -> Result<IndexStr<'b>> {
+            // `Tt` requires one-or-more `<template-param-decl>` entries.
+            let mut tail = parse_template_param_decl(ctx, subs, input)?;
+            loop {
+                if let Ok(next) = consume(b"E", tail) {
+                    return Ok(next);
+                }
+                tail = parse_template_param_decl(ctx, subs, tail)?;
+            }
         }
 
         if let Ok(tail) = consume(b"X", input) {
@@ -5836,15 +5842,7 @@ impl Parse for TemplateArg {
         }
 
         if let Ok(tail) = consume(b"Tt", input) {
-            // `Tt` requires one-or-more `<template-param-decl>` entries.
-            let mut tail = parse_template_param_decl(ctx, subs, tail)?;
-            loop {
-                if let Ok(next) = consume(b"E", tail) {
-                    tail = next;
-                    break;
-                }
-                tail = parse_template_param_decl(ctx, subs, tail)?;
-            }
+            let tail = parse_tt_param_decl_list(ctx, subs, tail)?;
             return TemplateArg::parse(ctx, subs, tail);
         }
 
