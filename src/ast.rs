@@ -2179,11 +2179,8 @@ impl GetTemplateArgs for NestedName {
             // For nested unqualified names, the trailing unqualified component
             // (for example local-source-name `L...I...E`) may carry the active
             // template arguments.
-            NestedName::Unqualified(_, _, ref prefix, ref name)
-            | NestedName::UnqualifiedExplicitObject(ref prefix, ref name, _) => {
-                let _ = prefix;
-                name.get_template_args(subs)
-            }
+            NestedName::Unqualified(_, _, _, ref name)
+            | NestedName::UnqualifiedExplicitObject(_, ref name, _) => name.get_template_args(subs),
         }
     }
 }
@@ -2392,9 +2389,9 @@ impl Parse for PrefixHandle {
                         // Keep substitution ordering stable for local source
                         // names with template-args that are followed by `M`
                         // data-member prefixes.
-                        let normalized_current = current.take();
+                        let prev_current = current.take();
 
-                        let prefix = match normalized_current {
+                        let prefix = match prev_current {
                             None => Prefix::Unqualified(name),
                             Some(handle) => Prefix::Nested(handle, name),
                         };
@@ -2724,14 +2721,8 @@ impl IsCtorDtorConversion for UnqualifiedName {
 
 impl GetTemplateArgs for UnqualifiedName {
     fn get_template_args<'a>(&'a self, _: &'a SubstitutionTable) -> Option<&'a TemplateArgs> {
-        match *self {
-            UnqualifiedName::Operator(..)
-            | UnqualifiedName::CtorDtor(..)
-            | UnqualifiedName::LocalSourceName(..)
-            | UnqualifiedName::Source(..)
-            | UnqualifiedName::UnnamedType(..)
-            | UnqualifiedName::ClosureType(..) => None,
-        }
+        // Unqualified names do not directly carry template arguments in this AST.
+        None
     }
 }
 
