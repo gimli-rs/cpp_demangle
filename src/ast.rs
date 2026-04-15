@@ -3803,11 +3803,22 @@ impl Parse for TypeHandle {
         // Clang's Itanium mangler (with FIXME comments in Clang source). They
         // are not part of the Itanium grammar, so we parse them using existing
         // extension nodes to preserve demangling progress without changing the
-        // public AST enum surface.
+        // public AST enum surface. They are intentionally non-substitutable so
+        // that synthetic recovery tokens do not perturb real `S...` indices.
+        if input.len() < CLANG_SUBSTPACK_PLACEHOLDER.len()
+            && CLANG_SUBSTPACK_PLACEHOLDER.starts_with(input.as_ref())
+        {
+            return Err(error::Error::UnexpectedEnd);
+        }
         if let Ok(tail) = consume(CLANG_SUBSTPACK_PLACEHOLDER, input) {
             let name = clang_placeholder_source_name(input.index(), CLANG_SUBSTPACK_PLACEHOLDER);
             let handle = TypeHandle::Builtin(BuiltinType::Extension(name));
             return Ok((handle, tail));
+        }
+        if input.len() < CLANG_SUBSTBUILTINPACK_PLACEHOLDER.len()
+            && CLANG_SUBSTBUILTINPACK_PLACEHOLDER.starts_with(input.as_ref())
+        {
+            return Err(error::Error::UnexpectedEnd);
         }
         if let Ok(tail) = consume(CLANG_SUBSTBUILTINPACK_PLACEHOLDER, input) {
             let name =
@@ -6156,12 +6167,22 @@ impl Parse for Expression {
         // Non-standard Clang extension markers for unmangleable
         // substitution-pack expressions. Keep parsing by mapping these to an
         // unresolved source name placeholder using existing AST nodes.
+        if input.len() < CLANG_SUBSTPACK_PLACEHOLDER.len()
+            && CLANG_SUBSTPACK_PLACEHOLDER.starts_with(input.as_ref())
+        {
+            return Err(error::Error::UnexpectedEnd);
+        }
         if let Ok(tail) = consume(CLANG_SUBSTPACK_PLACEHOLDER, input) {
             let name = clang_placeholder_source_name(input.index(), CLANG_SUBSTPACK_PLACEHOLDER);
             let expr = Expression::UnresolvedName(UnresolvedName::Name(BaseUnresolvedName::Name(
                 SimpleId(name, None),
             )));
             return Ok((expr, tail));
+        }
+        if input.len() < CLANG_SUBSTBUILTINPACK_PLACEHOLDER.len()
+            && CLANG_SUBSTBUILTINPACK_PLACEHOLDER.starts_with(input.as_ref())
+        {
+            return Err(error::Error::UnexpectedEnd);
         }
         if let Ok(tail) = consume(CLANG_SUBSTBUILTINPACK_PLACEHOLDER, input) {
             let name =
@@ -10478,6 +10499,26 @@ mod tests {
             .expect("expression demangle");
         assert_eq!(out, "{clang-subst-pack-noise}");
         assert_eq!(tail.as_ref(), b"...");
+
+        let mut subs = SubstitutionTable::new();
+        let err = TypeHandle::parse(&ctx, &mut subs, IndexStr::new(b"_SUBSTPACK"))
+            .expect_err("truncated _SUBSTPACK should return UnexpectedEnd");
+        assert_eq!(err, Error::UnexpectedEnd);
+
+        let mut subs = SubstitutionTable::new();
+        let err = TypeHandle::parse(&ctx, &mut subs, IndexStr::new(b"_SUBSTBUILTINP"))
+            .expect_err("truncated _SUBSTBUILTINPACK should return UnexpectedEnd");
+        assert_eq!(err, Error::UnexpectedEnd);
+
+        let mut subs = SubstitutionTable::new();
+        let err = Expression::parse(&ctx, &mut subs, IndexStr::new(b"_SUBSTPACK"))
+            .expect_err("truncated expression _SUBSTPACK should return UnexpectedEnd");
+        assert_eq!(err, Error::UnexpectedEnd);
+
+        let mut subs = SubstitutionTable::new();
+        let err = Expression::parse(&ctx, &mut subs, IndexStr::new(b"_SUBSTBUILTINP"))
+            .expect_err("truncated expression _SUBSTBUILTINPACK should return UnexpectedEnd");
+        assert_eq!(err, Error::UnexpectedEnd);
     }
 
     #[test]
