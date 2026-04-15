@@ -2775,6 +2775,13 @@ impl SourceName {
     fn starts_with(byte: u8) -> bool {
         byte == b'0' || (b'0' <= byte && byte <= b'9')
     }
+
+    #[inline]
+    fn is_clang_substpack_placeholder(&self, input: &[u8]) -> bool {
+        let SourceName(Identifier { start, end }) = self;
+        let ident = &input[*start..*end];
+        ident == b"_SUBSTPACK_" || ident == b"_SUBSTBUILTINPACK_"
+    }
 }
 
 impl<'subs, W> Demangle<'subs, W> for SourceName
@@ -2789,7 +2796,11 @@ where
     ) -> fmt::Result {
         let ctx = try_begin_demangle!(self, ctx, scope);
 
-        self.0.demangle(ctx, scope)
+        if self.is_clang_substpack_placeholder(ctx.input) {
+            write!(ctx, "{{clang-subst-pack-noise}}")
+        } else {
+            self.0.demangle(ctx, scope)
+        }
     }
 }
 
@@ -8636,12 +8647,13 @@ mod tests {
         AbiTag, AbiTags, ArrayType, BareFunctionType, BaseUnresolvedName, BuiltinType, CallOffset,
         ClassEnumType, ClosureTypeName, ConstraintExpression, CtorDtorName, CvQualifiers,
         DataMemberPrefix, Decltype, DestructorName, Discriminator, Encoding, ExceptionSpec,
-        ExprPrimary, Expression, FoldExpr, FunctionParam, FunctionType, GlobalCtorDtor, Identifier,
-        Initializer, LambdaSig, LocalName, MangledName, MemberName, Name, NestedName,
-        NonSubstitution, Number, NvOffset, OperatorName, ParametricBuiltinType, Parse,
-        ParseContext, PointerToMemberType, Prefix, PrefixHandle, RefQualifier, ResourceName, SeqId,
-        SimpleId, SimpleOperatorName, SourceName, SpecialName, StandardBuiltinType, SubobjectExpr,
-        Substitution, TemplateArg, TemplateArgs, TemplateParam, TemplateParamDecl,
+        Demangle, DemangleContext, DemangleOptions, ExprPrimary, Expression, FoldExpr,
+        FunctionParam, FunctionType, GlobalCtorDtor, Identifier, Initializer, LambdaSig,
+        LocalName, MangledName, MemberName, Name, NestedName, NonSubstitution, Number, NvOffset,
+        OperatorName, ParametricBuiltinType, Parse, ParseContext, PointerToMemberType, Prefix,
+        PrefixHandle, RefQualifier, ResourceName, SeqId, SimpleId, SimpleOperatorName,
+        SourceName, SpecialName, StandardBuiltinType, SubobjectExpr, Substitution, TemplateArg,
+        TemplateArgs, TemplateParam, TemplateParamDecl,
         TemplateTemplateParam, TemplateTemplateParamHandle, Type, TypeHandle, UnnamedTypeName,
         UnqualifiedName, UnresolvedName, UnresolvedQualifierLevel, UnresolvedType,
         UnresolvedTypeHandle, UnscopedName, UnscopedTemplateName, UnscopedTemplateNameHandle,
@@ -10378,6 +10390,13 @@ mod tests {
             subs.get_type(&ty),
             Some(Type::Builtin(BuiltinType::Extension(_)))
         ));
+        let mut out = String::new();
+        let mut demangle_ctx = DemangleContext::new(&subs, b"_SUBSTPACK_", DemangleOptions::default(), &mut out);
+        subs.get_type(&ty)
+            .expect("parsed type backreference")
+            .demangle(&mut demangle_ctx, None)
+            .expect("type demangle");
+        assert_eq!(out, "{clang-subst-pack-noise}");
         assert_eq!(tail.as_ref(), b"...");
 
         let mut subs = SubstitutionTable::new();
@@ -10388,6 +10407,14 @@ mod tests {
             subs.get_type(&ty),
             Some(Type::Builtin(BuiltinType::Extension(_)))
         ));
+        let mut out = String::new();
+        let mut demangle_ctx =
+            DemangleContext::new(&subs, b"_SUBSTBUILTINPACK_", DemangleOptions::default(), &mut out);
+        subs.get_type(&ty)
+            .expect("parsed type backreference")
+            .demangle(&mut demangle_ctx, None)
+            .expect("type demangle");
+        assert_eq!(out, "{clang-subst-pack-noise}");
         assert_eq!(tail.as_ref(), b"...");
 
         let mut subs = SubstitutionTable::new();
@@ -10397,6 +10424,11 @@ mod tests {
             expr,
             Expression::UnresolvedName(UnresolvedName::Name(BaseUnresolvedName::Name(_)))
         ));
+        let mut out = String::new();
+        let mut demangle_ctx = DemangleContext::new(&subs, b"_SUBSTPACK_", DemangleOptions::default(), &mut out);
+        expr.demangle(&mut demangle_ctx, None)
+            .expect("expression demangle");
+        assert_eq!(out, "{clang-subst-pack-noise}");
         assert_eq!(tail.as_ref(), b"...");
 
         let mut subs = SubstitutionTable::new();
@@ -10407,6 +10439,12 @@ mod tests {
             expr,
             Expression::UnresolvedName(UnresolvedName::Name(BaseUnresolvedName::Name(_)))
         ));
+        let mut out = String::new();
+        let mut demangle_ctx =
+            DemangleContext::new(&subs, b"_SUBSTBUILTINPACK_", DemangleOptions::default(), &mut out);
+        expr.demangle(&mut demangle_ctx, None)
+            .expect("expression demangle");
+        assert_eq!(out, "{clang-subst-pack-noise}");
         assert_eq!(tail.as_ref(), b"...");
     }
 
