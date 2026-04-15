@@ -2777,10 +2777,41 @@ impl SourceName {
     }
 
     #[inline]
+    fn has_length_prefix_in_input(&self, input: &[u8]) -> bool {
+        let start = self.0.start;
+        let end = self.0.end;
+        if start == 0 || end < start {
+            return false;
+        }
+
+        let mut i = start;
+        while i > 0 && input[i - 1].is_ascii_digit() {
+            i -= 1;
+        }
+        if i == start {
+            return false;
+        }
+
+        let mut parsed_len = 0usize;
+        for &digit in &input[i..start] {
+            parsed_len = match parsed_len
+                .checked_mul(10)
+                .and_then(|v| v.checked_add((digit - b'0') as usize))
+            {
+                Some(v) => v,
+                None => return false,
+            };
+        }
+
+        parsed_len == (end - start)
+    }
+
+    #[inline]
     fn is_clang_substpack_placeholder(&self, input: &[u8]) -> bool {
         let SourceName(Identifier { start, end }) = self;
         let ident = &input[*start..*end];
-        ident == b"_SUBSTPACK_" || ident == b"_SUBSTBUILTINPACK_"
+        (ident == b"_SUBSTPACK_" || ident == b"_SUBSTBUILTINPACK_")
+            && !self.has_length_prefix_in_input(input)
     }
 }
 
@@ -3767,16 +3798,16 @@ impl Parse for TypeHandle {
                 start: input.index(),
                 end: input.index() + b"_SUBSTPACK_".len(),
             });
-            let ty = Type::Builtin(BuiltinType::Extension(name));
-            return insert_and_return_handle(ty, subs, tail);
+            let handle = TypeHandle::Builtin(BuiltinType::Extension(name));
+            return Ok((handle, tail));
         }
         if let Ok(tail) = consume(b"_SUBSTBUILTINPACK_", input) {
             let name = SourceName(Identifier {
                 start: input.index(),
                 end: input.index() + b"_SUBSTBUILTINPACK_".len(),
             });
-            let ty = Type::Builtin(BuiltinType::Extension(name));
-            return insert_and_return_handle(ty, subs, tail);
+            let handle = TypeHandle::Builtin(BuiltinType::Extension(name));
+            return Ok((handle, tail));
         }
 
         // ::= <qualified-type>
@@ -10386,16 +10417,10 @@ mod tests {
         let mut subs = SubstitutionTable::new();
         let (ty, tail) = TypeHandle::parse(&ctx, &mut subs, IndexStr::new(b"_SUBSTPACK_..."))
             .expect("type _SUBSTPACK_ should parse");
-        assert!(matches!(
-            subs.get_type(&ty),
-            Some(Type::Builtin(BuiltinType::Extension(_)))
-        ));
+        assert!(matches!(ty, TypeHandle::Builtin(BuiltinType::Extension(_))));
         let mut out = String::new();
         let mut demangle_ctx = DemangleContext::new(&subs, b"_SUBSTPACK_", DemangleOptions::default(), &mut out);
-        subs.get_type(&ty)
-            .expect("parsed type backreference")
-            .demangle(&mut demangle_ctx, None)
-            .expect("type demangle");
+        ty.demangle(&mut demangle_ctx, None).expect("type demangle");
         assert_eq!(out, "{clang-subst-pack-noise}");
         assert_eq!(tail.as_ref(), b"...");
 
@@ -10403,17 +10428,11 @@ mod tests {
         let (ty, tail) =
             TypeHandle::parse(&ctx, &mut subs, IndexStr::new(b"_SUBSTBUILTINPACK_..."))
                 .expect("type _SUBSTBUILTINPACK_ should parse");
-        assert!(matches!(
-            subs.get_type(&ty),
-            Some(Type::Builtin(BuiltinType::Extension(_)))
-        ));
+        assert!(matches!(ty, TypeHandle::Builtin(BuiltinType::Extension(_))));
         let mut out = String::new();
         let mut demangle_ctx =
             DemangleContext::new(&subs, b"_SUBSTBUILTINPACK_", DemangleOptions::default(), &mut out);
-        subs.get_type(&ty)
-            .expect("parsed type backreference")
-            .demangle(&mut demangle_ctx, None)
-            .expect("type demangle");
+        ty.demangle(&mut demangle_ctx, None).expect("type demangle");
         assert_eq!(out, "{clang-subst-pack-noise}");
         assert_eq!(tail.as_ref(), b"...");
 
@@ -10446,6 +10465,23 @@ mod tests {
             .expect("expression demangle");
         assert_eq!(out, "{clang-subst-pack-noise}");
         assert_eq!(tail.as_ref(), b"...");
+    }
+
+    #[test]
+    fn demangle_length_prefixed_substpack_identifier_is_not_noise() {
+        let mangled = b"_Z11_SUBSTPACK_v";
+        let sym = Symbol::new(&mangled[..]).expect("symbol parse");
+        let demangled = sym.demangle().expect("demangle");
+        assert!(
+            demangled.contains("_SUBSTPACK_"),
+            "expected regular source name in demangled output: {}",
+            demangled
+        );
+        assert!(
+            !demangled.contains("{clang-subst-pack-noise}"),
+            "did not expect substpack noise placeholder for length-prefixed source name: {}",
+            demangled
+        );
     }
 
     #[test]
