@@ -5480,7 +5480,7 @@ impl Parse for TemplateParam {
 
         if let Ok(input) = consume(b"L", input) {
             // C++20 can qualify template parameters with an explicit template
-            // nesting level (`TL<level-1>_..._`). Level 0 means current
+            // nesting level (`TL<level>_..._`). Level 0 means current
             // (innermost) template parameter scope.
             let (level, input) = parse_number(10, false, input)?;
             let level = usize::try_from(level).map_err(|_| error::Error::Overflow)?;
@@ -5491,7 +5491,8 @@ impl Parse for TemplateParam {
                     let number = number.checked_add(1).ok_or(error::Error::Overflow)?;
                     (number, input)
                 }
-                Err(_) => (0, input),
+                Err(error::Error::UnexpectedText) => (0, input),
+                Err(err) => return Err(err),
             };
             let input = consume(b"_", input)?;
             if level == 0 {
@@ -5506,7 +5507,8 @@ impl Parse for TemplateParam {
                 let number = number.checked_add(1).ok_or(error::Error::Overflow)?;
                 (number, input)
             }
-            Err(_) => (0, input),
+            Err(error::Error::UnexpectedText) => (0, input),
+            Err(err) => return Err(err),
         };
         let input = consume(b"_", input)?;
         Ok((TemplateParam::checked_implicit(number)?, input))
