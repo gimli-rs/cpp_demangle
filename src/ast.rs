@@ -5779,33 +5779,55 @@ impl Parse for TemplateArg {
             subs: &'a mut SubstitutionTable,
             input: IndexStr<'b>,
         ) -> Result<IndexStr<'b>> {
-            if let Ok(tail) = consume(b"Ty", input) {
-                return Ok(tail);
+            let mut saw_unexpected_end = false;
+
+            match consume(b"Ty", input) {
+                Ok(tail) => return Ok(tail),
+                Err(error::Error::UnexpectedEnd) => saw_unexpected_end = true,
+                Err(_) => {}
             }
 
-            if let Ok(tail) = consume(b"Tn", input) {
-                let (_, tail) = TypeHandle::parse(ctx, subs, tail)?;
-                return Ok(tail);
+            match consume(b"Tn", input) {
+                Ok(tail) => {
+                    let (_, tail) = TypeHandle::parse(ctx, subs, tail)?;
+                    return Ok(tail);
+                }
+                Err(error::Error::UnexpectedEnd) => saw_unexpected_end = true,
+                Err(_) => {}
             }
 
-            if let Ok(tail) = consume(b"Tk", input) {
-                let (_, tail) = Name::parse(ctx, subs, tail)?;
-                return Ok(tail);
+            match consume(b"Tk", input) {
+                Ok(tail) => {
+                    let (_, tail) = Name::parse(ctx, subs, tail)?;
+                    return Ok(tail);
+                }
+                Err(error::Error::UnexpectedEnd) => saw_unexpected_end = true,
+                Err(_) => {}
             }
 
-            if let Ok((_param_decl, tail)) = TemplateParamDecl::parse(ctx, subs, input) {
-                return Ok(tail);
+            match TemplateParamDecl::parse(ctx, subs, input) {
+                Ok((_param_decl, tail)) => return Ok(tail),
+                Err(error::Error::UnexpectedEnd) => saw_unexpected_end = true,
+                Err(_) => {}
             }
 
-            if let Ok(tail) = consume(b"Tp", input) {
-                return parse_template_param_decl(ctx, subs, tail);
+            match consume(b"Tp", input) {
+                Ok(tail) => return parse_template_param_decl(ctx, subs, tail),
+                Err(error::Error::UnexpectedEnd) => saw_unexpected_end = true,
+                Err(_) => {}
             }
 
-            if let Ok(tail) = consume(b"Tt", input) {
-                return parse_tt_param_decl_list(ctx, subs, tail);
+            match consume(b"Tt", input) {
+                Ok(tail) => return parse_tt_param_decl_list(ctx, subs, tail),
+                Err(error::Error::UnexpectedEnd) => saw_unexpected_end = true,
+                Err(_) => {}
             }
 
-            Err(error::Error::UnexpectedText)
+            if saw_unexpected_end {
+                Err(error::Error::UnexpectedEnd)
+            } else {
+                Err(error::Error::UnexpectedText)
+            }
         }
 
         fn parse_tt_param_decl_list<'a, 'b>(
@@ -9787,6 +9809,13 @@ mod tests {
                                                     AbiTags::default()))))))
                         ]
                     }
+                    b"Ty..." => {
+                        TypeHandle::Builtin(
+                            BuiltinType::Standard(StandardBuiltinType::Auto)
+                        ),
+                        b"...",
+                        []
+                    }
                 }
                 Err => {
                     b"P" => Error::UnexpectedEnd,
@@ -10436,8 +10465,8 @@ mod tests {
                     // <template-param-decl>s that we don't implement yet.
                     b"Ty" => Error::UnexpectedEnd,
                     b"Tk" => Error::UnexpectedEnd,
-                    b"Tt" => Error::UnexpectedText,
-                    b"Tp" => Error::UnexpectedText,
+                    b"Tt" => Error::UnexpectedEnd,
+                    b"Tp" => Error::UnexpectedEnd,
                     b"JS_" => Error::UnexpectedEnd,
                     b"X" => Error::UnexpectedEnd,
                     b"J" => Error::UnexpectedEnd,
@@ -10445,6 +10474,42 @@ mod tests {
                 }
             }
         });
+    }
+
+    #[test]
+    fn parse_template_arg_cxx20_qualifier_prefix_forms() {
+        let mut subs = SubstitutionTable::new();
+        let ctx = ParseContext::new(Default::default());
+
+        let input = IndexStr::new(b"Tk1ac...");
+        let (arg, tail) = TemplateArg::parse(&ctx, &mut subs, input).unwrap();
+        assert_eq!(
+            arg,
+            TemplateArg::Type(TypeHandle::Builtin(BuiltinType::Standard(
+                StandardBuiltinType::Char,
+            )))
+        );
+        assert_eq!(tail.as_ref(), b"...");
+
+        let input = IndexStr::new(b"TtTncEc...");
+        let (arg, tail) = TemplateArg::parse(&ctx, &mut subs, input).unwrap();
+        assert_eq!(
+            arg,
+            TemplateArg::Type(TypeHandle::Builtin(BuiltinType::Standard(
+                StandardBuiltinType::Char,
+            )))
+        );
+        assert_eq!(tail.as_ref(), b"...");
+
+        let input = IndexStr::new(b"TpTyc...");
+        let (arg, tail) = TemplateArg::parse(&ctx, &mut subs, input).unwrap();
+        assert_eq!(
+            arg,
+            TemplateArg::Type(TypeHandle::Builtin(BuiltinType::Standard(
+                StandardBuiltinType::Char,
+            )))
+        );
+        assert_eq!(tail.as_ref(), b"...");
     }
 
     #[test]
