@@ -8,6 +8,7 @@ use alloc::boxed::Box;
 use alloc::string::String;
 use alloc::vec::Vec;
 use core::cell::Cell;
+use core::convert::TryFrom;
 #[cfg(feature = "logging")]
 use core::cell::RefCell;
 use core::fmt::{self, Write};
@@ -427,15 +428,12 @@ impl<'prev, 'subs> ArgScopeStackExt<'prev, 'subs> for Option<ArgScopeStack<'prev
         let mut template_level = 0usize;
 
         while let Some(s) = scope {
-            if let Some(template_args) = s.item.template_args() {
-                let _ = template_args;
+            if s.item.template_args().is_some() {
 
                 if template_level == target_level {
                     if let Ok((arg, args)) = s.item.get_template_arg(idx) {
                         if let Some((in_idx, in_args)) = s.in_arg {
-                            if args as *const TemplateArgs == in_args as *const TemplateArgs
-                                && in_idx <= idx
-                            {
+                            if core::ptr::eq(args, in_args) && in_idx <= idx {
                                 scope = s.prev;
                                 template_level += 1;
                                 continue;
@@ -477,9 +475,7 @@ impl<'prev, 'subs> ArgScope<'prev, 'subs> for Option<ArgScopeStack<'prev, 'subs>
         while let Some(s) = scope {
             if let Ok((arg, args)) = s.item.get_template_arg(idx) {
                 if let Some((in_idx, in_args)) = s.in_arg {
-                    if args as *const TemplateArgs == in_args as *const TemplateArgs
-                        && in_idx <= idx
-                    {
+                    if core::ptr::eq(args, in_args) && in_idx <= idx {
                         return Err(error::Error::ForwardTemplateArgReference);
                     }
                 }
@@ -5420,10 +5416,20 @@ impl TemplateParam {
     const EXPLICIT_LEVEL_FLAG: usize = 1usize << (usize::BITS as usize - 1);
     const INDEX_BITS: usize = (usize::BITS as usize - 1) / 2;
     const INDEX_MASK: usize = (1usize << Self::INDEX_BITS) - 1;
+    const IMPLICIT_INDEX_MASK: usize = Self::EXPLICIT_LEVEL_FLAG - 1;
 
     #[inline]
     fn implicit(index: usize) -> TemplateParam {
         TemplateParam(index)
+    }
+
+    #[inline]
+    fn checked_implicit(index: usize) -> Result<TemplateParam> {
+        if index > Self::IMPLICIT_INDEX_MASK {
+            Err(error::Error::Overflow)
+        } else {
+            Ok(TemplateParam::implicit(index))
+        }
     }
 
     #[inline]
@@ -5432,6 +5438,15 @@ impl TemplateParam {
         debug_assert!(index <= Self::INDEX_MASK);
         let encoded = Self::EXPLICIT_LEVEL_FLAG | (level_from_current << Self::INDEX_BITS) | index;
         TemplateParam(encoded)
+    }
+
+    #[inline]
+    fn checked_explicit(level_from_current: usize, index: usize) -> Result<TemplateParam> {
+        if level_from_current > Self::INDEX_MASK || index > Self::INDEX_MASK {
+            Err(error::Error::Overflow)
+        } else {
+            Ok(TemplateParam::explicit(level_from_current, index))
+        }
     }
 
     #[inline]
@@ -5468,24 +5483,33 @@ impl Parse for TemplateParam {
             // nesting level (`TL<level-1>_..._`). Level 0 means current
             // (innermost) template parameter scope.
             let (level, input) = parse_number(10, false, input)?;
+            let level = usize::try_from(level).map_err(|_| error::Error::Overflow)?;
             let input = consume(b"_", input)?;
             let (number, input) = match parse_number(10, false, input) {
-                Ok((number, input)) => ((number + 1) as _, input),
+                Ok((number, input)) => {
+                    let number = usize::try_from(number).map_err(|_| error::Error::Overflow)?;
+                    let number = number.checked_add(1).ok_or(error::Error::Overflow)?;
+                    (number, input)
+                }
                 Err(_) => (0, input),
             };
             let input = consume(b"_", input)?;
             if level == 0 {
-                return Ok((TemplateParam::implicit(number), input));
+                return Ok((TemplateParam::checked_implicit(number)?, input));
             }
-            return Ok((TemplateParam::explicit(level as usize, number), input));
+            return Ok((TemplateParam::checked_explicit(level, number)?, input));
         }
 
         let (number, input) = match parse_number(10, false, input) {
-            Ok((number, input)) => ((number + 1) as _, input),
+            Ok((number, input)) => {
+                let number = usize::try_from(number).map_err(|_| error::Error::Overflow)?;
+                let number = number.checked_add(1).ok_or(error::Error::Overflow)?;
+                (number, input)
+            }
             Err(_) => (0, input),
         };
         let input = consume(b"_", input)?;
-        Ok((TemplateParam::implicit(number), input))
+        Ok((TemplateParam::checked_implicit(number)?, input))
     }
 }
 
@@ -5799,11 +5823,7 @@ where
             scope.in_arg = None;
         }
 
-        let saved_max_recursion = ctx.max_recursion;
-        ctx.max_recursion = core::cmp::max(saved_max_recursion, 256);
-        let ret = self.requires_clause.demangle(ctx, scope);
-        ctx.max_recursion = saved_max_recursion;
-        ret?;
+        self.requires_clause.demangle(ctx, scope)?;
 
         // Ensure "> >" because old C++ sucks and libiberty (and its tests)
         // supports old C++.
@@ -12192,6 +12212,8 @@ mod tests {
                 b"wtf" => Error::UnexpectedText,
                 b"Twtf" => Error::UnexpectedText,
                 b"T3wtf" => Error::UnexpectedText,
+                b"TL2147483648_0_..." => Error::Overflow,
+                b"T9223372036854775807_..." => Error::Overflow,
                 b"T" => Error::UnexpectedEnd,
                 b"T3" => Error::UnexpectedEnd,
                 b"" => Error::UnexpectedEnd,
