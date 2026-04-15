@@ -5772,8 +5772,8 @@ impl Parse for TemplateArg {
         // We parse these qualifiers structurally for stream correctness, then
         // continue with the following actual `<template-arg>`.
         //
-        // These are parse-only mangling qualifiers: we intentionally do not
-        // preserve them as dedicated AST nodes for demangled rendering.
+        // This helper consumes qualifier prefixes without creating additional
+        // wrapper AST nodes for those prefixes in this path.
         fn parse_template_param_decl<'a, 'b>(
             ctx: &'a ParseContext,
             subs: &'a mut SubstitutionTable,
@@ -5793,11 +5793,17 @@ impl Parse for TemplateArg {
                 return Ok(tail);
             }
 
+            if let Ok((_param_decl, tail)) = TemplateParamDecl::parse(ctx, subs, input) {
+                return Ok(tail);
+            }
+
             if let Ok(tail) = consume(b"Tp", input) {
                 return parse_template_param_decl(ctx, subs, tail);
             }
 
-            if let Ok(mut tail) = consume(b"Tt", input) {
+            if let Ok(tail) = consume(b"Tt", input) {
+                // `Tt` requires one-or-more `<template-param-decl>` entries.
+                let mut tail = parse_template_param_decl(ctx, subs, tail)?;
                 loop {
                     if let Ok(next) = consume(b"E", tail) {
                         tail = next;
@@ -5830,7 +5836,8 @@ impl Parse for TemplateArg {
         }
 
         if let Ok(tail) = consume(b"Tt", input) {
-            let mut tail = tail;
+            // `Tt` requires one-or-more `<template-param-decl>` entries.
+            let mut tail = parse_template_param_decl(ctx, subs, tail)?;
             loop {
                 if let Ok(next) = consume(b"E", tail) {
                     tail = next;
@@ -5839,6 +5846,16 @@ impl Parse for TemplateArg {
                 tail = parse_template_param_decl(ctx, subs, tail)?;
             }
             return TemplateArg::parse(ctx, subs, tail);
+        }
+
+        if let Ok((template_param_decl, tail)) =
+            try_recurse!(TemplateParamDecl::parse(ctx, subs, input))
+        {
+            let (arg, tail) = TemplateArg::parse(ctx, subs, tail)?;
+            return Ok((
+                TemplateArg::ParamDecl(template_param_decl, Box::new(arg)),
+                tail,
+            ));
         }
 
         if let Ok(tail) = consume(b"Tp", input) {
@@ -5852,16 +5869,6 @@ impl Parse for TemplateArg {
 
         if let Ok((ty, tail)) = try_recurse!(TypeHandle::parse(ctx, subs, input)) {
             return Ok((TemplateArg::Type(ty), tail));
-        }
-
-        if let Ok((template_param_decl, tail)) =
-            try_recurse!(TemplateParamDecl::parse(ctx, subs, input))
-        {
-            let (arg, tail) = TemplateArg::parse(ctx, subs, tail)?;
-            return Ok((
-                TemplateArg::ParamDecl(template_param_decl, Box::new(arg)),
-                tail,
-            ));
         }
 
         let tail = if input.peek() == Some(b'J') {
@@ -10425,11 +10432,12 @@ mod tests {
                 Err => {
                     b"..." => Error::UnexpectedText,
                     b"X..." => Error::UnexpectedText,
+                    b"TtES_..." => Error::UnexpectedText,
                     b"J..." => Error::UnexpectedText,
                     b"JS_..." => Error::UnexpectedText,
                     // <template-param-decl>s that we don't implement yet.
-                    b"Ty" => Error::UnexpectedText,
-                    b"Tk" => Error::UnexpectedText,
+                    b"Ty" => Error::UnexpectedEnd,
+                    b"Tk" => Error::UnexpectedEnd,
                     b"Tt" => Error::UnexpectedText,
                     b"Tp" => Error::UnexpectedText,
                     b"JS_" => Error::UnexpectedEnd,
