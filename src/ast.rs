@@ -5779,11 +5779,13 @@ impl Parse for TemplateArg {
             subs: &'a mut SubstitutionTable,
             input: IndexStr<'b>,
         ) -> Result<IndexStr<'b>> {
-            let mut saw_unexpected_end = false;
+            // Only classify as UnexpectedEnd for genuinely truncated qualifier
+            // prefixes: empty input, or a lone leading `T`.
+            let saw_truncated_prefix =
+                input.is_empty() || (input.peek() == Some(b'T') && input.len() == 1);
 
             match consume(b"Ty", input) {
                 Ok(tail) => return Ok(tail),
-                Err(error::Error::UnexpectedEnd) => saw_unexpected_end = true,
                 Err(_) => {}
             }
 
@@ -5792,7 +5794,6 @@ impl Parse for TemplateArg {
                     let (_, tail) = TypeHandle::parse(ctx, subs, tail)?;
                     return Ok(tail);
                 }
-                Err(error::Error::UnexpectedEnd) => saw_unexpected_end = true,
                 Err(_) => {}
             }
 
@@ -5801,29 +5802,25 @@ impl Parse for TemplateArg {
                     let (_, tail) = Name::parse(ctx, subs, tail)?;
                     return Ok(tail);
                 }
-                Err(error::Error::UnexpectedEnd) => saw_unexpected_end = true,
                 Err(_) => {}
             }
 
             match TemplateParamDecl::parse(ctx, subs, input) {
                 Ok((_param_decl, tail)) => return Ok(tail),
-                Err(error::Error::UnexpectedEnd) => saw_unexpected_end = true,
                 Err(_) => {}
             }
 
             match consume(b"Tp", input) {
                 Ok(tail) => return parse_template_param_decl(ctx, subs, tail),
-                Err(error::Error::UnexpectedEnd) => saw_unexpected_end = true,
                 Err(_) => {}
             }
 
             match consume(b"Tt", input) {
                 Ok(tail) => return parse_tt_param_decl_list(ctx, subs, tail),
-                Err(error::Error::UnexpectedEnd) => saw_unexpected_end = true,
                 Err(_) => {}
             }
 
-            if saw_unexpected_end {
+            if saw_truncated_prefix {
                 Err(error::Error::UnexpectedEnd)
             } else {
                 Err(error::Error::UnexpectedText)
@@ -10462,7 +10459,8 @@ mod tests {
                     b"TtES_..." => Error::UnexpectedText,
                     b"J..." => Error::UnexpectedText,
                     b"JS_..." => Error::UnexpectedText,
-                    // <template-param-decl>s that we don't implement yet.
+                    // Qualifier prefixes are parsed structurally, but still
+                    // require a following <template-arg> to succeed.
                     b"Ty" => Error::UnexpectedEnd,
                     b"Tk" => Error::UnexpectedEnd,
                     b"Tt" => Error::UnexpectedEnd,
