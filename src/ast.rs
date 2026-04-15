@@ -6943,7 +6943,7 @@ where
     ) -> fmt::Result {
         let ctx = try_begin_demangle!(self, ctx, scope);
 
-        if let ConstraintExpression(Some(ref expr)) = *self {
+        if let Some(expr) = self.0.as_ref() {
             write!(ctx, " requires ")?;
             let saved = ctx.is_requires_clause;
             ctx.is_requires_clause = true;
