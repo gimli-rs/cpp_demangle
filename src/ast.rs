@@ -8,9 +8,9 @@ use alloc::boxed::Box;
 use alloc::string::String;
 use alloc::vec::Vec;
 use core::cell::Cell;
-use core::convert::TryFrom;
 #[cfg(feature = "logging")]
 use core::cell::RefCell;
+use core::convert::TryFrom;
 use core::fmt::{self, Write};
 use core::hash::{Hash, Hasher};
 use core::mem;
@@ -429,7 +429,6 @@ impl<'prev, 'subs> ArgScopeStackExt<'prev, 'subs> for Option<ArgScopeStack<'prev
 
         while let Some(s) = scope {
             if s.item.template_args().is_some() {
-
                 if template_level == target_level {
                     if let Ok((arg, args)) = s.item.get_template_arg(idx) {
                         if let Some((in_idx, in_args)) = s.in_arg {
@@ -8766,9 +8765,8 @@ mod tests {
         ParametricBuiltinType, Parse, ParseContext, PointerToMemberType, Prefix, PrefixHandle,
         RefQualifier, ResourceName, SeqId, SimpleId, SimpleOperatorName, SourceName, SpecialName,
         StandardBuiltinType, SubobjectExpr, Substitution, TemplateArg, TemplateArgs, TemplateParam,
-        TemplateParamDecl,
-        TemplateTemplateParam, TemplateTemplateParamHandle, Type, TypeHandle, UnnamedTypeName,
-        UnqualifiedName, UnresolvedName, UnresolvedQualifierLevel, UnresolvedType,
+        TemplateParamDecl, TemplateTemplateParam, TemplateTemplateParamHandle, Type, TypeHandle,
+        UnnamedTypeName, UnqualifiedName, UnresolvedName, UnresolvedQualifierLevel, UnresolvedType,
         UnresolvedTypeHandle, UnscopedName, UnscopedTemplateName, UnscopedTemplateNameHandle,
         VOffset, VectorType, WellKnownComponent,
     };
@@ -10337,12 +10335,14 @@ mod tests {
         let parse_ctx = ParseContext::new(Default::default());
         let mut subs = SubstitutionTable::new();
         let input = b"IiQtrE";
-        let (template_args, tail) = TemplateArgs::parse(&parse_ctx, &mut subs, IndexStr::new(input))
-            .expect("template args with requires-clause should parse");
+        let (template_args, tail) =
+            TemplateArgs::parse(&parse_ctx, &mut subs, IndexStr::new(input))
+                .expect("template args with requires-clause should parse");
         assert!(tail.is_empty(), "unexpected parse tail");
 
         let mut out = String::new();
-        let mut demangle_ctx = DemangleContext::new(&subs, input, DemangleOptions::default(), &mut out);
+        let mut demangle_ctx =
+            DemangleContext::new(&subs, input, DemangleOptions::default(), &mut out);
         template_args
             .demangle(&mut demangle_ctx, None)
             .expect("requires-clause demangle should succeed");
@@ -10358,7 +10358,9 @@ mod tests {
     fn demangle_realworld_tfunction_requires_clause_probe() {
         let mangled = b"_ZN9TFunctionIFvR21FMassExecutionContextEEC2IZN22UMassTestProcessorBaseC1EvE3$_0Qaantntaantsr12TIsTFunctionINSt3__15decayITL0__E4typeEEE5Valuesr3stdE16is_invocable_r_vIT_SB_DpT0_Esr2UE4Core7PrivateE19BoolIdentityConceptILb1EEEEOSC_";
         let sym = Symbol::new(&mangled[..]).expect("symbol parse");
-        let demangled = sym.demangle().expect("requires-clause demangle should succeed");
+        let demangled = sym
+            .demangle()
+            .expect("requires-clause demangle should succeed");
         assert!(
             demangled.contains("requires"),
             "expected requires clause in demangled output: {}",
