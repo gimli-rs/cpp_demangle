@@ -10160,9 +10160,8 @@ mod tests {
     fn parse_realworld_pcg_binarycompare_invoke_full_mangled_name_probe() {
         let mut subs = SubstitutionTable::new();
         let ctx = ParseContext::new(Default::default());
-        let input = IndexStr::new(
-            b"_ZN16PCGSelectGrammarL13BinaryCompareIdEMUlRKdS3_E_8__invokeES3_S3_",
-        );
+        let input =
+            IndexStr::new(b"_ZN16PCGSelectGrammarL13BinaryCompareIdEMUlRKdS3_E_8__invokeES3_S3_");
 
         match MangledName::parse(&ctx, &mut subs, input) {
             Ok((_name, tail)) => assert!(
@@ -10181,9 +10180,8 @@ mod tests {
     fn parse_realworld_pcg_binarycompare_name_and_bare_probe() {
         let mut subs = SubstitutionTable::new();
         let ctx = ParseContext::new(Default::default());
-        let input = IndexStr::new(
-            b"N16PCGSelectGrammarL13BinaryCompareIdEMUlRKdS3_E_8__invokeES3_S3_",
-        );
+        let input =
+            IndexStr::new(b"N16PCGSelectGrammarL13BinaryCompareIdEMUlRKdS3_E_8__invokeES3_S3_");
 
         let (_name, tail) = Name::parse(&ctx, &mut subs, input).expect("name parse");
         match BareFunctionType::parse(&ctx, &mut subs, tail) {
