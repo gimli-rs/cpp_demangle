@@ -8699,16 +8699,15 @@ mod tests {
     use super::{
         AbiTag, AbiTags, ArrayType, BareFunctionType, BaseUnresolvedName, BuiltinType, CallOffset,
         ClassEnumType, ClosureTypeName, ConstraintExpression, CtorDtorName, CvQualifiers,
-        DataMemberPrefix, Decltype, DestructorName, Discriminator, Encoding, ExceptionSpec,
-        Demangle, DemangleContext, DemangleOptions, ExprPrimary, Expression, FoldExpr,
-        FunctionParam, FunctionType, GlobalCtorDtor, Identifier, Initializer, LambdaSig,
-        LocalName, MangledName, MemberName, Name, NestedName, NonSubstitution, Number, NvOffset,
-        OperatorName, ParametricBuiltinType, Parse, ParseContext, PointerToMemberType, Prefix,
-        PrefixHandle, RefQualifier, ResourceName, SeqId, SimpleId, SimpleOperatorName,
-        SourceName, SpecialName, StandardBuiltinType, SubobjectExpr, Substitution, TemplateArg,
-        TemplateArgs, TemplateParam, TemplateParamDecl,
-        TemplateTemplateParam, TemplateTemplateParamHandle, Type, TypeHandle, UnnamedTypeName,
-        UnqualifiedName, UnresolvedName, UnresolvedQualifierLevel, UnresolvedType,
+        DataMemberPrefix, Decltype, Demangle, DemangleContext, DemangleOptions, DestructorName,
+        Discriminator, Encoding, ExceptionSpec, ExprPrimary, Expression, FoldExpr, FunctionParam,
+        FunctionType, GlobalCtorDtor, Identifier, Initializer, LambdaSig, LocalName, MangledName,
+        MemberName, Name, NestedName, NonSubstitution, Number, NvOffset, OperatorName,
+        ParametricBuiltinType, Parse, ParseContext, PointerToMemberType, Prefix, PrefixHandle,
+        RefQualifier, ResourceName, SeqId, SimpleId, SimpleOperatorName, SourceName, SpecialName,
+        StandardBuiltinType, SubobjectExpr, Substitution, TemplateArg, TemplateArgs, TemplateParam,
+        TemplateParamDecl, TemplateTemplateParam, TemplateTemplateParamHandle, Type, TypeHandle,
+        UnnamedTypeName, UnqualifiedName, UnresolvedName, UnresolvedQualifierLevel, UnresolvedType,
         UnresolvedTypeHandle, UnscopedName, UnscopedTemplateName, UnscopedTemplateNameHandle,
         VOffset, VectorType, WellKnownComponent,
     };
@@ -10451,9 +10450,8 @@ mod tests {
         assert_eq!(tail.as_ref(), b"...");
 
         let mut subs = SubstitutionTable::new();
-        let (ty, tail) =
-            TypeHandle::parse(&ctx, &mut subs, IndexStr::new(substbuiltinpack_input))
-                .expect("type _SUBSTBUILTINPACK_ should parse");
+        let (ty, tail) = TypeHandle::parse(&ctx, &mut subs, IndexStr::new(substbuiltinpack_input))
+            .expect("type _SUBSTBUILTINPACK_ should parse");
         assert!(matches!(ty, TypeHandle::Builtin(BuiltinType::Extension(_))));
         let mut out = String::new();
         let mut demangle_ctx = DemangleContext::new(
@@ -10482,7 +10480,8 @@ mod tests {
         assert_eq!(tail.as_ref(), b"...");
 
         let mut subs = SubstitutionTable::new();
-        let (expr, tail) = Expression::parse(&ctx, &mut subs, IndexStr::new(substbuiltinpack_input))
+        let (expr, tail) =
+            Expression::parse(&ctx, &mut subs, IndexStr::new(substbuiltinpack_input))
                 .expect("expression _SUBSTBUILTINPACK_ should parse");
         assert!(matches!(
             expr,
