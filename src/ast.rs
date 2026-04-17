@@ -3803,8 +3803,8 @@ impl Parse for TypeHandle {
         // Clang's Itanium mangler (with FIXME comments in Clang source). They
         // are not part of the Itanium grammar, so we parse them using existing
         // extension nodes to preserve demangling progress without changing the
-        // public AST enum surface. They are intentionally non-substitutable so
-        // that synthetic recovery tokens do not perturb real `S...` indices.
+        // public AST enum surface. We still insert them into substitutions to
+        // match clang's emitted substitution references for these placeholders.
         if input.len() < CLANG_SUBSTPACK_PLACEHOLDER.len()
             && CLANG_SUBSTPACK_PLACEHOLDER.starts_with(input.as_ref())
         {
@@ -3812,8 +3812,8 @@ impl Parse for TypeHandle {
         }
         if let Ok(tail) = consume(CLANG_SUBSTPACK_PLACEHOLDER, input) {
             let name = clang_placeholder_source_name(input.index(), CLANG_SUBSTPACK_PLACEHOLDER);
-            let handle = TypeHandle::Builtin(BuiltinType::Extension(name));
-            return Ok((handle, tail));
+            let ty = Type::Builtin(BuiltinType::Extension(name));
+            return insert_and_return_handle(ty, subs, tail);
         }
         if input.len() < CLANG_SUBSTBUILTINPACK_PLACEHOLDER.len()
             && CLANG_SUBSTBUILTINPACK_PLACEHOLDER.starts_with(input.as_ref())
@@ -3823,8 +3823,8 @@ impl Parse for TypeHandle {
         if let Ok(tail) = consume(CLANG_SUBSTBUILTINPACK_PLACEHOLDER, input) {
             let name =
                 clang_placeholder_source_name(input.index(), CLANG_SUBSTBUILTINPACK_PLACEHOLDER);
-            let handle = TypeHandle::Builtin(BuiltinType::Extension(name));
-            return Ok((handle, tail));
+            let ty = Type::Builtin(BuiltinType::Extension(name));
+            return insert_and_return_handle(ty, subs, tail);
         }
 
         // ::= <qualified-type>
@@ -10441,7 +10441,7 @@ mod tests {
         let mut subs = SubstitutionTable::new();
         let (ty, tail) = TypeHandle::parse(&ctx, &mut subs, IndexStr::new(substpack_input))
             .expect("type _SUBSTPACK_ should parse");
-        assert!(matches!(ty, TypeHandle::Builtin(BuiltinType::Extension(_))));
+        assert!(matches!(ty, TypeHandle::BackReference(0)));
         let mut out = String::new();
         let mut demangle_ctx =
             DemangleContext::new(&subs, substpack_input, DemangleOptions::default(), &mut out);
@@ -10449,10 +10449,15 @@ mod tests {
         assert_eq!(out, "{clang-subst-pack-noise}");
         assert_eq!(tail.as_ref(), b"...");
 
+        let (subst_ty, subst_tail) = TypeHandle::parse(&ctx, &mut subs, IndexStr::new(b"S_..."))
+            .expect("substitution of _SUBSTPACK_ should parse");
+        assert!(matches!(subst_ty, TypeHandle::BackReference(0)));
+        assert_eq!(subst_tail.as_ref(), b"...");
+
         let mut subs = SubstitutionTable::new();
         let (ty, tail) = TypeHandle::parse(&ctx, &mut subs, IndexStr::new(substbuiltinpack_input))
             .expect("type _SUBSTBUILTINPACK_ should parse");
-        assert!(matches!(ty, TypeHandle::Builtin(BuiltinType::Extension(_))));
+        assert!(matches!(ty, TypeHandle::BackReference(0)));
         let mut out = String::new();
         let mut demangle_ctx = DemangleContext::new(
             &subs,
@@ -10463,6 +10468,11 @@ mod tests {
         ty.demangle(&mut demangle_ctx, None).expect("type demangle");
         assert_eq!(out, "{clang-subst-pack-noise}");
         assert_eq!(tail.as_ref(), b"...");
+
+        let (subst_ty, subst_tail) = TypeHandle::parse(&ctx, &mut subs, IndexStr::new(b"S_..."))
+            .expect("substitution of _SUBSTBUILTINPACK_ should parse");
+        assert!(matches!(subst_ty, TypeHandle::BackReference(0)));
+        assert_eq!(subst_tail.as_ref(), b"...");
 
         let mut subs = SubstitutionTable::new();
         let (expr, tail) = Expression::parse(&ctx, &mut subs, IndexStr::new(substpack_input))
