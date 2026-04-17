@@ -2614,7 +2614,10 @@ impl Parse for UnqualifiedName {
                     (None, tail)
                 };
             let (abi_tags, tail) = AbiTags::parse(ctx, subs, tail)?;
-            return Ok((UnqualifiedName::LocalSourceName(name, discr, abi_tags), tail));
+            return Ok((
+                UnqualifiedName::LocalSourceName(name, discr, abi_tags),
+                tail,
+            ));
         }
 
         if let Ok((source, tail)) = try_recurse!(SourceName::parse(ctx, subs, input)) {
@@ -10207,10 +10210,7 @@ mod tests {
         let sym = Symbol::new(&mangled[..]).expect("symbol parse");
         match sym.demangle() {
             Ok(_) => {}
-            Err(err) => panic!(
-                "failed makesharedbufferviewwithouter demangle: {:?}",
-                err
-            ),
+            Err(err) => panic!("failed makesharedbufferviewwithouter demangle: {:?}", err),
         }
     }
 
@@ -10275,10 +10275,7 @@ mod tests {
         let sym = Symbol::new(&mangled[..]).expect("symbol parse");
         match sym.demangle() {
             Ok(_) => {}
-            Err(err) => panic!(
-                "failed objparser parsematerialproperty demangle: {:?}",
-                err
-            ),
+            Err(err) => panic!("failed objparser parsematerialproperty demangle: {:?}", err),
         }
     }
 
@@ -10288,10 +10285,7 @@ mod tests {
         let sym = Symbol::new(&mangled[..]).expect("symbol parse");
         match sym.demangle() {
             Ok(_) => {}
-            Err(err) => panic!(
-                "failed foreachimpl dispatch demangle: {:?}",
-                err
-            ),
+            Err(err) => panic!("failed foreachimpl dispatch demangle: {:?}", err),
         }
     }
 
