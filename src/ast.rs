@@ -911,6 +911,7 @@ where
 macro_rules! reference_newtype {
     ( $newtype_name:ident , $oldtype:ty ) => {
         #[derive(Debug)]
+        #[repr(transparent)]
         struct $newtype_name($oldtype);
 
         impl $newtype_name {
