@@ -10,6 +10,7 @@ use alloc::vec::Vec;
 use core::cell::Cell;
 #[cfg(feature = "logging")]
 use core::cell::RefCell;
+use core::convert::TryFrom;
 use core::fmt::{self, Write};
 use core::hash::{Hash, Hasher};
 use core::mem;
@@ -351,6 +352,11 @@ trait ArgScope<'me, 'ctx>: fmt::Debug {
     /// Get the current scope's leaf name.
     fn leaf_name(&'me self) -> Result<LeafName<'ctx>>;
 
+    #[inline]
+    fn template_args(&'me self) -> Option<&'ctx TemplateArgs> {
+        None
+    }
+
     /// Get the current scope's `index`th template argument.
     fn get_template_arg(&'me self, index: usize)
         -> Result<(&'ctx TemplateArg, &'ctx TemplateArgs)>;
@@ -390,6 +396,12 @@ trait ArgScopeStackExt<'prev, 'subs>: Copy {
         &'prev self,
         item: &'subs dyn ArgScope<'subs, 'subs>,
     ) -> Option<ArgScopeStack<'prev, 'subs>>;
+
+    fn get_template_arg_by_level(
+        &'prev self,
+        level_from_current: Option<usize>,
+        idx: usize,
+    ) -> Result<(&'subs TemplateArg, &'subs TemplateArgs)>;
 }
 
 impl<'prev, 'subs> ArgScopeStackExt<'prev, 'subs> for Option<ArgScopeStack<'prev, 'subs>> {
@@ -403,6 +415,41 @@ impl<'prev, 'subs> ArgScopeStackExt<'prev, 'subs> for Option<ArgScopeStack<'prev
             in_arg: None,
             item: item,
         })
+    }
+
+    fn get_template_arg_by_level(
+        &'prev self,
+        level_from_current: Option<usize>,
+        idx: usize,
+    ) -> Result<(&'subs TemplateArg, &'subs TemplateArgs)> {
+        let target_level = level_from_current.unwrap_or(0);
+
+        let mut scope = self.as_ref();
+        let mut template_level = 0usize;
+
+        while let Some(s) = scope {
+            if s.item.template_args().is_some() {
+                if template_level == target_level {
+                    if let Ok((arg, args)) = s.item.get_template_arg(idx) {
+                        if let Some((in_idx, in_args)) = s.in_arg {
+                            if core::ptr::eq(args, in_args) && in_idx <= idx {
+                                scope = s.prev;
+                                template_level += 1;
+                                continue;
+                            }
+                        }
+                        return Ok((arg, args));
+                    }
+                    return Err(error::Error::BadTemplateArgReference);
+                }
+
+                template_level += 1;
+            }
+
+            scope = s.prev;
+        }
+
+        Err(error::Error::BadTemplateArgReference)
     }
 }
 
@@ -427,9 +474,7 @@ impl<'prev, 'subs> ArgScope<'prev, 'subs> for Option<ArgScopeStack<'prev, 'subs>
         while let Some(s) = scope {
             if let Ok((arg, args)) = s.item.get_template_arg(idx) {
                 if let Some((in_idx, in_args)) = s.in_arg {
-                    if args as *const TemplateArgs == in_args as *const TemplateArgs
-                        && in_idx <= idx
-                    {
+                    if core::ptr::eq(args, in_args) && in_idx <= idx {
                         return Err(error::Error::ForwardTemplateArgReference);
                     }
                 }
@@ -552,6 +597,9 @@ where
     // We are currently demangling a template-prefix in a nested-name.
     is_template_prefix_in_nested_name: bool,
 
+    // We are currently demangling a requires-clause expression.
+    is_requires_clause: bool,
+
     //  `PackExpansion`'s should only print '...', only when there is no template
     //  argument pack.
     is_template_argument_pack: bool,
@@ -617,6 +665,7 @@ where
             is_lambda_arg: false,
             is_template_prefix: false,
             is_template_prefix_in_nested_name: false,
+            is_requires_clause: false,
             is_template_argument_pack: false,
             is_explicit_obj_param: false,
             show_params: !options.no_params,
@@ -5369,6 +5418,62 @@ where
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct TemplateParam(usize);
 
+impl TemplateParam {
+    const EXPLICIT_LEVEL_FLAG: usize = 1usize << (usize::BITS as usize - 1);
+    const INDEX_BITS: usize = (usize::BITS as usize - 1) / 2;
+    const INDEX_MASK: usize = (1usize << Self::INDEX_BITS) - 1;
+    const IMPLICIT_INDEX_MASK: usize = Self::EXPLICIT_LEVEL_FLAG - 1;
+
+    #[inline]
+    fn implicit(index: usize) -> TemplateParam {
+        TemplateParam(index)
+    }
+
+    #[inline]
+    fn checked_implicit(index: usize) -> Result<TemplateParam> {
+        if index > Self::IMPLICIT_INDEX_MASK {
+            Err(error::Error::Overflow)
+        } else {
+            Ok(TemplateParam::implicit(index))
+        }
+    }
+
+    #[inline]
+    fn explicit(level_from_current: usize, index: usize) -> TemplateParam {
+        debug_assert!(level_from_current <= Self::INDEX_MASK);
+        debug_assert!(index <= Self::INDEX_MASK);
+        let encoded = Self::EXPLICIT_LEVEL_FLAG | (level_from_current << Self::INDEX_BITS) | index;
+        TemplateParam(encoded)
+    }
+
+    #[inline]
+    fn checked_explicit(level_from_current: usize, index: usize) -> Result<TemplateParam> {
+        if level_from_current > Self::INDEX_MASK || index > Self::INDEX_MASK {
+            Err(error::Error::Overflow)
+        } else {
+            Ok(TemplateParam::explicit(level_from_current, index))
+        }
+    }
+
+    #[inline]
+    fn level_from_current(&self) -> Option<usize> {
+        if (self.0 & Self::EXPLICIT_LEVEL_FLAG) == 0 {
+            None
+        } else {
+            Some((self.0 >> Self::INDEX_BITS) & Self::INDEX_MASK)
+        }
+    }
+
+    #[inline]
+    fn index(&self) -> usize {
+        if (self.0 & Self::EXPLICIT_LEVEL_FLAG) == 0 {
+            self.0
+        } else {
+            self.0 & Self::INDEX_MASK
+        }
+    }
+}
+
 impl Parse for TemplateParam {
     fn parse<'a, 'b>(
         ctx: &'a ParseContext,
@@ -5378,12 +5483,41 @@ impl Parse for TemplateParam {
         try_begin_parse!("TemplateParam", ctx, input);
 
         let input = consume(b"T", input)?;
+
+        if let Ok(input) = consume(b"L", input) {
+            // C++20 can qualify template parameters with an explicit template
+            // nesting level (`TL<level>_..._`). Level 0 means current
+            // (innermost) template parameter scope.
+            let (level, input) = parse_number(10, false, input)?;
+            let level = usize::try_from(level).map_err(|_| error::Error::Overflow)?;
+            let input = consume(b"_", input)?;
+            let (number, input) = match parse_number(10, false, input) {
+                Ok((number, input)) => {
+                    let number = usize::try_from(number).map_err(|_| error::Error::Overflow)?;
+                    let number = number.checked_add(1).ok_or(error::Error::Overflow)?;
+                    (number, input)
+                }
+                Err(error::Error::UnexpectedText) => (0, input),
+                Err(err) => return Err(err),
+            };
+            let input = consume(b"_", input)?;
+            if level == 0 {
+                return Ok((TemplateParam::checked_implicit(number)?, input));
+            }
+            return Ok((TemplateParam::checked_explicit(level, number)?, input));
+        }
+
         let (number, input) = match parse_number(10, false, input) {
-            Ok((number, input)) => ((number + 1) as _, input),
-            Err(_) => (0, input),
+            Ok((number, input)) => {
+                let number = usize::try_from(number).map_err(|_| error::Error::Overflow)?;
+                let number = number.checked_add(1).ok_or(error::Error::Overflow)?;
+                (number, input)
+            }
+            Err(error::Error::UnexpectedText) => (0, input),
+            Err(err) => return Err(err),
         };
         let input = consume(b"_", input)?;
-        Ok((TemplateParam(number), input))
+        Ok((TemplateParam::checked_implicit(number)?, input))
     }
 }
 
@@ -5401,7 +5535,10 @@ where
         ctx.push_demangle_node(DemangleNodeType::TemplateParam);
         let ret = if ctx.is_lambda_arg {
             // To match libiberty, template references are converted to `auto`.
-            write!(ctx, "auto:{}", self.0 + 1)
+            write!(ctx, "auto:{}", self.index() + 1)
+        } else if ctx.is_requires_clause {
+            // Keep symbolic template parameters inside requires clauses.
+            write!(ctx, "T{}", self.index() + 1)
         } else {
             let arg = self.resolve(scope)?;
             arg.demangle(ctx, scope)
@@ -5416,8 +5553,14 @@ impl TemplateParam {
         &'subs self,
         scope: Option<ArgScopeStack<'prev, 'subs>>,
     ) -> ::core::result::Result<&'subs TemplateArg, fmt::Error> {
-        scope
-            .get_template_arg(self.0)
+        let resolved = if let Some(level_from_current) = self.level_from_current() {
+            scope.get_template_arg_by_level(Some(level_from_current), self.index())
+        } else {
+            // Preserve legacy semantics for implicit template params.
+            scope.get_template_arg(self.index())
+        };
+
+        resolved
             .map_err(|e| {
                 log!("Error obtaining template argument: {}", e);
                 fmt::Error
@@ -5688,6 +5831,8 @@ where
             scope.in_arg = None;
         }
 
+        self.requires_clause.demangle(ctx, scope)?;
+
         // Ensure "> >" because old C++ sucks and libiberty (and its tests)
         // supports old C++.
         if ctx.last_char_written == Some('>') {
@@ -5702,6 +5847,10 @@ where
 impl<'subs> ArgScope<'subs, 'subs> for TemplateArgs {
     fn leaf_name(&'subs self) -> Result<LeafName<'subs>> {
         Err(error::Error::BadLeafNameReference)
+    }
+
+    fn template_args(&'subs self) -> Option<&'subs TemplateArgs> {
+        Some(self)
     }
 
     fn get_template_arg(
@@ -6788,6 +6937,30 @@ impl Parse for ConstraintExpression {
         }
 
         Ok((ConstraintExpression(None), input))
+    }
+}
+
+impl<'subs, W> Demangle<'subs, W> for ConstraintExpression
+where
+    W: 'subs + DemangleWrite,
+{
+    fn demangle<'prev, 'ctx>(
+        &'subs self,
+        ctx: &'ctx mut DemangleContext<'subs, W>,
+        scope: Option<ArgScopeStack<'prev, 'subs>>,
+    ) -> fmt::Result {
+        let ctx = try_begin_demangle!(self, ctx, scope);
+
+        if let Some(expr) = self.0.as_ref() {
+            write!(ctx, " requires ")?;
+            let saved = ctx.is_requires_clause;
+            ctx.is_requires_clause = true;
+            let ret = expr.demangle(ctx, scope);
+            ctx.is_requires_clause = saved;
+            return ret;
+        }
+
+        Ok(())
     }
 }
 
@@ -8592,15 +8765,15 @@ mod tests {
     use super::{
         AbiTag, AbiTags, ArrayType, BareFunctionType, BaseUnresolvedName, BuiltinType, CallOffset,
         ClassEnumType, ClosureTypeName, ConstraintExpression, CtorDtorName, CvQualifiers,
-        DataMemberPrefix, Decltype, DestructorName, Discriminator, Encoding, ExceptionSpec,
-        ExprPrimary, Expression, FoldExpr, FunctionParam, FunctionType, GlobalCtorDtor, Identifier,
-        Initializer, LambdaSig, LocalName, MangledName, MemberName, Name, NestedName,
-        NonSubstitution, Number, NvOffset, OperatorName, ParametricBuiltinType, Parse,
-        ParseContext, PointerToMemberType, Prefix, PrefixHandle, RefQualifier, ResourceName, SeqId,
-        SimpleId, SimpleOperatorName, SourceName, SpecialName, StandardBuiltinType, SubobjectExpr,
-        Substitution, TemplateArg, TemplateArgs, TemplateParam, TemplateParamDecl,
-        TemplateTemplateParam, TemplateTemplateParamHandle, Type, TypeHandle, UnnamedTypeName,
-        UnqualifiedName, UnresolvedName, UnresolvedQualifierLevel, UnresolvedType,
+        DataMemberPrefix, Decltype, Demangle, DemangleContext, DemangleOptions, DestructorName,
+        Discriminator, Encoding, ExceptionSpec, ExprPrimary, Expression, FoldExpr, FunctionParam,
+        FunctionType, GlobalCtorDtor, Identifier, Initializer, LambdaSig, LocalName, MangledName,
+        MemberName, Name, NestedName, NonSubstitution, Number, NvOffset, OperatorName,
+        ParametricBuiltinType, Parse, ParseContext, PointerToMemberType, Prefix, PrefixHandle,
+        RefQualifier, ResourceName, SeqId, SimpleId, SimpleOperatorName, SourceName, SpecialName,
+        StandardBuiltinType, SubobjectExpr, Substitution, TemplateArg, TemplateArgs, TemplateParam,
+        TemplateParamDecl, TemplateTemplateParam, TemplateTemplateParamHandle, Type, TypeHandle,
+        UnnamedTypeName, UnqualifiedName, UnresolvedName, UnresolvedQualifierLevel, UnresolvedType,
         UnresolvedTypeHandle, UnscopedName, UnscopedTemplateName, UnscopedTemplateNameHandle,
         VOffset, VectorType, WellKnownComponent,
     };
@@ -8608,6 +8781,7 @@ mod tests {
     use crate::error::Error;
     use crate::index_str::IndexStr;
     use crate::subs::{Substitutable, SubstitutionTable};
+    use crate::Symbol;
     use alloc::boxed::Box;
     use alloc::string::String;
     use core::fmt::Debug;
@@ -10161,6 +10335,44 @@ mod tests {
                 }
             }
         });
+    }
+
+    #[test]
+    fn demangle_template_args_renders_requires_clause() {
+        let parse_ctx = ParseContext::new(Default::default());
+        let mut subs = SubstitutionTable::new();
+        let input = b"IiQtrE";
+        let (template_args, tail) =
+            TemplateArgs::parse(&parse_ctx, &mut subs, IndexStr::new(input))
+                .expect("template args with requires-clause should parse");
+        assert!(tail.is_empty(), "unexpected parse tail");
+
+        let mut out = String::new();
+        let mut demangle_ctx =
+            DemangleContext::new(&subs, input, DemangleOptions::default(), &mut out);
+        template_args
+            .demangle(&mut demangle_ctx, None)
+            .expect("requires-clause demangle should succeed");
+
+        assert!(
+            out.contains("requires"),
+            "demangled template args should render requires clause: {}",
+            out
+        );
+    }
+
+    #[test]
+    fn demangle_realworld_tfunction_requires_clause_probe() {
+        let mangled = b"_ZN9TFunctionIFvR21FMassExecutionContextEEC2IZN22UMassTestProcessorBaseC1EvE3$_0Qaantntaantsr12TIsTFunctionINSt3__15decayITL0__E4typeEEE5Valuesr3stdE16is_invocable_r_vIT_SB_DpT0_Esr2UE4Core7PrivateE19BoolIdentityConceptILb1EEEEOSC_";
+        let sym = Symbol::new(&mangled[..]).expect("symbol parse");
+        let demangled = sym
+            .demangle()
+            .expect("requires-clause demangle should succeed");
+        assert!(
+            demangled.contains("requires"),
+            "expected requires clause in demangled output: {}",
+            demangled
+        );
     }
 
     #[test]
@@ -11998,11 +12210,21 @@ mod tests {
                     TemplateParam(4),
                     b"..."
                 }
+                b"TL0__..." => {
+                    TemplateParam(0),
+                    b"..."
+                }
+                b"TL1_3_..." => {
+                    TemplateParam::explicit(1, 4),
+                    b"..."
+                }
             }
             Err => {
                 b"wtf" => Error::UnexpectedText,
                 b"Twtf" => Error::UnexpectedText,
                 b"T3wtf" => Error::UnexpectedText,
+                b"TL2147483648_0_..." => Error::Overflow,
+                b"T9223372036854775807_..." => Error::Overflow,
                 b"T" => Error::UnexpectedEnd,
                 b"T3" => Error::UnexpectedEnd,
                 b"" => Error::UnexpectedEnd,
