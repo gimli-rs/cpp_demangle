@@ -1782,7 +1782,7 @@ impl GetTemplateArgs for Name {
             Name::UnscopedTemplate(_, ref args) => Some(args),
             Name::Nested(ref nested) => nested.get_template_args(subs),
             Name::Local(ref local) => local.get_template_args(subs),
-            Name::Unscoped(_) => None,
+            Name::Unscoped(ref unscoped) => unscoped.get_template_args(subs),
         }
     }
 }
@@ -1876,6 +1876,16 @@ impl<'a> GetLeafName<'a> for UnscopedName {
         match *self {
             UnscopedName::Unqualified(ref name) | UnscopedName::Std(ref name) => {
                 name.get_leaf_name(subs)
+            }
+        }
+    }
+}
+
+impl GetTemplateArgs for UnscopedName {
+    fn get_template_args<'a>(&'a self, subs: &'a SubstitutionTable) -> Option<&'a TemplateArgs> {
+        match *self {
+            UnscopedName::Unqualified(ref name) | UnscopedName::Std(ref name) => {
+                name.get_template_args(subs)
             }
         }
     }
@@ -2173,7 +2183,11 @@ impl GetTemplateArgs for NestedName {
         match *self {
             NestedName::Template(_, _, ref prefix)
             | NestedName::TemplateExplicitObject(ref prefix, _) => prefix.get_template_args(subs),
-            _ => None,
+            // For nested unqualified names, the trailing unqualified component
+            // (for example local-source-name `L...I...E`) may carry the active
+            // template arguments.
+            NestedName::Unqualified(_, _, _, ref name)
+            | NestedName::UnqualifiedExplicitObject(_, ref name, _) => name.get_template_args(subs),
         }
     }
 }
@@ -2379,7 +2393,12 @@ impl Parse for PrefixHandle {
                         current = Some(save(subs, prefix, tail_tail));
                         tail = consume(b"M", tail_tail).unwrap();
                     } else {
-                        let prefix = match current {
+                        // Keep substitution ordering stable for local source
+                        // names with template-args that are followed by `M`
+                        // data-member prefixes.
+                        let prev_current = current.take();
+
+                        let prefix = match prev_current {
                             None => Prefix::Unqualified(name),
                             Some(handle) => Prefix::Nested(handle, name),
                         };
@@ -2707,6 +2726,13 @@ impl IsCtorDtorConversion for UnqualifiedName {
             | UnqualifiedName::UnnamedType(..)
             | UnqualifiedName::ClosureType(..) => false,
         }
+    }
+}
+
+impl GetTemplateArgs for UnqualifiedName {
+    fn get_template_args<'a>(&'a self, _: &'a SubstitutionTable) -> Option<&'a TemplateArgs> {
+        // Unqualified names do not directly carry template arguments in this AST.
+        None
     }
 }
 
@@ -8608,6 +8634,7 @@ mod tests {
     use crate::error::Error;
     use crate::index_str::IndexStr;
     use crate::subs::{Substitutable, SubstitutionTable};
+    use crate::Symbol;
     use alloc::boxed::Box;
     use alloc::string::String;
     use core::fmt::Debug;
@@ -10161,6 +10188,112 @@ mod tests {
                 }
             }
         });
+    }
+
+    #[test]
+    fn parse_realworld_makesharedbufferviewwithouter_full_mangled_name_probe() {
+        let mut subs = SubstitutionTable::new();
+        let ctx = ParseContext::new(Default::default());
+        let input = IndexStr::new(
+            b"_ZL29MakeSharedBufferViewWithOuterIRK13FSharedBufferTnPDTcvS0_cl7DeclValIT_EEELPS0_0EES0_11TMemoryViewIKvEOS3_",
+        );
+
+        match MangledName::parse(&ctx, &mut subs, input) {
+            Ok((_name, tail)) => assert!(
+                tail.is_empty(),
+                "makesharedbufferviewwithouter full parse left tail: {:?}",
+                String::from_utf8_lossy(tail.as_ref())
+            ),
+            Err(err) => panic!(
+                "failed makesharedbufferviewwithouter full mangled name: {:?}",
+                err
+            ),
+        }
+    }
+
+    #[test]
+    fn demangle_realworld_makesharedbufferviewwithouter_probe() {
+        let mangled = b"_ZL29MakeSharedBufferViewWithOuterIRK13FSharedBufferTnPDTcvS0_cl7DeclValIT_EEELPS0_0EES0_11TMemoryViewIKvEOS3_";
+        let sym = Symbol::new(&mangled[..]).expect("symbol parse");
+        match sym.demangle() {
+            Ok(_) => {}
+            Err(err) => panic!("failed makesharedbufferviewwithouter demangle: {:?}", err),
+        }
+    }
+
+    #[test]
+    fn parse_realworld_findbounds_full_mangled_name_probe() {
+        let mut subs = SubstitutionTable::new();
+        let ctx = ParseContext::new(Default::default());
+        let input = IndexStr::new(b"_ZL10FindBoundsIfEvRT_S1_S0_S0_fS0_S0_fb");
+
+        match MangledName::parse(&ctx, &mut subs, input) {
+            Ok((_name, tail)) => assert!(
+                tail.is_empty(),
+                "findbounds full parse left tail: {:?}",
+                String::from_utf8_lossy(tail.as_ref())
+            ),
+            Err(err) => panic!("failed findbounds full mangled name: {:?}", err),
+        }
+    }
+
+    #[test]
+    fn demangle_realworld_findbounds_probe() {
+        let mangled = b"_ZL10FindBoundsIfEvRT_S1_S0_S0_fS0_S0_fb";
+        let sym = Symbol::new(&mangled[..]).expect("symbol parse");
+        match sym.demangle() {
+            Ok(_) => {}
+            Err(err) => panic!("failed findbounds demangle: {:?}", err),
+        }
+    }
+
+    #[test]
+    fn parse_realworld_serialize_uint_delta_full_mangled_name_probe() {
+        let mut subs = SubstitutionTable::new();
+        let ctx = ParseContext::new(Default::default());
+        let input = IndexStr::new(
+            b"_ZN2UE3Net7PrivateL22SerializeUintDeltaImplIyEEvRNS0_19FNetBitStreamWriterET_S5_PKhjh",
+        );
+
+        match MangledName::parse(&ctx, &mut subs, input) {
+            Ok((_name, tail)) => assert!(
+                tail.is_empty(),
+                "serialize uint delta full parse left tail: {:?}",
+                String::from_utf8_lossy(tail.as_ref())
+            ),
+            Err(err) => panic!("failed serialize uint delta full mangled name: {:?}", err),
+        }
+    }
+
+    #[test]
+    fn demangle_realworld_serialize_uint_delta_probe() {
+        let mangled =
+            b"_ZN2UE3Net7PrivateL22SerializeUintDeltaImplIyEEvRNS0_19FNetBitStreamWriterET_S5_PKhjh";
+        let sym = Symbol::new(&mangled[..]).expect("symbol parse");
+        match sym.demangle() {
+            Ok(_) => {}
+            Err(err) => panic!("failed serialize uint delta demangle: {:?}", err),
+        }
+    }
+
+    #[test]
+    fn demangle_realworld_objparser_parsematerialproperty_probe() {
+        let mangled = b"_ZN2UE11Interchange14ObjParserUtilsL21ParseMaterialPropertyIiTnMN8FObjData13FMaterialDataET_XadL_ZNS4_17IlluminationModelEEEEEbRS3_11TStringViewIDsE";
+        let sym = Symbol::new(&mangled[..]).expect("symbol parse");
+        match sym.demangle() {
+            Ok(_) => {}
+            Err(err) => panic!("failed objparser parsematerialproperty demangle: {:?}", err),
+        }
+    }
+
+    #[test]
+    fn demangle_realworld_foreachimpl_dispatch_probe() {
+        let mangled = b"_ZN11ForEachImplL8DispatchI10FPolygonID24FFixAttributesSizeHelperIS1_ELj0EEEv5FNameT0_P26FMeshAttributeArraySetBase";
+        let sym = Symbol::new(&mangled[..]).expect("symbol parse");
+        match sym.demangle() {
+            Ok(_) => {}
+            Err(err) => panic!("failed foreachimpl dispatch demangle: {:?}", err),
+        }
     }
 
     #[test]
@@ -12105,6 +12238,17 @@ mod tests {
                         AbiTags::default(),
                     ),
                     "..."
+                }
+                b"L3fooIiE..." => {
+                    UnqualifiedName::LocalSourceName(
+                        SourceName(Identifier {
+                            start: 2,
+                            end: 5
+                        }),
+                        None,
+                        AbiTags::default(),
+                    ),
+                    "IiE..."
                 }
                 b"L3foo..." => {
                     UnqualifiedName::LocalSourceName(
