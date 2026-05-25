@@ -17,6 +17,17 @@ use core::ops;
 use core::ptr;
 use core::str;
 
+const CLANG_SUBSTPACK_PLACEHOLDER: &[u8] = b"_SUBSTPACK_";
+const CLANG_SUBSTBUILTINPACK_PLACEHOLDER: &[u8] = b"_SUBSTBUILTINPACK_";
+
+#[inline]
+fn clang_placeholder_source_name(start: usize, token: &[u8]) -> SourceName {
+    SourceName(Identifier {
+        start,
+        end: start + token.len(),
+    })
+}
+
 macro_rules! r#try_recurse {
     ($expr:expr $(,)?) => {
         match $expr {
@@ -2782,6 +2793,44 @@ impl SourceName {
     fn starts_with(byte: u8) -> bool {
         byte == b'0' || (b'0' <= byte && byte <= b'9')
     }
+
+    #[inline]
+    fn has_length_prefix_in_input(&self, input: &[u8]) -> bool {
+        let start = self.0.start;
+        let end = self.0.end;
+        if start == 0 || end < start {
+            return false;
+        }
+
+        let mut i = start;
+        while i > 0 && input[i - 1].is_ascii_digit() {
+            i -= 1;
+        }
+        if i == start {
+            return false;
+        }
+
+        let mut parsed_len = 0usize;
+        for &digit in &input[i..start] {
+            parsed_len = match parsed_len
+                .checked_mul(10)
+                .and_then(|v| v.checked_add((digit - b'0') as usize))
+            {
+                Some(v) => v,
+                None => return false,
+            };
+        }
+
+        parsed_len == (end - start)
+    }
+
+    #[inline]
+    fn is_clang_substpack_placeholder(&self, input: &[u8]) -> bool {
+        let SourceName(Identifier { start, end }) = self;
+        let ident = &input[*start..*end];
+        (ident == CLANG_SUBSTPACK_PLACEHOLDER || ident == CLANG_SUBSTBUILTINPACK_PLACEHOLDER)
+            && !self.has_length_prefix_in_input(input)
+    }
 }
 
 impl<'subs, W> Demangle<'subs, W> for SourceName
@@ -2796,7 +2845,11 @@ where
     ) -> fmt::Result {
         let ctx = try_begin_demangle!(self, ctx, scope);
 
-        self.0.demangle(ctx, scope)
+        if self.is_clang_substpack_placeholder(ctx.input) {
+            write!(ctx, "{{clang-subst-pack-noise}}")
+        } else {
+            self.0.demangle(ctx, scope)
+        }
     }
 }
 
@@ -3747,6 +3800,38 @@ impl Parse for TypeHandle {
 
             let handle = TypeHandle::Builtin(builtin);
             return Ok((handle, tail));
+        }
+
+        // Non-standard Clang extensions seen in the wild:
+        //   _SUBSTPACK_
+        //   _SUBSTBUILTINPACK_
+        //
+        // These are emitted as fallback placeholders for pack substitutions in
+        // Clang's Itanium mangler (with FIXME comments in Clang source). They
+        // are not part of the Itanium grammar, so we parse them using existing
+        // extension nodes to preserve demangling progress without changing the
+        // public AST enum surface. We still insert them into substitutions to
+        // match clang's emitted substitution references for these placeholders.
+        if input.len() < CLANG_SUBSTPACK_PLACEHOLDER.len()
+            && CLANG_SUBSTPACK_PLACEHOLDER.starts_with(input.as_ref())
+        {
+            return Err(error::Error::UnexpectedEnd);
+        }
+        if let Ok(tail) = consume(CLANG_SUBSTPACK_PLACEHOLDER, input) {
+            let name = clang_placeholder_source_name(input.index(), CLANG_SUBSTPACK_PLACEHOLDER);
+            let ty = Type::Builtin(BuiltinType::Extension(name));
+            return insert_and_return_handle(ty, subs, tail);
+        }
+        if input.len() < CLANG_SUBSTBUILTINPACK_PLACEHOLDER.len()
+            && CLANG_SUBSTBUILTINPACK_PLACEHOLDER.starts_with(input.as_ref())
+        {
+            return Err(error::Error::UnexpectedEnd);
+        }
+        if let Ok(tail) = consume(CLANG_SUBSTBUILTINPACK_PLACEHOLDER, input) {
+            let name =
+                clang_placeholder_source_name(input.index(), CLANG_SUBSTBUILTINPACK_PLACEHOLDER);
+            let ty = Type::Builtin(BuiltinType::Extension(name));
+            return insert_and_return_handle(ty, subs, tail);
         }
 
         // ::= <qualified-type>
@@ -6085,6 +6170,35 @@ impl Parse for Expression {
         input: IndexStr<'b>,
     ) -> Result<(Expression, IndexStr<'b>)> {
         try_begin_parse!("Expression", ctx, input);
+
+        // Non-standard Clang extension markers for unmangleable
+        // substitution-pack expressions. Keep parsing by mapping these to an
+        // unresolved source name placeholder using existing AST nodes.
+        if input.len() < CLANG_SUBSTPACK_PLACEHOLDER.len()
+            && CLANG_SUBSTPACK_PLACEHOLDER.starts_with(input.as_ref())
+        {
+            return Err(error::Error::UnexpectedEnd);
+        }
+        if let Ok(tail) = consume(CLANG_SUBSTPACK_PLACEHOLDER, input) {
+            let name = clang_placeholder_source_name(input.index(), CLANG_SUBSTPACK_PLACEHOLDER);
+            let expr = Expression::UnresolvedName(UnresolvedName::Name(BaseUnresolvedName::Name(
+                SimpleId(name, None),
+            )));
+            return Ok((expr, tail));
+        }
+        if input.len() < CLANG_SUBSTBUILTINPACK_PLACEHOLDER.len()
+            && CLANG_SUBSTBUILTINPACK_PLACEHOLDER.starts_with(input.as_ref())
+        {
+            return Err(error::Error::UnexpectedEnd);
+        }
+        if let Ok(tail) = consume(CLANG_SUBSTBUILTINPACK_PLACEHOLDER, input) {
+            let name =
+                clang_placeholder_source_name(input.index(), CLANG_SUBSTBUILTINPACK_PLACEHOLDER);
+            let expr = Expression::UnresolvedName(UnresolvedName::Name(BaseUnresolvedName::Name(
+                SimpleId(name, None),
+            )));
+            return Ok((expr, tail));
+        }
 
         if let Ok(tail) = consume(b"pp_", input) {
             let (expr, tail) = Expression::parse(ctx, subs, tail)?;
@@ -8592,15 +8706,15 @@ mod tests {
     use super::{
         AbiTag, AbiTags, ArrayType, BareFunctionType, BaseUnresolvedName, BuiltinType, CallOffset,
         ClassEnumType, ClosureTypeName, ConstraintExpression, CtorDtorName, CvQualifiers,
-        DataMemberPrefix, Decltype, DestructorName, Discriminator, Encoding, ExceptionSpec,
-        ExprPrimary, Expression, FoldExpr, FunctionParam, FunctionType, GlobalCtorDtor, Identifier,
-        Initializer, LambdaSig, LocalName, MangledName, MemberName, Name, NestedName,
-        NonSubstitution, Number, NvOffset, OperatorName, ParametricBuiltinType, Parse,
-        ParseContext, PointerToMemberType, Prefix, PrefixHandle, RefQualifier, ResourceName, SeqId,
-        SimpleId, SimpleOperatorName, SourceName, SpecialName, StandardBuiltinType, SubobjectExpr,
-        Substitution, TemplateArg, TemplateArgs, TemplateParam, TemplateParamDecl,
-        TemplateTemplateParam, TemplateTemplateParamHandle, Type, TypeHandle, UnnamedTypeName,
-        UnqualifiedName, UnresolvedName, UnresolvedQualifierLevel, UnresolvedType,
+        DataMemberPrefix, Decltype, Demangle, DemangleContext, DemangleOptions, DestructorName,
+        Discriminator, Encoding, ExceptionSpec, ExprPrimary, Expression, FoldExpr, FunctionParam,
+        FunctionType, GlobalCtorDtor, Identifier, Initializer, LambdaSig, LocalName, MangledName,
+        MemberName, Name, NestedName, NonSubstitution, Number, NvOffset, OperatorName,
+        ParametricBuiltinType, Parse, ParseContext, PointerToMemberType, Prefix, PrefixHandle,
+        RefQualifier, ResourceName, SeqId, SimpleId, SimpleOperatorName, SourceName, SpecialName,
+        StandardBuiltinType, SubobjectExpr, Substitution, TemplateArg, TemplateArgs, TemplateParam,
+        TemplateParamDecl, TemplateTemplateParam, TemplateTemplateParamHandle, Type, TypeHandle,
+        UnnamedTypeName, UnqualifiedName, UnresolvedName, UnresolvedQualifierLevel, UnresolvedType,
         UnresolvedTypeHandle, UnscopedName, UnscopedTemplateName, UnscopedTemplateNameHandle,
         VOffset, VectorType, WellKnownComponent,
     };
@@ -8608,6 +8722,7 @@ mod tests {
     use crate::error::Error;
     use crate::index_str::IndexStr;
     use crate::subs::{Substitutable, SubstitutionTable};
+    use crate::Symbol;
     use alloc::boxed::Box;
     use alloc::string::String;
     use core::fmt::Debug;
@@ -10293,6 +10408,150 @@ mod tests {
                 }
             }
         });
+    }
+
+    #[test]
+    fn parse_realworld_substpack_full_mangled_name_probe() {
+        let mut subs = SubstitutionTable::new();
+        let ctx = ParseContext::new(Default::default());
+        let input = IndexStr::new(
+            b"_ZN2UE4Core7Private5Tuple10TTupleBaseI16TIntegerSequenceIjJLj0ELj1EEEJ7FString19FUProjectDictionaryEEC2IJRKS6_S7_ETnPDTcl21ConceptCheckingHelperspcvNS2_17TTupleBaseElementI_SUBSTPACK_X_SUBSTPACK_ELj2EEE_LNS2_22EForwardingConstructorE0Ecl7DeclValIOT_EEEEELPv0EEESF_DpSH_",
+        );
+
+        match MangledName::parse(&ctx, &mut subs, input) {
+            Ok((_name, tail)) => assert!(
+                tail.is_empty(),
+                "substpack full parse left tail: {:?}",
+                String::from_utf8_lossy(tail.as_ref())
+            ),
+            Err(err) => panic!("failed substpack full mangled name: {:?}", err),
+        }
+    }
+
+    #[test]
+    fn demangle_realworld_substpack_probe() {
+        let mangled = b"_ZN2UE4Core7Private5Tuple10TTupleBaseI16TIntegerSequenceIjJLj0ELj1EEEJ7FString19FUProjectDictionaryEEC2IJRKS6_S7_ETnPDTcl21ConceptCheckingHelperspcvNS2_17TTupleBaseElementI_SUBSTPACK_X_SUBSTPACK_ELj2EEE_LNS2_22EForwardingConstructorE0Ecl7DeclValIOT_EEEEELPv0EEESF_DpSH_";
+        let sym = Symbol::new(&mangled[..]).expect("symbol parse");
+        match sym.demangle() {
+            Ok(_) => {}
+            Err(err) => panic!("failed substpack demangle: {:?}", err),
+        }
+    }
+
+    #[test]
+    fn parse_clang_substpack_noise_tokens_directly() {
+        let ctx = ParseContext::new(Default::default());
+
+        let substpack_input = b"_SUBSTPACK_...";
+        let substbuiltinpack_input = b"_SUBSTBUILTINPACK_...";
+
+        let mut subs = SubstitutionTable::new();
+        let (ty, tail) = TypeHandle::parse(&ctx, &mut subs, IndexStr::new(substpack_input))
+            .expect("type _SUBSTPACK_ should parse");
+        assert!(matches!(ty, TypeHandle::BackReference(0)));
+        let mut out = String::new();
+        let mut demangle_ctx =
+            DemangleContext::new(&subs, substpack_input, DemangleOptions::default(), &mut out);
+        ty.demangle(&mut demangle_ctx, None).expect("type demangle");
+        assert_eq!(out, "{clang-subst-pack-noise}");
+        assert_eq!(tail.as_ref(), b"...");
+
+        let (subst_ty, subst_tail) = TypeHandle::parse(&ctx, &mut subs, IndexStr::new(b"S_..."))
+            .expect("substitution of _SUBSTPACK_ should parse");
+        assert!(matches!(subst_ty, TypeHandle::BackReference(0)));
+        assert_eq!(subst_tail.as_ref(), b"...");
+
+        let mut subs = SubstitutionTable::new();
+        let (ty, tail) = TypeHandle::parse(&ctx, &mut subs, IndexStr::new(substbuiltinpack_input))
+            .expect("type _SUBSTBUILTINPACK_ should parse");
+        assert!(matches!(ty, TypeHandle::BackReference(0)));
+        let mut out = String::new();
+        let mut demangle_ctx = DemangleContext::new(
+            &subs,
+            substbuiltinpack_input,
+            DemangleOptions::default(),
+            &mut out,
+        );
+        ty.demangle(&mut demangle_ctx, None).expect("type demangle");
+        assert_eq!(out, "{clang-subst-pack-noise}");
+        assert_eq!(tail.as_ref(), b"...");
+
+        let (subst_ty, subst_tail) = TypeHandle::parse(&ctx, &mut subs, IndexStr::new(b"S_..."))
+            .expect("substitution of _SUBSTBUILTINPACK_ should parse");
+        assert!(matches!(subst_ty, TypeHandle::BackReference(0)));
+        assert_eq!(subst_tail.as_ref(), b"...");
+
+        let mut subs = SubstitutionTable::new();
+        let (expr, tail) = Expression::parse(&ctx, &mut subs, IndexStr::new(substpack_input))
+            .expect("expression _SUBSTPACK_ should parse");
+        assert!(matches!(
+            expr,
+            Expression::UnresolvedName(UnresolvedName::Name(BaseUnresolvedName::Name(_)))
+        ));
+        let mut out = String::new();
+        let mut demangle_ctx =
+            DemangleContext::new(&subs, substpack_input, DemangleOptions::default(), &mut out);
+        expr.demangle(&mut demangle_ctx, None)
+            .expect("expression demangle");
+        assert_eq!(out, "{clang-subst-pack-noise}");
+        assert_eq!(tail.as_ref(), b"...");
+
+        let mut subs = SubstitutionTable::new();
+        let (expr, tail) =
+            Expression::parse(&ctx, &mut subs, IndexStr::new(substbuiltinpack_input))
+                .expect("expression _SUBSTBUILTINPACK_ should parse");
+        assert!(matches!(
+            expr,
+            Expression::UnresolvedName(UnresolvedName::Name(BaseUnresolvedName::Name(_)))
+        ));
+        let mut out = String::new();
+        let mut demangle_ctx = DemangleContext::new(
+            &subs,
+            substbuiltinpack_input,
+            DemangleOptions::default(),
+            &mut out,
+        );
+        expr.demangle(&mut demangle_ctx, None)
+            .expect("expression demangle");
+        assert_eq!(out, "{clang-subst-pack-noise}");
+        assert_eq!(tail.as_ref(), b"...");
+
+        let mut subs = SubstitutionTable::new();
+        let err = TypeHandle::parse(&ctx, &mut subs, IndexStr::new(b"_SUBSTPACK"))
+            .expect_err("truncated _SUBSTPACK should return UnexpectedEnd");
+        assert_eq!(err, Error::UnexpectedEnd);
+
+        let mut subs = SubstitutionTable::new();
+        let err = TypeHandle::parse(&ctx, &mut subs, IndexStr::new(b"_SUBSTBUILTINP"))
+            .expect_err("truncated _SUBSTBUILTINPACK should return UnexpectedEnd");
+        assert_eq!(err, Error::UnexpectedEnd);
+
+        let mut subs = SubstitutionTable::new();
+        let err = Expression::parse(&ctx, &mut subs, IndexStr::new(b"_SUBSTPACK"))
+            .expect_err("truncated expression _SUBSTPACK should return UnexpectedEnd");
+        assert_eq!(err, Error::UnexpectedEnd);
+
+        let mut subs = SubstitutionTable::new();
+        let err = Expression::parse(&ctx, &mut subs, IndexStr::new(b"_SUBSTBUILTINP"))
+            .expect_err("truncated expression _SUBSTBUILTINPACK should return UnexpectedEnd");
+        assert_eq!(err, Error::UnexpectedEnd);
+    }
+
+    #[test]
+    fn demangle_length_prefixed_substpack_identifier_is_not_noise() {
+        let mangled = b"_Z11_SUBSTPACK_v";
+        let sym = Symbol::new(&mangled[..]).expect("symbol parse");
+        let demangled = sym.demangle().expect("demangle");
+        assert!(
+            demangled.contains("_SUBSTPACK_"),
+            "expected regular source name in demangled output: {}",
+            demangled
+        );
+        assert!(
+            !demangled.contains("{clang-subst-pack-noise}"),
+            "did not expect substpack noise placeholder for length-prefixed source name: {}",
+            demangled
+        );
     }
 
     #[test]
