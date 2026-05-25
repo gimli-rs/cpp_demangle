@@ -10164,6 +10164,44 @@ mod tests {
     }
 
     #[test]
+    fn parse_realworld_pcg_binarycompare_invoke_full_mangled_name_probe() {
+        let mut subs = SubstitutionTable::new();
+        let ctx = ParseContext::new(Default::default());
+        let input =
+            IndexStr::new(b"_ZN16PCGSelectGrammarL13BinaryCompareIdEMUlRKdS3_E_8__invokeES3_S3_");
+
+        match MangledName::parse(&ctx, &mut subs, input) {
+            Ok((_name, tail)) => assert!(
+                tail.is_empty(),
+                "pcg binarycompare invoke full parse left tail: {:?}",
+                String::from_utf8_lossy(tail.as_ref())
+            ),
+            Err(err) => panic!(
+                "failed pcg binarycompare invoke full mangled name: {:?}",
+                err
+            ),
+        }
+    }
+
+    #[test]
+    fn parse_realworld_pcg_binarycompare_name_and_bare_probe() {
+        let mut subs = SubstitutionTable::new();
+        let ctx = ParseContext::new(Default::default());
+        let input =
+            IndexStr::new(b"N16PCGSelectGrammarL13BinaryCompareIdEMUlRKdS3_E_8__invokeES3_S3_");
+
+        let (_name, tail) = Name::parse(&ctx, &mut subs, input).expect("name parse");
+        match BareFunctionType::parse(&ctx, &mut subs, tail) {
+            Ok((_ty, tail)) => assert!(
+                tail.is_empty(),
+                "pcg binarycompare bare full parse left tail: {:?}",
+                String::from_utf8_lossy(tail.as_ref())
+            ),
+            Err(err) => panic!("failed pcg binarycompare bare function parse: {:?}", err),
+        }
+    }
+
+    #[test]
     fn parse_template_arg() {
         assert_parse!(TemplateArg {
             with subs [
