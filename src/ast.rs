@@ -8130,18 +8130,15 @@ where
 
         match *self {
             SpecialName::VirtualTable(ref ty) => {
-                write!(ctx, "{{vtable(")?;
+                write!(ctx, "vtable for ")?;
                 ctx.push_demangle_node(DemangleNodeType::VirtualTable);
                 ty.demangle(ctx, scope)?;
                 ctx.pop_demangle_node();
-                write!(ctx, ")}}")?;
                 Ok(())
             }
             SpecialName::Vtt(ref ty) => {
-                write!(ctx, "{{vtt(")?;
-                ty.demangle(ctx, scope)?;
-                write!(ctx, ")}}")?;
-                Ok(())
+                write!(ctx, "VTT for ")?;
+                ty.demangle(ctx, scope)
             }
             SpecialName::Typeinfo(ref ty) => {
                 write!(ctx, "typeinfo for ")?;
@@ -8152,26 +8149,15 @@ where
                 ty.demangle(ctx, scope)
             }
             SpecialName::VirtualOverrideThunk(ref offset, ref encoding) => {
-                write!(ctx, "{{virtual override thunk(")?;
-                offset.demangle(ctx, scope)?;
-                write!(ctx, ", ")?;
-                encoding.demangle(ctx, scope)?;
-                write!(ctx, ")}}")?;
-                Ok(())
+                match *offset {
+                    CallOffset::NonVirtual(..) => write!(ctx, "non-virtual thunk to ")?,
+                    CallOffset::Virtual(..) => write!(ctx, "virtual thunk to ")?,
+                }
+                encoding.demangle(ctx, scope)
             }
-            SpecialName::VirtualOverrideThunkCovariant(
-                ref this_offset,
-                ref result_offset,
-                ref encoding,
-            ) => {
-                write!(ctx, "{{virtual override thunk(")?;
-                this_offset.demangle(ctx, scope)?;
-                write!(ctx, ", ")?;
-                result_offset.demangle(ctx, scope)?;
-                write!(ctx, ", ")?;
-                encoding.demangle(ctx, scope)?;
-                write!(ctx, ")}}")?;
-                Ok(())
+            SpecialName::VirtualOverrideThunkCovariant(_, _, ref encoding) => {
+                write!(ctx, "covariant return thunk to ")?;
+                encoding.demangle(ctx, scope)
             }
             SpecialName::Guard(ref name) => {
                 write!(ctx, "guard variable for ")?;
@@ -8183,9 +8169,9 @@ where
             }
             SpecialName::ConstructionVtable(ref ty1, _, ref ty2) => {
                 write!(ctx, "construction vtable for ")?;
-                ty1.demangle(ctx, scope)?;
+                ty2.demangle(ctx, scope)?;
                 write!(ctx, "-in-")?;
-                ty2.demangle(ctx, scope)
+                ty1.demangle(ctx, scope)
             }
             SpecialName::TypeinfoFunction(ref ty) => {
                 write!(ctx, "typeinfo fn for ")?;

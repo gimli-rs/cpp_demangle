@@ -297,6 +297,26 @@ demangles!(
     "TLS wrapper function for js::TlsContext"
 );
 
+demangles!(_ZTVN2ns1AE, "vtable for ns::A");
+demangles!(_ZTVN2ns2T1ImEE, "vtable for ns::T1<unsigned long>");
+demangles!(_ZTTN2ns1DE, "VTT for ns::D");
+demangles!(
+    _ZTCN2ns1DE16_NS_1WE,
+    "construction vtable for ns::W-in-ns::D"
+);
+demangles!(_ZThn16_N2ns1C1gEv, "non-virtual thunk to ns::C::g()");
+demangles!(_ZThn16_N2ns1CD1Ev, "non-virtual thunk to ns::C::~C()");
+demangles!(_ZTv0_n32_N2ns1D1fEv, "virtual thunk to ns::D::f()");
+demangles!(_ZTv0_n24_N2ns1DD0Ev, "virtual thunk to ns::D::~D()");
+demangles!(
+    _ZTch0_h16_N2ns1C5cloneEv,
+    "covariant return thunk to ns::C::clone()"
+);
+demangles!(
+    _ZTchn16_h16_N2ns1C5cloneEv,
+    "covariant return thunk to ns::C::clone()"
+);
+
 demangles!(_Z3fooILb0EEvi, "void foo<false>(int)");
 demangles!(_Z3fooILb1EEvi, "void foo<true>(int)");
 demangles!(_Z3fooILb2EEvi, "void foo<(bool)2>(int)");
