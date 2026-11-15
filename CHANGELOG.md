@@ -8,8 +8,7 @@ Released YYYY/MM/DD
 
 ## Changed
 
-* Vtables, VTTs and thunks are now printed as GNU and LLVM do, e.g.
-  `vtable for A` instead of `{vtable(A)}`.
+* TODO (or remove section if none)
 
 ## Deprecated
 
@@ -26,6 +25,61 @@ Released YYYY/MM/DD
 ## Security
 
 * TODO (or remove section if none)
+
+--------------------------------------------------------------------------------
+
+# 0.6.0
+
+Released 2026/11/15
+
+## Added
+
+* Manglings of non-type template parameters, including the parameter pack
+  variant of <template-param-decl>, are supported.
+  (#309)[https://github.com/gimli-rs/cpp_demangle/issues/309]
+
+* <requires-clause expr>s are accepted as part of <template-args> and at the
+  end of a function <encoding>. As with llvm-cxxfilt, no demangling is printed
+  for them. (#310)[https://github.com/gimli-rs/cpp_demangle/issues/310]
+
+* The `co_await` operator is supported.
+
+* Manglings of "member-like friends" (see [temp.friend]/9) are recognized.
+
+* A new `DemangleNodeType::CloneSuffix` variant allows `DemangleWrite`
+  implementations to identify, and filter out, clone suffixes.
+  (#312)[https://github.com/gimli-rs/cpp_demangle/pull/312]
+
+## Changed
+
+* Several types in the public `ast` module have changed shape to support the
+  new productions above, e.g. `Encoding::Function` and `UnqualifiedName::Source`
+  have gained fields and `Type` has a new `Builtin` variant. This is a breaking
+  change for code that constructs or matches on these types.
+
+* Vtables, VTTs and thunks are now printed as GNU and LLVM do, e.g.
+  `vtable for A` instead of `{vtable(A)}`, `VTT for A` instead of `{vtt(A)}`,
+  and `virtual thunk to A::f()`.
+  (#321)[https://github.com/gimli-rs/cpp_demangle/pull/321]
+
+* Signed `_BitInt` types are now printed as `_BitInt(N)` rather than
+  `signed _BitInt(N)`, matching other demanglers.
+  (#306)[https://github.com/gimli-rs/cpp_demangle/pull/306]
+
+## Fixed
+
+* `_BitInt` types are now placed in the substitution table, matching clang's
+  behavior. (#306)[https://github.com/gimli-rs/cpp_demangle/pull/306]
+
+* `_BitInt` types whose width is an expression now correctly consume the
+  trailing `_`. (#306)[https://github.com/gimli-rs/cpp_demangle/pull/306]
+
+* The order of the two classes in a construction vtable's name has been fixed.
+  (#321)[https://github.com/gimli-rs/cpp_demangle/pull/321]
+
+* Internal reference newtypes are now `repr(transparent)`, ensuring the
+  pointer casts between them and their wrapped types are sound.
+  (#318)[https://github.com/gimli-rs/cpp_demangle/pull/318]
 
 --------------------------------------------------------------------------------
 
