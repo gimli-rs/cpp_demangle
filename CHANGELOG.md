@@ -8,7 +8,8 @@ Released YYYY/MM/DD
 
 ## Changed
 
-* TODO (or remove section if none)
+* Vtables, VTTs and thunks are now printed as GNU and LLVM do, e.g.
+  `vtable for A` instead of `{vtable(A)}`.
 
 ## Deprecated
 
